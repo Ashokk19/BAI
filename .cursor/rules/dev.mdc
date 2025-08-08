@@ -1,0 +1,39 @@
+---
+alwaysApply: true
+---
+
+# Cursor Rules
+- Dont jump into conclusions , wait for the terminal to be executed in backgraound and then read the termianl and take the next action. dont skip the backgraound running terminal.
+- Update the documentation everytime anything is added / removed / modified  with the latest information.
+- Use 'uv' for any library installation
+- Use 'uv' for venv creation
+- The venv name should be 'poc' 
+- ensure new libraries are added to requirements.txt
+- use SOLID principles while coding .Dont mention it in any doc strings or anyehere in the code
+- Dont menton everywhere that use are following SOLID principles in comments/doc strings
+- Follow PEP8 standards for python
+- ensure proper code quality is maintained and cognitive code complexity is around 10 per function.
+- Beware of security hotspots
+- Beware of code coverage. Ensure it is very high.
+- Beware of code duplications . Ensure it is very less 
+
+- Write Unit testcases whennever a new fucntion is added 
+- Add Proper docstrings for every function with brieft description , input and  output  details.
+- Use Production grade folder structure and create necessary directory and files 
+- Use production grade logics 
+- Before finishing any command . Run an End to End test and ensure that whole pipeline is working as expected.Fix bugs if any
+- Dont halucinate and run in to some other logics.Do only what is asked.
+- Clean unnecesssary files
+- Don't do any work arounds for any fixes .Do the Actual fix in the code .
+- Maintain only one README file .Dont create multiple  README Files
+- Dont write any fallback scripts.Write only the script that is asked
+
+- We are developing in windows environment not in linux.
+- use PowerShell proper syntax with semicolons instead of &&
+-the working direcory  is poc_ba . Frontend is under frontend folder and Backend is under backend folder . activate the venv before running any command in backend  
+
+-keep all the data seeding files in sed folder , dont delete them
+
+
+##Important- Very Important
+- Dont create Multiple terminals.Terminals are already running . Use one terminal for frontend and one terminal for backend . stop and start the  terminal whennevr needed .
