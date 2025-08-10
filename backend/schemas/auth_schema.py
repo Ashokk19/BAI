@@ -10,7 +10,7 @@ from pydantic import BaseModel, EmailStr, validator
 
 class UserLogin(BaseModel):
     """User login request schema."""
-    email: EmailStr
+    identifier: str  # Can be either email or username
     password: str
 
 class UserRegister(BaseModel):

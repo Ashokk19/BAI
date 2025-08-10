@@ -48,19 +48,23 @@ class AuthService:
         """
         return self.pwd_context.hash(password)
     
-    def authenticate_user(self, db: Session, email: str, password: str) -> Optional[User]:
+    def authenticate_user(self, db: Session, identifier: str, password: str) -> Optional[User]:
         """
-        Authenticate a user with email and password.
+        Authenticate a user with username/email and password.
         
         Args:
             db: Database session
-            email: User's email
+            identifier: User's username or email
             password: User's password
             
         Returns:
             User object if authentication successful, None otherwise
         """
-        user = db.query(User).filter(User.email == email).first()
+        # Try to find user by email first, then by username
+        user = db.query(User).filter(
+            (User.email == identifier) | (User.username == identifier)
+        ).first()
+        
         if not user:
             return None
         if not self.verify_password(password, user.hashed_password):

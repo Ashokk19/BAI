@@ -147,14 +147,14 @@ def seed_simple_data():
                 customer_id=customer.id,
                 invoice_id=invoice.id if invoice else None,
                 payment_date=datetime.now() - timedelta(days=random.randint(1, 40)),
-                payment_amount=Decimal(random.randint(500, 5000)),
+                amount=Decimal(random.randint(500, 5000)),
                 payment_method=random.choice(["Credit Card", "Bank Transfer", "UPI", "Cash"]),
                 payment_status=random.choice(["Completed", "Pending", "Failed"]),
                 payment_type=random.choice(["Invoice Payment", "Advance Payment", "Partial Payment"]),
                 payment_direction="Inbound",
-                transaction_reference=f"TXN{random.randint(100000, 999999)}",
+                reference_number=f"TXN{random.randint(100000, 999999)}",
                 notes=f"Payment from customer {customer.customer_code}",
-                processed_by=1
+                recorded_by=1
             )
             db.add(payment)
         

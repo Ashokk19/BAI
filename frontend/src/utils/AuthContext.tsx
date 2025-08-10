@@ -18,7 +18,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
+  login: (identifier: string, password: string, rememberMe?: boolean) => Promise<void>;
   logout: () => void;
   register: (email: string, password: string, full_name: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
@@ -61,7 +61,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           localStorage.removeItem('access_token');
           sessionStorage.removeItem('access_token');
           localStorage.removeItem('remember_me');
-          localStorage.removeItem('user_email');
+          localStorage.removeItem('user_identifier');
           delete axios.defaults.headers.common['Authorization'];
         })
         .finally(() => {
@@ -72,10 +72,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, []);
 
-  const login = async (email: string, password: string, rememberMe: boolean = false): Promise<void> => {
+  const login = async (identifier: string, password: string, rememberMe: boolean = false): Promise<void> => {
     try {
       const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
-        email,
+        identifier,
         password,
       }, {
         headers: {
@@ -90,12 +90,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // Store in localStorage for persistent login
         localStorage.setItem('access_token', access_token);
         localStorage.setItem('remember_me', 'true');
-        localStorage.setItem('user_email', email);
+        localStorage.setItem('user_identifier', identifier);
       } else {
         // Store in sessionStorage for session-only login
         sessionStorage.setItem('access_token', access_token);
         localStorage.removeItem('remember_me');
-        localStorage.removeItem('user_email');
+        localStorage.removeItem('user_identifier');
       }
       
       // Set default Authorization header
@@ -115,7 +115,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.removeItem('access_token');
     sessionStorage.removeItem('access_token');
     localStorage.removeItem('remember_me');
-    localStorage.removeItem('user_email');
+    localStorage.removeItem('user_identifier');
     delete axios.defaults.headers.common['Authorization'];
     setUser(null);
   };
