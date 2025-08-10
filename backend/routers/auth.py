@@ -35,11 +35,11 @@ async def login(user_login: UserLogin, db: Session = Depends(get_db)):
     Raises:
         HTTPException: If authentication fails
     """
-    user = auth_service.authenticate_user(db, user_login.email, user_login.password)
+    user = auth_service.authenticate_user(db, user_login.identifier, user_login.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Incorrect username/email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
@@ -86,7 +86,7 @@ async def login_for_access_token(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Incorrect username/email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     

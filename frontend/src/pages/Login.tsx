@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { Eye, EyeOff, Mail, Lock, Zap, TrendingUp, BarChart3 } from "lucide-react"
+import { Eye, EyeOff, User, Lock, Zap, TrendingUp, BarChart3 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,7 +19,7 @@ import Footer from "@/components/Layout/Footer"
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [formData, setFormData] = useState({
-    email: "",
+    identifier: "",
     password: ""
   })
   const [rememberMe, setRememberMe] = useState(false)
@@ -33,13 +33,13 @@ export default function Login() {
 
   const { login, forgotPassword } = useAuth()
 
-  // Load remembered email on component mount
+  // Load remembered identifier on component mount
   useEffect(() => {
-    const rememberedEmail = localStorage.getItem('user_email')
+    const rememberedIdentifier = localStorage.getItem('user_identifier')
     const isRemembered = localStorage.getItem('remember_me') === 'true'
     
-    if (isRemembered && rememberedEmail) {
-      setFormData(prev => ({ ...prev, email: rememberedEmail }))
+    if (isRemembered && rememberedIdentifier) {
+      setFormData(prev => ({ ...prev, identifier: rememberedIdentifier }))
       setRememberMe(true)
     }
   }, [])
@@ -54,7 +54,7 @@ export default function Login() {
     setError("")
 
     // Login validation
-    if (!formData.email || !formData.password) {
+    if (!formData.identifier || !formData.password) {
       setError("Please fill in all fields")
       return
     }
@@ -62,7 +62,7 @@ export default function Login() {
     setIsLoading(true)
 
     try {
-      await login(formData.email, formData.password, rememberMe)
+      await login(formData.identifier, formData.password, rememberMe)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed")
     } finally {
@@ -183,17 +183,17 @@ export default function Login() {
                 <form onSubmit={handleSubmit} className="space-y-6">
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="email" className="text-gray-800 font-bold">
-                        Email Address *
+                      <Label htmlFor="identifier" className="text-gray-800 font-bold">
+                        Username or Email *
                       </Label>
                       <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
+                        <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
                         <Input
-                          id="email"
-                          name="email"
-                          type="email"
-                          placeholder="Enter your email"
-                          value={formData.email}
+                          id="identifier"
+                          name="identifier"
+                          type="text"
+                          placeholder="Enter your username or email"
+                          value={formData.identifier}
                           onChange={handleInputChange}
                           className="pl-10 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 placeholder:text-gray-600 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold"
                           disabled={isLoading}
@@ -241,7 +241,7 @@ export default function Login() {
                       />
                       <Label htmlFor="remember" className="text-gray-700 text-sm cursor-pointer font-semibold">
                         Remember me
-                        {rememberMe && formData.email && (
+                        {rememberMe && formData.identifier && (
                           <span className="text-violet-600 ml-1">✓</span>
                         )}
                       </Label>
@@ -266,7 +266,7 @@ export default function Login() {
                           <div className="space-y-2">
                             <Label htmlFor="forgot-email">Email Address</Label>
                             <div className="relative">
-                              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 w-4 h-4" />
+                              <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 w-4 h-4" />
                               <Input
                                 id="forgot-email"
                                 type="email"
