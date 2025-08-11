@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { inventoryApi, type InventoryLog } from "@/services/inventoryApi"
 import { toast } from "sonner"
 
@@ -104,6 +105,17 @@ export default function InventoryLog() {
 
   const actionCounts = getActionCounts()
 
+  const handleTileClick = (action: string) => {
+    setActionFilter(action)
+  }
+
+  const getTileClassName = (action: string) => {
+    const baseClasses = "bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden cursor-pointer transition-all duration-200 hover:scale-105"
+    const isSelected = actionFilter === action
+    const selectedClasses = isSelected ? "ring-2 ring-violet-500 shadow-2xl" : ""
+    return `${baseClasses} ${selectedClasses}`
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-violet-50 via-purple-25 to-indigo-50 relative overflow-hidden">
@@ -169,7 +181,10 @@ export default function InventoryLog() {
 
         {/* Activity Overview Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">
+          <Card 
+            className={getTileClassName("added")}
+            onClick={() => handleTileClick("added")}
+          >
             <div className="absolute inset-0 bg-gradient-to-br from-green-500/10 to-green-600/20"></div>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
               <CardTitle className="text-sm font-semibold text-gray-700">Added</CardTitle>
@@ -180,7 +195,10 @@ export default function InventoryLog() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">
+          <Card 
+            className={getTileClassName("updated")}
+            onClick={() => handleTileClick("updated")}
+          >
             <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-blue-600/20"></div>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
               <CardTitle className="text-sm font-semibold text-gray-700">Updated</CardTitle>
@@ -191,7 +209,10 @@ export default function InventoryLog() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">
+          <Card 
+            className={getTileClassName("removed")}
+            onClick={() => handleTileClick("removed")}
+          >
             <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-red-600/20"></div>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
               <CardTitle className="text-sm font-semibold text-gray-700">Removed</CardTitle>
@@ -202,7 +223,10 @@ export default function InventoryLog() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">
+          <Card 
+            className={getTileClassName("stock_in")}
+            onClick={() => handleTileClick("stock_in")}
+          >
             <div className="absolute inset-0 bg-gradient-to-br from-violet-500/10 to-violet-600/20"></div>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
               <CardTitle className="text-sm font-semibold text-gray-700">Stock In</CardTitle>
@@ -213,7 +237,10 @@ export default function InventoryLog() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">
+          <Card 
+            className={getTileClassName("stock_out")}
+            onClick={() => handleTileClick("stock_out")}
+          >
             <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-orange-600/20"></div>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
               <CardTitle className="text-sm font-semibold text-gray-700">Stock Out</CardTitle>
@@ -253,6 +280,16 @@ export default function InventoryLog() {
                     <SelectItem value="stock_out">Stock Out</SelectItem>
                   </SelectContent>
                 </Select>
+                {actionFilter !== "all" && (
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setActionFilter("all")}
+                    className="bg-white/50 border-white/60 hover:bg-white/70"
+                  >
+                    Clear Filter
+                  </Button>
+                )}
               </div>
             </div>
           </CardContent>
@@ -326,7 +363,36 @@ export default function InventoryLog() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <div className="max-w-xs truncate text-sm text-gray-600">{entry.notes || "-"}</div>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="max-w-xs">
+                                {entry.notes ? (
+                                  <div className="text-sm text-gray-600">
+                                    <div className="font-medium text-gray-800">
+                                      {entry.item_name} {entry.action === 'added' ? 'added' : entry.action === 'updated' ? 'updated' : entry.action === 'removed' ? 'removed' : entry.action === 'stock_in' ? 'stock in' : 'stock out'}
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-1 overflow-hidden" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                      {entry.notes}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-400 text-sm">-</span>
+                                )}
+                              </div>
+                            </TooltipTrigger>
+                            {entry.notes && (
+                              <TooltipContent className="max-w-xs">
+                                <div className="text-sm">
+                                  <div className="font-medium mb-1">
+                                    {entry.item_name} {entry.action === 'added' ? 'added' : entry.action === 'updated' ? 'updated' : entry.action === 'removed' ? 'removed' : entry.action === 'stock_in' ? 'stock in' : 'stock out'}
+                                  </div>
+                                  <div>{entry.notes}</div>
+                                </div>
+                              </TooltipContent>
+                            )}
+                          </Tooltip>
+                        </TooltipProvider>
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">

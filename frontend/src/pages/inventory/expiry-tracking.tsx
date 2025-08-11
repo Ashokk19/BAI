@@ -85,6 +85,17 @@ export default function ExpiryTracking() {
 
   const statusCounts = getStatusCounts()
 
+  const handleTileClick = (status: string) => {
+    setStatusFilter(status)
+  }
+
+  const getTileClassName = (status: string) => {
+    const baseClasses = "bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden cursor-pointer transition-all duration-200 hover:scale-105"
+    const isSelected = statusFilter === status
+    const selectedClasses = isSelected ? "ring-2 ring-violet-500 shadow-2xl" : ""
+    return `${baseClasses} ${selectedClasses}`
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-violet-50 via-purple-25 to-indigo-50 relative overflow-hidden">
@@ -150,7 +161,10 @@ export default function ExpiryTracking() {
 
         {/* Status Overview Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">
+          <Card 
+            className={getTileClassName("expired")}
+            onClick={() => handleTileClick("expired")}
+          >
             <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-red-600/20"></div>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
               <CardTitle className="text-sm font-semibold text-gray-700">Expired Items</CardTitle>
@@ -162,7 +176,10 @@ export default function ExpiryTracking() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">
+          <Card 
+            className={getTileClassName("expiring-soon")}
+            onClick={() => handleTileClick("expiring-soon")}
+          >
             <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-orange-600/20"></div>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
               <CardTitle className="text-sm font-semibold text-gray-700">Expiring Soon</CardTitle>
@@ -174,7 +191,10 @@ export default function ExpiryTracking() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">
+          <Card 
+            className={getTileClassName("warning")}
+            onClick={() => handleTileClick("warning")}
+          >
             <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/10 to-yellow-600/20"></div>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
               <CardTitle className="text-sm font-semibold text-gray-700">Warning</CardTitle>
@@ -186,7 +206,10 @@ export default function ExpiryTracking() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">
+          <Card 
+            className={getTileClassName("good")}
+            onClick={() => handleTileClick("good")}
+          >
             <div className="absolute inset-0 bg-gradient-to-br from-green-500/10 to-green-600/20"></div>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
               <CardTitle className="text-sm font-semibold text-gray-700">Good</CardTitle>
@@ -226,6 +249,16 @@ export default function ExpiryTracking() {
                     <SelectItem value="good">Good</SelectItem>
                   </SelectContent>
                 </Select>
+                {statusFilter !== "all" && (
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setStatusFilter("all")}
+                    className="bg-white/50 border-white/60 hover:bg-white/70"
+                  >
+                    Clear Filter
+                  </Button>
+                )}
               </div>
             </div>
           </CardContent>
@@ -301,8 +334,8 @@ export default function ExpiryTracking() {
             <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-white/20"></div>
             <CardContent className="text-center py-12 relative z-10">
               <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-bold text-gray-900 mb-2">No expiry data found</h3>
-              <p className="text-gray-600 font-medium">No items with expiry dates match your criteria</p>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">No data found</h3>
+              <p className="text-gray-600 font-medium">No items found match your criteria</p>
             </CardContent>
           </Card>
         )}

@@ -28,6 +28,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
 import { inventoryApi, type Item, type ItemCategory, type ItemCreate, type ItemUpdate } from "@/services/inventoryApi"
 import { toast } from "sonner"
 
@@ -44,6 +45,32 @@ export default function ItemList() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [formData, setFormData] = useState<Partial<ItemCreate>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const clearFormData = () => {
+    setFormData({
+      name: '',
+      sku: '',
+      category_id: undefined,
+      unit_price: undefined,
+      selling_price: undefined,
+      current_stock: 0,
+      minimum_stock: 0,
+      unit_of_measure: 'pcs',
+      is_active: true,
+      has_expiry: false,
+      is_serialized: false,
+      tax_rate: 0,
+      tax_type: 'inclusive',
+      description: '',
+      cost_price: undefined,
+      maximum_stock: undefined,
+      weight: undefined,
+      dimensions: undefined,
+      shelf_life_days: undefined,
+      expiry_date: undefined,
+      barcode: undefined
+    })
+  }
 
   const fetchItems = async () => {
     try {
@@ -178,13 +205,14 @@ export default function ItemList() {
         weight: formData.weight,
         dimensions: formData.dimensions,
         shelf_life_days: formData.shelf_life_days,
+        expiry_date: formData.expiry_date,
         barcode: formData.barcode
       }
 
       await inventoryApi.createItem(itemData)
       toast.success('Item created successfully')
       setIsAddDialogOpen(false)
-      setFormData({})
+      clearFormData()
       fetchItems()
     } catch (err) {
       console.error('Error creating item:', err)
@@ -219,6 +247,7 @@ export default function ItemList() {
         weight: formData.weight,
         dimensions: formData.dimensions,
         shelf_life_days: formData.shelf_life_days,
+        expiry_date: formData.expiry_date,
         barcode: formData.barcode
       }
 
@@ -226,7 +255,7 @@ export default function ItemList() {
       toast.success('Item updated successfully')
       setIsEditDialogOpen(false)
       setEditingItem(null)
-      setFormData({})
+      clearFormData()
       fetchItems()
     } catch (err) {
       console.error('Error updating item:', err)
@@ -249,19 +278,23 @@ export default function ItemList() {
 
   const handleExportItems = async () => {
     try {
+      toast.loading('Exporting items...', { id: 'export-toast' })
       const blob = await inventoryApi.exportItems('csv')
+      
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `items_${new Date().toISOString().split('T')[0]}.csv`
+      a.download = `items_export_${new Date().toISOString().split('T')[0]}.csv`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
       window.URL.revokeObjectURL(url)
-      toast.success('Items exported successfully')
+      
+      toast.success(`Items exported successfully! Downloaded ${items.length} items.`, { id: 'export-toast' })
     } catch (err) {
       console.error('Error exporting items:', err)
-      toast.error('Failed to export items')
+      const errorMessage = err instanceof Error ? err.message : 'Failed to export items'
+      toast.error(errorMessage, { id: 'export-toast' })
     }
   }
 
@@ -269,17 +302,56 @@ export default function ItemList() {
     const file = event.target.files?.[0]
     if (!file) return
 
+    // Validate file type
+    if (!file.name.endsWith('.csv') && !file.name.endsWith('.xlsx')) {
+      toast.error('Please select a CSV or Excel file')
+      return
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File size must be less than 10MB')
+      return
+    }
+
     try {
+      toast.loading('Importing items...', { id: 'import-toast' })
       const result = await inventoryApi.importItems(file)
+      
       if (result.success) {
-        toast.success(result.message)
+        let message = `Successfully imported ${result.imported_count || 0} items`
+        if (result.total_rows) {
+          message += ` out of ${result.total_rows} rows`
+        }
+        
+        if (result.errors && result.errors.length > 0) {
+          message += ` with ${result.errors.length} errors`
+          console.warn('Import errors:', result.errors)
+          
+          // Show detailed error message for first few errors
+          const errorPreview = result.errors.slice(0, 3).join('\n')
+          toast.warning(`${message}\n\nFirst errors:\n${errorPreview}`, { 
+            id: 'import-toast',
+            duration: 8000 
+          })
+        } else {
+          toast.success(message, { id: 'import-toast' })
+        }
+        
         fetchItems()
+        
+        // Clear the file input
+        event.target.value = ''
       } else {
-        toast.error(result.message)
+        toast.error(result.message || 'Import failed', { id: 'import-toast' })
       }
     } catch (err) {
       console.error('Error importing items:', err)
-      toast.error('Failed to import items')
+      const errorMessage = err instanceof Error ? err.message : 'Failed to import items'
+      toast.error(errorMessage, { id: 'import-toast' })
+      
+      // Clear the file input on error
+      event.target.value = ''
     }
   }
 
@@ -305,6 +377,7 @@ export default function ItemList() {
       weight: item.weight,
       dimensions: item.dimensions,
       shelf_life_days: item.shelf_life_days,
+      expiry_date: item.expiry_date || '',
       barcode: item.barcode
     })
     setIsEditDialogOpen(true)
@@ -375,7 +448,12 @@ export default function ItemList() {
               Manage your inventory items and track stock levels • {items.length} items total
             </p>
           </div>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+            setIsAddDialogOpen(open)
+            if (open) {
+              clearFormData()
+            }
+          }}>
             <DialogTrigger asChild>
               <Button className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white shadow-lg">
                 <Plus className="w-4 h-4 mr-2" />
@@ -473,6 +551,30 @@ export default function ItemList() {
                     onChange={(e) => setFormData({...formData, unit_of_measure: e.target.value})}
                     placeholder="pcs"
                   />
+                </div>
+                <div className="col-span-2 space-y-4">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="has_expiry"
+                      checked={formData.has_expiry || false}
+                      onCheckedChange={(checked) => setFormData({...formData, has_expiry: checked as boolean, expiry_date: checked ? formData.expiry_date : undefined})}
+                    />
+                    <Label htmlFor="has_expiry" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                      Expirable item
+                    </Label>
+                  </div>
+                  {formData.has_expiry && (
+                    <div className="space-y-2">
+                      <Label htmlFor="expiry_date">Expiry Date</Label>
+                      <Input
+                        id="expiry_date"
+                        type="date"
+                        value={formData.expiry_date ? new Date(formData.expiry_date).toISOString().split('T')[0] : ''}
+                        onChange={(e) => setFormData({...formData, expiry_date: e.target.value ? new Date(e.target.value).toISOString() : undefined})}
+                        className="bg-white/80 backdrop-blur-lg border border-white/90"
+                      />
+                    </div>
+                  )}
                 </div>
                 <div className="col-span-2 space-y-2">
                   <Label htmlFor="description">Description</Label>
@@ -842,6 +944,30 @@ export default function ItemList() {
                 onChange={(e) => setFormData({...formData, unit_of_measure: e.target.value})}
                 placeholder="pcs"
               />
+            </div>
+            <div className="col-span-2 space-y-4">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="edit-has_expiry"
+                  checked={formData.has_expiry || false}
+                  onCheckedChange={(checked) => setFormData({...formData, has_expiry: checked as boolean, expiry_date: checked ? formData.expiry_date : undefined})}
+                />
+                <Label htmlFor="edit-has_expiry" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Expirable item
+                </Label>
+              </div>
+              {formData.has_expiry && (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-expiry_date">Expiry Date</Label>
+                  <Input
+                    id="edit-expiry_date"
+                    type="date"
+                    value={formData.expiry_date ? new Date(formData.expiry_date).toISOString().split('T')[0] : ''}
+                    onChange={(e) => setFormData({...formData, expiry_date: e.target.value ? new Date(e.target.value).toISOString() : undefined})}
+                    className="bg-white/80 backdrop-blur-lg border border-white/90"
+                  />
+                </div>
+              )}
             </div>
             <div className="col-span-2 space-y-2">
               <Label htmlFor="edit-description">Description</Label>

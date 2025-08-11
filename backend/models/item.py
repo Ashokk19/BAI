@@ -68,6 +68,7 @@ class Item(Base):
     # Expiry tracking
     has_expiry = Column(Boolean, default=False)
     shelf_life_days = Column(Integer, nullable=True)
+    expiry_date = Column(DateTime(timezone=True), nullable=True)
     
     # Status
     is_active = Column(Boolean, default=True)
