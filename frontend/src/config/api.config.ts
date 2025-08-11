@@ -29,11 +29,12 @@ export const API_ENDPOINTS = {
   
   // Inventory module endpoints
   inventory: {
-    items: '/inventory/items',
-    categories: '/inventory/categories',
-    movements: '/inventory/movements',
-    export: '/inventory/items/export',
-    import: '/inventory/items/import',
+    items: '/api/inventory/items',
+    categories: '/api/inventory/categories',
+    categoriesWithStats: '/api/inventory/categories/with-stats',
+    movements: '/api/inventory/movements',
+    export: '/api/inventory/items/export',
+    import: '/api/inventory/items/import',
   },
   
   // Purchase module endpoints

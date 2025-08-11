@@ -19,6 +19,7 @@ export interface Item {
   dimensions?: string;
   has_expiry: boolean;
   shelf_life_days?: number;
+  expiry_date?: string;
   is_active: boolean;
   is_serialized: boolean;
   tax_rate: number;
@@ -34,6 +35,22 @@ export interface ItemCategory {
   description?: string;
   is_active: boolean;
   created_at: string;
+}
+
+export interface ItemCategoryWithStats {
+  id: number;
+  name: string;
+  description?: string;
+  is_active: boolean;
+  created_at: string;
+  // Statistics from items table
+  total_items: number;
+  active_items: number;
+  total_stock_value: number;
+  total_current_stock: number;
+  low_stock_items: number;
+  out_of_stock_items: number;
+  expiry_items: number;
 }
 
 export interface ItemCreate {
@@ -53,6 +70,7 @@ export interface ItemCreate {
   dimensions?: string;
   has_expiry: boolean;
   shelf_life_days?: number;
+  expiry_date?: string;
   is_active: boolean;
   is_serialized: boolean;
   tax_rate: number;
@@ -76,6 +94,7 @@ export interface ItemUpdate {
   dimensions?: string;
   has_expiry?: boolean;
   shelf_life_days?: number;
+  expiry_date?: string;
   is_active?: boolean;
   is_serialized?: boolean;
   tax_rate?: number;
@@ -163,7 +182,11 @@ class InventoryApiService {
 
   // Categories API
   async getCategories(): Promise<ItemCategory[]> {
-    return apiService.get<ItemCategory[]>('/api/inventory/categories');
+    return apiService.get<ItemCategory[]>(API_ENDPOINTS.inventory.categories);
+  }
+
+  async getCategoriesWithStats(): Promise<ItemCategoryWithStats[]> {
+    return apiService.get<ItemCategoryWithStats[]>(API_ENDPOINTS.inventory.categoriesWithStats);
   }
 
   async createCategory(category: CategoryCreate): Promise<ItemCategory> {
@@ -229,21 +252,28 @@ class InventoryApiService {
     });
   }
 
-  // Import/Export API (placeholder for future implementation)
+  // Import/Export API
   async exportItems(format: 'csv' | 'xlsx' = 'csv'): Promise<Blob> {
+    const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const response = await fetch(buildApiUrl(API_ENDPOINTS.inventory.export, { format }), {
       method: 'GET',
-      headers: getAuthHeaders(),
+      headers,
     });
     
     if (!response.ok) {
-      throw new Error('Export failed');
+      const errorData = await response.json().catch(() => ({ detail: 'Export failed' }));
+      throw new Error(errorData.detail || 'Export failed');
     }
     
     return response.blob();
   }
 
-  async importItems(file: File): Promise<{ success: boolean; message: string; errors?: string[] }> {
+  async importItems(file: File): Promise<{ success: boolean; message: string; errors?: string[]; imported_count?: number; total_rows?: number }> {
     const formData = new FormData();
     formData.append('file', file);
     
@@ -261,7 +291,8 @@ class InventoryApiService {
     });
     
     if (!response.ok) {
-      throw new Error('Import failed');
+      const errorData = await response.json().catch(() => ({ detail: 'Import failed' }));
+      throw new Error(errorData.detail || 'Import failed');
     }
     
     return response.json();
