@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import List, Optional
 from math import ceil
+from decimal import Decimal as D
 from datetime import datetime
 import uuid
 
@@ -25,7 +26,8 @@ from schemas.purchase_schema import (
     PurchaseOrderList,
     PurchaseOrderItemCreate,
     PurchaseOrderItemUpdate,
-    PurchaseOrderItemResponse
+    PurchaseOrderItemResponse,
+    PurchaseOrderSummary
 )
 
 router = APIRouter()
@@ -93,6 +95,23 @@ async def get_purchase_orders(
         total_pages=total_pages
     )
 
+@router.get("/summary/stats", response_model=PurchaseOrderSummary)
+async def get_purchase_orders_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get high-level summary for dashboard cards."""
+    total_orders = db.query(PurchaseOrder).count()
+    received_orders = db.query(PurchaseOrder).filter(PurchaseOrder.status == "received").count()
+    pending_orders = db.query(PurchaseOrder).filter(PurchaseOrder.status.in_(["sent", "confirmed", "partial_received"])) .count()
+    total_value = db.query(func.coalesce(func.sum(PurchaseOrder.total_amount), 0)).scalar() or 0
+    return PurchaseOrderSummary(
+        total_orders=total_orders,
+        pending_orders=pending_orders,
+        total_value=float(total_value),
+        received_orders=received_orders
+    )
+
 @router.get("/{purchase_order_id}", response_model=PurchaseOrderResponse)
 async def get_purchase_order(
     purchase_order_id: int,
@@ -125,9 +144,9 @@ async def create_purchase_order(
         purchase_order_data.po_number = f"PO-{datetime.now().strftime('%Y%m')}-{str(uuid.uuid4())[:8].upper()}"
     
     # Calculate totals
-    subtotal = 0
-    tax_amount = 0
-    discount_amount = 0
+    subtotal = D("0")
+    tax_amount = D("0")
+    discount_amount = D("0")
     
     # Create purchase order
     purchase_order = PurchaseOrder(
@@ -157,10 +176,15 @@ async def create_purchase_order(
         if not item:
             raise HTTPException(status_code=404, detail=f"Item with ID {item_data.item_id} not found")
         
-        # Calculate line totals
-        line_subtotal = item_data.quantity_ordered * item_data.unit_price
-        line_discount = line_subtotal * (item_data.discount_rate / 100)
-        line_tax = (line_subtotal - line_discount) * (item_data.tax_rate / 100)
+        # Calculate line totals using Decimals to avoid float mixing
+        qty = D(str(item_data.quantity_ordered))
+        price = D(str(item_data.unit_price))
+        disc_rate = D(str(getattr(item_data, "discount_rate", 0))) / D("100")
+        tax_rate = D(str(getattr(item_data, "tax_rate", 0))) / D("100")
+
+        line_subtotal = qty * price
+        line_discount = line_subtotal * disc_rate
+        line_tax = (line_subtotal - line_discount) * tax_rate
         line_total = line_subtotal - line_discount + line_tax
         
         purchase_order_item = PurchaseOrderItem(
@@ -189,7 +213,7 @@ async def create_purchase_order(
     purchase_order.subtotal = subtotal
     purchase_order.tax_amount = tax_amount
     purchase_order.discount_amount = discount_amount
-    purchase_order.total_amount = subtotal + tax_amount - discount_amount + purchase_order.shipping_cost
+    purchase_order.total_amount = subtotal + tax_amount - discount_amount + D(str(purchase_order.shipping_cost or 0))
     
     db.commit()
     db.refresh(purchase_order)
@@ -220,9 +244,9 @@ async def update_purchase_order(
     
     # Recalculate totals if items were updated
     if "items" in update_data:
-        subtotal = 0
-        tax_amount = 0
-        discount_amount = 0
+        subtotal = D("0")
+        tax_amount = D("0")
+        discount_amount = D("0")
         
         # Delete existing items
         db.query(PurchaseOrderItem).filter(PurchaseOrderItem.purchase_order_id == purchase_order_id).delete()
@@ -233,9 +257,13 @@ async def update_purchase_order(
             if not item:
                 raise HTTPException(status_code=404, detail=f"Item with ID {item_data.item_id} not found")
             
-            line_subtotal = item_data.quantity_ordered * item_data.unit_price
-            line_discount = line_subtotal * (item_data.discount_rate / 100)
-            line_tax = (line_subtotal - line_discount) * (item_data.tax_rate / 100)
+            qty = D(str(item_data.quantity_ordered))
+            price = D(str(item_data.unit_price))
+            disc_rate = D(str(getattr(item_data, "discount_rate", 0))) / D("100")
+            tax_rate = D(str(getattr(item_data, "tax_rate", 0))) / D("100")
+            line_subtotal = qty * price
+            line_discount = line_subtotal * disc_rate
+            line_tax = (line_subtotal - line_discount) * tax_rate
             line_total = line_subtotal - line_discount + line_tax
             
             purchase_order_item = PurchaseOrderItem(
@@ -262,7 +290,7 @@ async def update_purchase_order(
         purchase_order.subtotal = subtotal
         purchase_order.tax_amount = tax_amount
         purchase_order.discount_amount = discount_amount
-        purchase_order.total_amount = subtotal + tax_amount - discount_amount + purchase_order.shipping_cost
+        purchase_order.total_amount = subtotal + tax_amount - discount_amount + D(str(purchase_order.shipping_cost or 0))
     
     db.commit()
     db.refresh(purchase_order)

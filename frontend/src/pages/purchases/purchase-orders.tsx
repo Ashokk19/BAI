@@ -19,13 +19,19 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Search, Plus, Edit, Trash2, Eye, FileText, Package, DollarSign, Clock } from "lucide-react"
+import { getVendors, Vendor, VendorListResponse } from "@/services/vendorApi"
+import { inventoryApi, Item } from "@/services/inventoryApi"
 import {
   deletePurchaseOrder,
   getPurchaseOrders,
   createPurchaseOrder,
+  updatePurchaseOrder,
+  getPurchaseOrderSummary,
   PurchaseOrder,
   PurchaseOrderCreatePayload,
-  PurchaseOrderItemCreatePayload
+  PurchaseOrderUpdatePayload,
+  PurchaseOrderItemCreatePayload,
+  PurchaseOrderSummary
 } from "@/services/purchaseOrderApi"
 import { toast } from "sonner"
 
@@ -39,6 +45,8 @@ const initialFormData: Omit<PurchaseOrderCreatePayload, 'items'> & { items: Arra
 
 export default function PurchaseOrders() {
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
+  const [vendors, setVendors] = useState<Vendor[]>([])
+  const [itemsCatalog, setItemsCatalog] = useState<Item[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -47,6 +55,16 @@ export default function PurchaseOrders() {
   const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null);
   const [formData, setFormData] = useState(initialFormData)
+  const [summary, setSummary] = useState<PurchaseOrderSummary | null>(null)
+
+  const toDateInput = (value?: string): string => {
+    if (!value) return ''
+    const dt = new Date(value)
+    const yyyy = dt.getFullYear()
+    const mm = String(dt.getMonth() + 1).padStart(2, '0')
+    const dd = String(dt.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
+  }
 
   const handleDeleteConfirmation = (order: PurchaseOrder) => {
     setSelectedOrder(order);
@@ -63,7 +81,8 @@ export default function PurchaseOrders() {
         setSelectedOrder(null);
       } catch (error) {
         console.error("Failed to delete purchase order", error);
-        toast.error("Failed to delete purchase order");
+        const message = (error as any)?.message || 'Failed to delete purchase order';
+        toast.error(message);
       }
     }
   };
@@ -71,8 +90,19 @@ export default function PurchaseOrders() {
   const handleEditOrder = (order: PurchaseOrder) => {
     setEditingOrder(order);
     setFormData({
-      ...order,
-      items: order.items.map(item => ({ ...item, amount: item.quantity_ordered * item.unit_price }))
+      po_number: order.po_number,
+      po_date: toDateInput(order.po_date as unknown as string),
+      expected_delivery_date: order.expected_delivery_date ? toDateInput(order.expected_delivery_date as unknown as string) : '',
+      vendor_id: order.vendor_id,
+      notes: (order as any).notes || '',
+      items: order.items.map(item => ({
+        item_id: item.item_id,
+        item_name: item.item_name,
+        item_sku: item.item_sku,
+        quantity_ordered: Number(item.quantity_ordered),
+        unit_price: Number(item.unit_price),
+        amount: Number(item.quantity_ordered) * Number(item.unit_price)
+      }))
     });
     setIsDialogOpen(true);
   };
@@ -81,6 +111,11 @@ export default function PurchaseOrders() {
     try {
       const response = await getPurchaseOrders();
       setOrders(response.purchase_orders);
+      // Refresh summary when list loads
+      try {
+        const s = await getPurchaseOrderSummary();
+        setSummary(s);
+      } catch {}
     } catch (error) {
       console.error("Failed to fetch purchase orders", error);
       toast.error("Failed to fetch purchase orders");
@@ -89,6 +124,29 @@ export default function PurchaseOrders() {
 
   useEffect(() => {
     fetchPurchaseOrders();
+    // Load vendors for vendor selector
+    (async () => {
+      try {
+        const v: VendorListResponse = await getVendors();
+        setVendors(v.vendors || []);
+      } catch (e) {
+        // ignore silently; user can still type ID if needed
+      }
+    })();
+    (async () => {
+      try {
+        const items = await inventoryApi.getItems({ limit: 1000 });
+        setItemsCatalog(items);
+      } catch (e) {
+        // ignore silently
+      }
+    })();
+    (async () => {
+      try {
+        const s = await getPurchaseOrderSummary();
+        setSummary(s);
+      } catch {}
+    })();
   }, []);
 
   const filteredOrders = orders.filter((order) => {
@@ -120,22 +178,60 @@ export default function PurchaseOrders() {
 
   const handleSubmit = async () => {
     try {
+      // Client-side validations to avoid 422s
+      if (!formData.vendor_id || formData.vendor_id <= 0) {
+        return toast.error('Please select a vendor');
+      }
+      // validate each item was selected from catalog
+      if (formData.items.length === 0) {
+        return toast.error('Please add at least one item');
+      }
+      for (const [idx, item] of formData.items.entries()) {
+        if (!item.item_id || item.item_id <= 0) return toast.error(`Item #${idx + 1}: select an item`);
+        if (!item.item_name?.trim()) return toast.error(`Item #${idx + 1}: item name missing`);
+        if (!item.item_sku?.trim()) return toast.error(`Item #${idx + 1}: SKU missing`);
+        if (item.quantity_ordered <= 0) return toast.error(`Item #${idx + 1}: quantity must be > 0`);
+        if (item.unit_price < 0) return toast.error(`Item #${idx + 1}: rate cannot be negative`);
+      }
+
+      const toIsoDate = (d: string) => `${d}T00:00:00`;
+
       const payload: PurchaseOrderCreatePayload = {
         ...formData,
         po_number: formData.po_number || `PO-${Date.now()}`,
+        po_date: toIsoDate(formData.po_date),
+        expected_delivery_date: formData.expected_delivery_date ? toIsoDate(formData.expected_delivery_date) : undefined,
         items: formData.items.map(item => ({
-          item_id: item.item_id,
+          item_id: Number(item.item_id),
           item_name: item.item_name,
           item_sku: item.item_sku,
-          quantity_ordered: item.quantity_ordered,
-          unit_price: item.unit_price,
+          quantity_ordered: Number(item.quantity_ordered.toString()),
+          unit_price: Number(item.unit_price.toString()),
+          // discount_rate/tax_rate optional, backend defaults will apply
         })),
       };
 
       if (editingOrder) {
-        // Update logic would go here
+        const toIsoDate = (d: string) => `${d}T00:00:00`;
+        const updatePayload: PurchaseOrderUpdatePayload = {
+          po_number: editingOrder.po_number,
+          vendor_id: formData.vendor_id,
+          po_date: toIsoDate(formData.po_date),
+          expected_delivery_date: formData.expected_delivery_date ? toIsoDate(formData.expected_delivery_date) : undefined,
+          notes: formData.notes,
+          items: formData.items.map(item => ({
+            item_id: Number(item.item_id),
+            item_name: item.item_name,
+            item_sku: item.item_sku,
+            quantity_ordered: Number(item.quantity_ordered),
+            unit_price: Number(item.unit_price),
+          })),
+        };
+        const updated = await updatePurchaseOrder(editingOrder.id, updatePayload);
+        setOrders(orders.map(o => (o.id === updated.id ? updated : o)));
         toast.success("Purchase order updated successfully!")
       } else {
+        console.log('📝 Creating PO payload', payload);
         const newOrder = await createPurchaseOrder(payload);
         setOrders([...orders, newOrder]);
         toast.success("Purchase order created successfully!")
@@ -143,7 +239,8 @@ export default function PurchaseOrders() {
       resetForm();
     } catch (error) {
       console.error("Failed to create purchase order", error);
-      toast.error("Failed to create purchase order");
+      const message = (error as any)?.response?.data?.detail || (error as any)?.message || 'Failed to create purchase order';
+      toast.error(message);
     }
   }
 
@@ -154,24 +251,36 @@ export default function PurchaseOrders() {
   }
 
   const addItem = () => {
-    setFormData({
-      ...formData,
-      items: [...formData.items, { item_id: 0, item_name: '', item_sku: '', quantity_ordered: 1, unit_price: 0, amount: 0 }],
-    })
+    setFormData(prev => ({
+      ...prev,
+      items: [...prev.items, { item_id: 0, item_name: '', item_sku: '', quantity_ordered: 1, unit_price: 0, amount: 0 }],
+    }))
   }
 
   const updateItem = (index: number, field: string, value: any) => {
-    const updatedItems = formData.items.map((item, i) => {
-      if (i === index) {
-        const updatedItem = { ...item, [field]: value }
-        if (field === "quantity_ordered" || field === "unit_price") {
+    setFormData(prev => {
+      const updatedItems = prev.items.map((item, i) => {
+        if (i !== index) return item
+        const updatedItem: any = { ...item, [field]: value }
+        if (field === 'quantity_ordered' || field === 'unit_price') {
           updatedItem.amount = updatedItem.quantity_ordered * updatedItem.unit_price
         }
         return updatedItem
-      }
-      return item
+      })
+      return { ...prev, items: updatedItems }
     })
-    setFormData({ ...formData, items: updatedItems })
+  }
+
+  const patchItem = (index: number, patch: Partial<{ item_id: number; item_name: string; item_sku: string; quantity_ordered: number; unit_price: number; amount: number }>) => {
+    setFormData(prev => {
+      const updatedItems = prev.items.map((item, i) => {
+        if (i !== index) return item
+        const updated = { ...item, ...patch }
+        updated.amount = updated.quantity_ordered * updated.unit_price
+        return updated
+      })
+      return { ...prev, items: updatedItems }
+    })
   }
 
   const handleViewOrder = (order: PurchaseOrder) => {
@@ -205,7 +314,7 @@ export default function PurchaseOrders() {
             <FileText className="h-4 w-4 text-violet-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-violet-700">{orders.length}</div>
+            <div className="text-2xl font-bold text-violet-700">{summary?.total_orders ?? orders.length}</div>
             <p className="text-xs text-gray-500">All time</p>
           </CardContent>
         </Card>
@@ -216,9 +325,7 @@ export default function PurchaseOrders() {
             <Clock className="h-4 w-4 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-700">
-              {orders.filter((o) => ["Sent", "Confirmed"].includes(o.status)).length}
-            </div>
+            <div className="text-2xl font-bold text-orange-700">{summary?.pending_orders ?? orders.filter((o) => ["Sent", "Confirmed"].includes(o.status)).length}</div>
             <p className="text-xs text-gray-500">Awaiting delivery</p>
           </CardContent>
         </Card>
@@ -226,11 +333,11 @@ export default function PurchaseOrders() {
         <Card className="bg-white/60 backdrop-blur-sm border-white/20 shadow-xl">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Total Value</CardTitle>
-            <DollarSign className="h-4 w-4 text-green-600" />
+            <span className="h-4 w-4 text-green-600">₹</span>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-700">
-              ₹{orders.reduce((sum, o) => sum + o.total_amount, 0).toLocaleString()}
+              ₹{(summary?.total_value ?? orders.reduce((sum, o) => sum + o.total_amount, 0)).toLocaleString()}
             </div>
             <p className="text-xs text-gray-500">Order value</p>
           </CardContent>
@@ -242,9 +349,7 @@ export default function PurchaseOrders() {
             <Package className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-700">
-              {orders.filter((o) => o.status === "Received").length}
-            </div>
+            <div className="text-2xl font-bold text-blue-700">{summary?.received_orders ?? orders.filter((o) => o.status === "Received").length}</div>
             <p className="text-xs text-gray-500">Completed orders</p>
           </CardContent>
         </Card>
@@ -296,14 +401,20 @@ export default function PurchaseOrders() {
                 <div className="grid gap-4 py-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="vendorId">Vendor ID *</Label>
-                      <Input
+                      <Label htmlFor="vendorId">Vendor *</Label>
+                      <select
                         id="vendorId"
-                        type="number"
+                        className="w-full px-3 py-2 border rounded-md bg-white"
                         value={formData.vendor_id}
                         onChange={(e) => setFormData({ ...formData, vendor_id: Number(e.target.value) })}
-                        placeholder="Select or enter vendor"
-                      />
+                      >
+                        <option value={0}>Select a vendor</option>
+                        {vendors.map(v => (
+                          <option key={v.id} value={v.id}>
+                            {v.company_name} ({v.vendor_code})
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -338,14 +449,39 @@ export default function PurchaseOrders() {
                     </div>
                     <div className="space-y-4">
                       {formData.items.map((item, index) => (
-                        <div key={index} className="grid grid-cols-5 gap-2 items-end">
+                        <div key={index} className="grid grid-cols-6 gap-2 items-end">
                           <div>
-                            <Label>Item Name</Label>
-                            <Input
-                              value={item.item_name}
-                              onChange={(e) => updateItem(index, "item_name", e.target.value)}
-                              placeholder="Item name"
-                            />
+                            <Label>Item</Label>
+                            <select
+                              className="w-full px-3 py-2 border rounded-md bg-white"
+                              value={item.item_id}
+                              onChange={(e) => {
+                                const selectedId = Number(e.target.value);
+                                const found = itemsCatalog.find((it) => it.id === selectedId);
+                                if (found) {
+                                  const rate = Number((found as any).unit_price ?? (found as any).selling_price ?? 0);
+                                  patchItem(index, {
+                                    item_id: found.id,
+                                    item_name: (found as any).name,
+                                    item_sku: (found as any).sku,
+                                    unit_price: rate > 0 ? rate : item.unit_price,
+                                  })
+                                } else {
+                                  patchItem(index, { item_id: 0, item_name: '', item_sku: '' })
+                                }
+                              }}
+                            >
+                              <option value={0}>Select item</option>
+                              {itemsCatalog.map((it) => (
+                                <option key={it.id} value={it.id}>
+                                  {it.name} ({it.sku})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <Label>SKU</Label>
+                            <Input value={item.item_sku || ''} readOnly className="bg-gray-50" />
                           </div>
                           <div>
                             <Label>Quantity</Label>

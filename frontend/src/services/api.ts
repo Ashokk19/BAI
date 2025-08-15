@@ -14,6 +14,12 @@ class ApiService {
       },
     });
 
+    // Debug: surface base URL once
+    try {
+      // eslint-disable-next-line no-console
+      console.info('[ApiService] Base URL:', API_BASE_URL);
+    } catch {}
+
     // Request interceptor to add auth token
     this.api.interceptors.request.use(
       (config) => {
@@ -24,14 +30,22 @@ class ApiService {
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
           // Debug logging (remove in production)
-          console.log('🔐 ApiService: Token found and added to request', {
+          console.log('🔐 ApiService: Token added', {
+            baseURL: (config.baseURL || API_BASE_URL),
             url: config.url,
-            tokenLength: token.length,
-            tokenStart: token.substring(0, 20) + '...'
+            method: (config.method || 'get').toUpperCase(),
           });
         } else {
           console.warn('⚠️ ApiService: No token found in storage');
         }
+        // Always log the outbound request target for diagnostics
+        try {
+          console.log('➡️ ApiService: Request', {
+            baseURL: (config.baseURL || API_BASE_URL),
+            url: config.url,
+            method: (config.method || 'get').toUpperCase(),
+          });
+        } catch {}
         return config;
       },
       (error) => {

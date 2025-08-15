@@ -113,6 +113,13 @@ class PurchaseOrderList(BaseModel):
     per_page: int
     total_pages: int
 
+class PurchaseOrderSummary(BaseModel):
+    """Summary statistics for purchase orders."""
+    total_orders: int
+    pending_orders: int
+    total_value: float
+    received_orders: int
+
 # Bill Schemas
 class BillBase(BaseModel):
     """Base bill schema."""

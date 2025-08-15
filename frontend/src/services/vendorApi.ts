@@ -65,14 +65,31 @@ export interface VendorCreatePayload {
   gst_number?: string;
   payment_terms?: string;
   currency?: string;
+  is_active?: boolean;
 }
 
+export type VendorUpdatePayload = Partial<Omit<VendorCreatePayload, 'vendor_code'>> & {
+  vendor_code?: string;
+};
+
 export const getVendors = async (): Promise<VendorListResponse> => {
-  const response = await apiService.get<VendorListResponse>('/purchases/vendors');
+  // Corrected path to include '/api' prefix as mounted by the backend
+  const response = await apiService.get<VendorListResponse>('/api/purchases/vendors');
   return response;
 };
 
 export const createVendor = async (vendorData: VendorCreatePayload): Promise<Vendor> => {
-  const response = await apiService.post<Vendor>('/purchases/vendors', vendorData);
+  // Corrected path to include '/api' prefix as mounted by the backend
+  const response = await apiService.post<Vendor>('/api/purchases/vendors', vendorData);
   return response;
-}; 
+};
+
+export const updateVendor = async (vendorId: number, vendorData: VendorUpdatePayload): Promise<Vendor> => {
+  const response = await apiService.put<Vendor, VendorUpdatePayload>(`/api/purchases/vendors/${vendorId}`, vendorData);
+  return response;
+};
+
+export const deleteVendor = async (vendorId: number): Promise<{ message: string }> => {
+  const response = await apiService.delete<{ message: string }>(`/api/purchases/vendors/${vendorId}`);
+  return response;
+};

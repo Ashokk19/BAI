@@ -56,6 +56,13 @@ export interface PurchaseOrderListResponse {
   total_pages: number;
 }
 
+export interface PurchaseOrderSummary {
+  total_orders: number;
+  pending_orders: number;
+  total_value: number;
+  received_orders: number;
+}
+
 export interface PurchaseOrderItemCreatePayload {
   item_id: number;
   item_name: string;
@@ -83,21 +90,64 @@ export interface PurchaseOrderCreatePayload {
   items: PurchaseOrderItemCreatePayload[];
 }
 
+export interface PurchaseOrderUpdatePayload {
+  po_number?: string;
+  po_date?: string;
+  expected_delivery_date?: string;
+  vendor_id?: number;
+  status?: string;
+  priority?: string;
+  subtotal?: number;
+  tax_amount?: number;
+  discount_amount?: number;
+  total_amount?: number;
+  payment_terms?: string;
+  currency?: string;
+  shipping_address?: string;
+  shipping_method?: string;
+  shipping_cost?: number;
+  notes?: string;
+  terms_conditions?: string;
+  items?: PurchaseOrderItemCreatePayload[];
+}
+
 export const getPurchaseOrders = async (): Promise<PurchaseOrderListResponse> => {
-  const response = await apiService.get<PurchaseOrderListResponse>('/purchases/purchase-orders');
+  // Force absolute path build to avoid accidental relative calls
+  const response = await apiService.get<PurchaseOrderListResponse>(`/api/purchases/purchase-orders`);
+  return response;
+};
+
+export const getPurchaseOrderById = async (orderId: number): Promise<PurchaseOrder> => {
+  const response = await apiService.get<PurchaseOrder>(`/api/purchases/purchase-orders/${orderId}`);
   return response;
 };
 
 export const createPurchaseOrder = async (orderData: PurchaseOrderCreatePayload): Promise<PurchaseOrder> => {
-  const response = await apiService.post<PurchaseOrder>('/purchases/purchase-orders', orderData);
+  const response = await apiService.post<PurchaseOrder>(`/api/purchases/purchase-orders`, orderData);
+  return response;
+};
+
+export const updatePurchaseOrder = async (
+  orderId: number,
+  orderData: PurchaseOrderUpdatePayload
+): Promise<PurchaseOrder> => {
+  const response = await apiService.put<PurchaseOrder, PurchaseOrderUpdatePayload>(
+    `/api/purchases/purchase-orders/${orderId}`,
+    orderData
+  );
   return response;
 };
 
 export const deletePurchaseOrder = async (orderId: number): Promise<void> => {
   try {
-    await apiService.delete(`/purchases/purchase-orders/${orderId}`);
+    await apiService.delete(`/api/purchases/purchase-orders/${orderId}`);
   } catch (error: any) {
     const errorMessage = error.response?.data?.detail || 'Failed to delete purchase order';
     throw new Error(errorMessage);
   }
 }; 
+
+export const getPurchaseOrderSummary = async (): Promise<PurchaseOrderSummary> => {
+  const response = await apiService.get<PurchaseOrderSummary>('/api/purchases/purchase-orders/summary/stats');
+  return response;
+};

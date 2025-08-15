@@ -7,7 +7,6 @@ alwaysApply: true
 - Update the documentation everytime anything is added / removed / modified  with the latest information.
 - Use 'uv' for any library installation
 - Use 'uv' for venv creation
-- The venv name should be 'poc' 
 - ensure new libraries are added to requirements.txt
 - use SOLID principles while coding .Dont mention it in any doc strings or anyehere in the code
 - Dont menton everywhere that use are following SOLID principles in comments/doc strings
@@ -30,7 +29,7 @@ alwaysApply: true
 
 - We are developing in windows environment not in linux.
 - use PowerShell proper syntax with semicolons instead of &&
--the working direcory  is poc_ba . Frontend is under frontend folder and Backend is under backend folder . activate the venv before running any command in backend  
+<!-- -the working direcory  is  . Frontend is under frontend folder and Backend is under backend folder . activate the venv before running any command in backend   -->
 
 -keep all the data seeding files in sed folder , dont delete them
 
