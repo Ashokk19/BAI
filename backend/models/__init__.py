@@ -1,6 +1,7 @@
 # BAI Backend Models Package
 
 from .user import User
+from .organization import Organization
 from .item import Item, ItemCategory
 from .customer import Customer
 from .vendor import Vendor
@@ -15,6 +16,7 @@ from .credit import CustomerCredit, CreditTransaction, CreditNote
 
 __all__ = [
     "User",
+    "Organization",
     "Item",
     "ItemCategory", 
     "Customer",

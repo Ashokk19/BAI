@@ -6,12 +6,13 @@ This module contains Pydantic schemas for authentication requests and responses.
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr, validator
+from pydantic import BaseModel, EmailStr, field_validator
 
 class UserLogin(BaseModel):
     """User login request schema."""
     identifier: str  # Can be either email or username
     password: str
+    account_id: str  # Account ID for multi-tenant login
 
 class UserRegister(BaseModel):
     """User registration request schema."""
@@ -20,10 +21,12 @@ class UserRegister(BaseModel):
     password: str
     first_name: str
     last_name: str
+    account_id: str = "TestAccount"  # Account ID for multi-tenant registration
     phone: Optional[str] = None
     address: Optional[str] = None
     
-    @validator('username')
+    @field_validator('username')
+    @classmethod
     def validate_username(cls, v):
         """Validate username format."""
         if len(v) < 3:
@@ -32,7 +35,8 @@ class UserRegister(BaseModel):
             raise ValueError('Username must contain only alphanumeric characters')
         return v
     
-    @validator('password')
+    @field_validator('password')
+    @classmethod
     def validate_password(cls, v):
         """Validate password strength."""
         if len(v) < 8:
@@ -46,12 +50,20 @@ class UserResponse(BaseModel):
     username: str
     first_name: str
     last_name: str
+    account_id: str
     phone: Optional[str] = None
+    mobile: Optional[str] = None
     address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    company: Optional[str] = None
+    designation: Optional[str] = None
     is_active: bool
     is_admin: bool
     is_verified: bool
     created_at: datetime
+    updated_at: Optional[datetime] = None
     last_login: Optional[datetime] = None
     
     class Config:
@@ -70,7 +82,7 @@ class PasswordChange(BaseModel):
     current_password: str
     new_password: str
     
-    @validator('new_password')
+    @field_validator('new_password')
     def validate_new_password(cls, v):
         """Validate new password strength."""
         if len(v) < 8:
@@ -86,7 +98,7 @@ class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str
     
-    @validator('new_password')
+    @field_validator('new_password')
     def validate_new_password(cls, v):
         """Validate new password strength."""
         if len(v) < 8:
@@ -98,4 +110,10 @@ class UserUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     phone: Optional[str] = None
-    address: Optional[str] = None 
+    mobile: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    company: Optional[str] = None
+    designation: Optional[str] = None 

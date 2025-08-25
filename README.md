@@ -38,6 +38,7 @@ A comprehensive web application for managing billing and inventory operations bu
 - **Inventory Management**: Items, categories, expiry tracking, and inventory logs
 - **Sales Management**: Customers, invoices, delivery notes, sales history, returns, credits, payments, and shipments
 - **Purchase Management**: Vendors, purchase orders, received items, bills, payments, and vendor credits
+- **User Management**: Profile management and account settings with security features
 - **Responsive Design**: Modern UI with purple theme and mobile-friendly interface
 - **API Documentation**: Auto-generated OpenAPI documentation
 
@@ -66,6 +67,22 @@ All Sales module pages are fully functional with complete API integration and pr
 - **Purchase Module**: Next phase for complete API integration
 - **Inventory Module**: Enhanced features and real-time updates
 - **Advanced Analytics**: Dashboard improvements and reporting features
+
+### User Management Module - **100% Complete**
+New Profile and Settings pages with comprehensive user management features:
+
+- **Profile Management** ✅ Complete profile editing with avatar upload, personal and professional details
+- **Account Settings** ✅ Notification preferences, security settings, appearance customization, and privacy controls
+- **Security Features** ✅ Password change, two-factor authentication, session timeout management
+- **Modern UI/UX** ✅ Consistent with BAI design system
+- **Real User Data Integration** ✅ Connected to backend authentication system with account-specific data
+- **Database Schema Extended** ✅ Added new profile fields (mobile, city, state, postal_code, company, designation)
+- **API Integration** ✅ Uses existing `/api/auth/me` endpoints for profile management
+- **Organization Settings** ✅ Comprehensive organization profile management with business information, legal details, and company settings
+  - **Database Integration** ✅ Organizations table with account ID linking for multi-tenant support
+  - **API Endpoints** ✅ Full CRUD operations for organization profiles (`/api/organization/profile`)
+  - **Real-time Data** ✅ Connected to backend with proper authentication and data persistence
+  - **Form Validation** ✅ Comprehensive input validation and error handling
 
 ## 🛠️ Technology Stack
 

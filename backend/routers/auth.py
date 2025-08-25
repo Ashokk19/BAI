@@ -35,7 +35,7 @@ async def login(user_login: UserLogin, db: Session = Depends(get_db)):
     Raises:
         HTTPException: If authentication fails
     """
-    user = auth_service.authenticate_user(db, user_login.identifier, user_login.password)
+    user = auth_service.authenticate_user(db, user_login.identifier, user_login.password, user_login.account_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -54,14 +54,11 @@ async def login(user_login: UserLogin, db: Session = Depends(get_db)):
         data={"sub": str(user.id)}, expires_delta=access_token_expires
     )
     
-    # Update last login
-    auth_service.update_last_login(db, user)
-    
     return TokenResponse(
         access_token=access_token,
         token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=UserResponse.from_orm(user)
+        user=UserResponse.model_validate(user)
     )
 
 @router.post("/token", response_model=TokenResponse)
@@ -82,7 +79,11 @@ async def login_for_access_token(
     Raises:
         HTTPException: If authentication fails
     """
-    user = auth_service.authenticate_user(db, form_data.username, form_data.password)
+    # For OAuth2 form, we'll use the default account_id
+    # In production, you might want to require account_id in the OAuth2 flow as well
+    default_account_id = "TestAccount"
+    
+    user = auth_service.authenticate_user(db, form_data.username, form_data.password, default_account_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -101,14 +102,11 @@ async def login_for_access_token(
         data={"sub": str(user.id)}, expires_delta=access_token_expires
     )
     
-    # Update last login
-    auth_service.update_last_login(db, user)
-    
     return TokenResponse(
         access_token=access_token,
         token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=UserResponse.from_orm(user)
+        user=UserResponse.model_validate(user)
     )
 
 @router.post("/register", response_model=UserResponse)
@@ -145,10 +143,25 @@ async def register(user_register: UserRegister, db: Session = Depends(get_db)):
             )
     
     # Create user
-    user_data = user_register.dict()
+    user_data = user_register.model_dump()
     user = auth_service.create_user(db, user_data)
     
-    return UserResponse.from_orm(user)
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        account_id=user.account_id,
+        phone=user.phone,
+        address=user.address,
+        is_active=user.is_active,
+        is_admin=user.is_admin,
+        is_verified=user.is_verified,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+        last_login=user.last_login
+    )
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
@@ -161,7 +174,7 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
     Returns:
         Current user information
     """
-    return UserResponse.from_orm(current_user)
+    return UserResponse.model_validate(current_user)
 
 @router.put("/me", response_model=UserResponse)
 async def update_current_user(
@@ -180,7 +193,7 @@ async def update_current_user(
     Returns:
         Updated user information
     """
-    update_data = user_update.dict(exclude_unset=True)
+    update_data = user_update.model_dump(exclude_unset=True)
     
     for field, value in update_data.items():
         setattr(current_user, field, value)
@@ -188,7 +201,7 @@ async def update_current_user(
     db.commit()
     db.refresh(current_user)
     
-    return UserResponse.from_orm(current_user)
+    return UserResponse.model_validate(current_user)
 
 @router.post("/change-password")
 async def change_password(

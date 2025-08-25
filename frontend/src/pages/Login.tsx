@@ -1,3 +1,5 @@
+"use client"
+
 import { useState, useEffect } from "react"
 import { Eye, EyeOff, User, Lock, Zap, TrendingUp, BarChart3 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -17,11 +19,12 @@ import APP_CONFIG from "@/config/app"
 import Footer from "@/components/Layout/Footer"
 
 export default function Login() {
-  const [showPassword, setShowPassword] = useState(false)
   const [formData, setFormData] = useState({
     identifier: "",
-    password: ""
+    password: "",
+    account_id: "TestAccount"
   })
+  const [showPassword, setShowPassword] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -62,7 +65,7 @@ export default function Login() {
     setIsLoading(true)
 
     try {
-      await login(formData.identifier, formData.password, rememberMe)
+      await login(formData.identifier, formData.password, formData.account_id, rememberMe)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed")
     } finally {
@@ -227,6 +230,30 @@ export default function Login() {
                         >
                           {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                         </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="account_id" className="text-gray-800 font-bold">
+                        Account ID *
+                      </Label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
+                        <select
+                          id="account_id"
+                          name="account_id"
+                          value={formData.account_id}
+                          onChange={(e) => setFormData({...formData, account_id: e.target.value})}
+                          className="pl-10 w-full bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-md appearance-none pr-4"
+                          disabled={isLoading}
+                          required
+                        >
+                          <option value="TestAccount">TestAccount</option>
+                          <option value="AccountA">Account A</option>
+                          <option value="AccountB">Account B</option>
+                          <option value="AccountC">Account C</option>
+                          <option value="DemoAccount">Demo Account</option>
+                        </select>
                       </div>
                     </div>
                   </div>
@@ -399,7 +426,7 @@ export default function Login() {
           </div>
         </div>
       </div>
-    
+      
       
       {/* Footer */}
       <Footer />

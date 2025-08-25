@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Filter, Download, Upload, User, Building, Users, Edit, Trash2, MessageCircle } from 'lucide-react';
+import { Search, Plus, Filter, Download, Upload, User, Building, Users, Edit, Trash2, MessageCircle, Loader2 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -34,6 +34,7 @@ interface CustomerFormData {
   payment_terms: string;
   currency: string;
   notes: string;
+  is_active: boolean;
 }
 
 const Customers: React.FC = () => {
@@ -41,6 +42,8 @@ const Customers: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterState, setFilterState] = useState('all');
+  const [filterType, setFilterType] = useState('all');
+  const [filterVerified, setFilterVerified] = useState('all');
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [whatsAppMessage, setWhatsAppMessage] = useState('');
@@ -49,6 +52,10 @@ const Customers: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isLoadingPincode, setIsLoadingPincode] = useState(false);
   const [formData, setFormData] = useState<CustomerFormData>({
     customer_code: '',
     company_name: '',
@@ -71,8 +78,64 @@ const Customers: React.FC = () => {
     credit_limit: 0,
     payment_terms: 'immediate',
     currency: 'INR',
-    notes: ''
+    notes: '',
+    is_active: true
   });
+
+  // PIN code lookup function
+  const fetchPincodeDetails = async (pincode: string) => {
+    if (!pincode || pincode.length !== 6) {
+      return
+    }
+
+    setIsLoadingPincode(true)
+    try {
+      const response = await fetch(`https://api.postalpincode.in/pincode/${pincode}`)
+      const data = await response.json()
+      
+      if (data[0]?.Status === "Success" && data[0]?.PostOffice?.length > 0) {
+        const postOffice = data[0].PostOffice[0]
+        const city = postOffice.District || postOffice.Block || ""
+        const state = postOffice.State || ""
+        
+        setFormData(prev => ({
+          ...prev,
+          city: city,
+          state: state
+        }))
+        
+        toast.success(`Location found: ${city}, ${state}`)
+      } else {
+        toast.error("Invalid PIN code or location not found")
+        setFormData(prev => ({
+          ...prev,
+          city: "",
+          state: ""
+        }))
+      }
+    } catch (error) {
+      console.error("Error fetching PIN code details:", error)
+      toast.error("Failed to fetch location details")
+      setFormData(prev => ({
+        ...prev,
+        city: "",
+        state: ""
+      }))
+    } finally {
+      setIsLoadingPincode(false)
+    }
+  }
+
+  // Handle PIN code change with debouncing
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (formData.postal_code.length === 6) {
+        fetchPincodeDetails(formData.postal_code)
+      }
+    }, 1000) // 1 second delay
+
+    return () => clearTimeout(timeoutId)
+  }, [formData.postal_code])
 
   // Load customers from API
   useEffect(() => {
@@ -83,10 +146,7 @@ const Customers: React.FC = () => {
     try {
       setIsLoading(true);
       const response = await customerApi.getCustomers({
-        limit: 100,
-        search: searchTerm || undefined,
-        status: filterStatus === 'all' ? undefined : filterStatus,
-        state: filterState === 'all' ? undefined : filterState,
+        limit: 1000, // Get more customers for local filtering
       });
       setCustomers(response.customers);
     } catch (error) {
@@ -97,10 +157,10 @@ const Customers: React.FC = () => {
     }
   };
 
-  // Refetch when filters change
+  // Only fetch customers once on component mount
   useEffect(() => {
     fetchCustomers();
-  }, [searchTerm, filterStatus, filterState]);
+  }, []);
 
   const generateCustomerCode = () => {
     const timestamp = Date.now().toString().slice(-6);
@@ -161,7 +221,8 @@ const Customers: React.FC = () => {
       credit_limit: customer.credit_limit || 0,
       payment_terms: customer.payment_terms || 'immediate',
       currency: customer.currency || 'INR',
-      notes: customer.notes || ''
+      notes: customer.notes || '',
+      is_active: customer.is_active
     });
     setShowEditModal(true);
   };
@@ -177,7 +238,7 @@ const Customers: React.FC = () => {
       
       const customerData: CustomerCreate = {
         ...formData,
-        is_active: true,
+        is_active: formData.is_active,
         is_verified: editingCustomer.is_verified
       };
 
@@ -192,6 +253,40 @@ const Customers: React.FC = () => {
       toast.error('Failed to update customer');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteCustomer = (customer: Customer) => {
+    setCustomerToDelete(customer);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeleteCustomer = async () => {
+    if (!customerToDelete) return;
+    
+    try {
+      setIsDeleting(true);
+      await customerApi.deleteCustomer(customerToDelete.id);
+      toast.success('Customer deleted successfully!');
+      setShowDeleteModal(false);
+      setCustomerToDelete(null);
+      fetchCustomers();
+    } catch (error) {
+      console.error('Error deleting customer:', error);
+      toast.error('Failed to delete customer');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleToggleStatus = async (customer: Customer) => {
+    try {
+      await customerApi.toggleCustomerStatus(customer.id);
+      toast.success(`Customer ${customer.is_active ? 'deactivated' : 'activated'} successfully!`);
+      fetchCustomers();
+    } catch (error) {
+      console.error('Error toggling customer status:', error);
+      toast.error('Failed to update customer status');
     }
   };
 
@@ -218,12 +313,13 @@ const Customers: React.FC = () => {
       credit_limit: 0,
       payment_terms: 'immediate',
       currency: 'INR',
-      notes: ''
+      notes: '',
+      is_active: true
     });
     setEditingCustomer(null);
   };
 
-  const handleFormChange = (field: keyof CustomerFormData, value: string | number) => {
+  const handleFormChange = (field: keyof CustomerFormData, value: string | number | boolean) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
@@ -243,12 +339,23 @@ const Customers: React.FC = () => {
     
     const matchesState = filterState === 'all' || customer.state === filterState;
     
-    return matchesSearch && matchesStatus && matchesState;
+    const matchesType = filterType === 'all' || customer.customer_type === filterType;
+    
+    const matchesVerified = filterVerified === 'all' || 
+                           (filterVerified === 'verified' && customer.is_verified) ||
+                           (filterVerified === 'unverified' && !customer.is_verified);
+    
+    return matchesSearch && matchesStatus && matchesState && matchesType && matchesVerified;
   });
 
   const getUniqueStates = () => {
     const states = customers.map(c => c.state).filter(Boolean);
     return [...new Set(states)];
+  };
+
+  // Function to refresh customer data
+  const refreshCustomers = () => {
+    fetchCustomers();
   };
 
   const handleWhatsApp = (customer: Customer) => {
@@ -286,7 +393,15 @@ const Customers: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900">Customer Management</h1>
           <p className="text-gray-600">Manage your customers and build strong business relationships</p>
         </div>
-        <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={refreshCustomers}
+            className="bg-white/50 border-white/60 hover:bg-white/70"
+          >
+            Refresh
+          </Button>
+          <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
           <DialogTrigger asChild>
             <Button className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-2">
               <Plus className="w-4 h-4" />
@@ -298,6 +413,26 @@ const Customers: React.FC = () => {
               <DialogTitle>Add New Customer</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
+              {/* Status Toggle */}
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div>
+                  <Label className="text-sm font-medium">Customer Status</Label>
+                  <p className="text-xs text-gray-500">
+                    {formData.is_active ? 'Active - Customer can place orders' : 'Inactive - Customer cannot place orders'}
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Label htmlFor="is_active" className="text-sm">Active</Label>
+                  <input
+                    type="checkbox"
+                    id="is_active"
+                    checked={formData.is_active}
+                    onChange={(e) => handleFormChange('is_active', e.target.checked)}
+                    className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
+                  />
+                </div>
+              </div>
+
               {/* Customer Code and Type */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -422,7 +557,9 @@ const Customers: React.FC = () => {
                   <Input
                     id="city"
                     value={formData.city}
-                    onChange={(e) => handleFormChange('city', e.target.value)}
+                    readOnly
+                    className="bg-gray-50 border-gray-200 cursor-not-allowed"
+                    placeholder="Auto-filled from PIN code"
                   />
                 </div>
                 <div>
@@ -430,16 +567,28 @@ const Customers: React.FC = () => {
                   <Input
                     id="state"
                     value={formData.state}
-                    onChange={(e) => handleFormChange('state', e.target.value)}
+                    readOnly
+                    className="bg-gray-50 border-gray-200 cursor-not-allowed"
+                    placeholder="Auto-filled from PIN code"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="postal_code">Postal Code</Label>
-                  <Input
-                    id="postal_code"
-                    value={formData.postal_code}
-                    onChange={(e) => handleFormChange('postal_code', e.target.value)}
-                  />
+                  <Label htmlFor="postal_code">Postal Code *</Label>
+                  <div className="relative">
+                    <Input
+                      id="postal_code"
+                      value={formData.postal_code}
+                      onChange={(e) => handleFormChange('postal_code', e.target.value)}
+                      placeholder="Enter 6-digit PIN code"
+                      maxLength={6}
+                    />
+                    {isLoadingPincode && (
+                      <Loader2 className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 animate-spin text-gray-400" />
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Enter PIN code to auto-fill city and state
+                  </p>
                 </div>
               </div>
 
@@ -534,6 +683,7 @@ const Customers: React.FC = () => {
              </div>
            </DialogContent>
          </Dialog>
+        </div>
 
          {/* Edit Customer Modal */}
          <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
@@ -542,6 +692,26 @@ const Customers: React.FC = () => {
                <DialogTitle>Edit Customer</DialogTitle>
              </DialogHeader>
              <div className="space-y-4">
+               {/* Status Toggle */}
+               <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                 <div>
+                   <Label className="text-sm font-medium">Customer Status</Label>
+                   <p className="text-xs text-gray-500">
+                     {formData.is_active ? 'Active - Customer can place orders' : 'Inactive - Customer cannot place orders'}
+                   </p>
+                 </div>
+                 <div className="flex items-center space-x-2">
+                   <Label htmlFor="edit_is_active" className="text-sm">Active</Label>
+                   <input
+                     type="checkbox"
+                     id="edit_is_active"
+                     checked={formData.is_active}
+                     onChange={(e) => handleFormChange('is_active', e.target.checked)}
+                     className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
+                   />
+                 </div>
+               </div>
+
                {/* Customer Code and Type */}
                <div className="grid grid-cols-2 gap-4">
                  <div>
@@ -662,11 +832,31 @@ const Customers: React.FC = () => {
 
                <div className="grid grid-cols-3 gap-4">
                  <div>
+                   <Label htmlFor="edit_postal_code">Postal Code *</Label>
+                   <div className="relative">
+                     <Input
+                       id="edit_postal_code"
+                       value={formData.postal_code}
+                       onChange={(e) => handleFormChange('postal_code', e.target.value)}
+                       placeholder="Enter 6-digit PIN code"
+                       maxLength={6}
+                     />
+                     {isLoadingPincode && (
+                       <Loader2 className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 animate-spin text-gray-400" />
+                     )}
+                   </div>
+                   <p className="text-xs text-gray-500 mt-1">
+                     Enter PIN code to auto-fill city and state
+                   </p>
+                 </div>
+                 <div>
                    <Label htmlFor="edit_city">City</Label>
                    <Input
                      id="edit_city"
                      value={formData.city}
-                     onChange={(e) => handleFormChange('city', e.target.value)}
+                     readOnly
+                     className="bg-gray-50 border-gray-200 cursor-not-allowed"
+                     placeholder="Auto-filled from PIN code"
                    />
                  </div>
                  <div>
@@ -674,15 +864,9 @@ const Customers: React.FC = () => {
                    <Input
                      id="edit_state"
                      value={formData.state}
-                     onChange={(e) => handleFormChange('state', e.target.value)}
-                   />
-                 </div>
-                 <div>
-                   <Label htmlFor="edit_postal_code">Postal Code</Label>
-                   <Input
-                     id="edit_postal_code"
-                     value={formData.postal_code}
-                     onChange={(e) => handleFormChange('postal_code', e.target.value)}
+                     readOnly
+                     className="bg-gray-50 border-gray-200 cursor-not-allowed"
+                     placeholder="Auto-filled from PIN code"
                    />
                  </div>
                </div>
@@ -786,49 +970,138 @@ const Customers: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-lg shadow-sm border">
-          <div className="flex items-center gap-2">
-            <User className="w-5 h-5 text-blue-600" />
-            <h3 className="font-medium text-gray-700">Total Customers</h3>
-          </div>
-          <p className="text-2xl font-bold text-gray-900">{customers.length}</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border">
-          <div className="flex items-center gap-2">
-            <User className="w-5 h-5 text-green-600" />
-            <h3 className="font-medium text-gray-700">Active</h3>
-          </div>
-          <p className="text-2xl font-bold text-gray-900">
-            {customers.filter(c => c.is_active).length}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border">
-          <div className="flex items-center gap-2">
-            <Building className="w-5 h-5 text-blue-600" />
-            <h3 className="font-medium text-gray-700">Business</h3>
-          </div>
-          <p className="text-2xl font-bold text-gray-900">
-            {customers.filter(c => c.customer_type === 'business').length}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border">
-          <div className="flex items-center gap-2">
-            <Users className="w-5 h-5 text-orange-600" />
-            <h3 className="font-medium text-gray-700">Individual</h3>
-          </div>
-          <p className="text-2xl font-bold text-gray-900">
-            {customers.filter(c => c.customer_type === 'individual').length}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border">
-          <div className="flex items-center gap-2">
-            <User className="w-5 h-5 text-purple-600" />
-            <h3 className="font-medium text-gray-700">Verified</h3>
-          </div>
-          <p className="text-2xl font-bold text-gray-900">
-            {customers.filter(c => c.is_verified).length}
-          </p>
-        </div>
+        <Card 
+          className={`bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200 ${
+            filterStatus === 'all' && filterState === 'all' && filterType === 'all' && filterVerified === 'all' ? 'ring-2 ring-blue-500 shadow-2xl' : ''
+          }`}
+          onClick={() => {
+            setFilterStatus('all');
+            setFilterState('all');
+            setFilterType('all');
+            setFilterVerified('all');
+            setSearchTerm('');
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-blue-600/20"></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Total Customers</CardTitle>
+            <div className="p-2 rounded-lg bg-blue-500/20">
+              <User className="w-4 h-4 text-blue-600" />
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold text-gray-900 mb-1">{customers.length}</div>
+            <p className="text-xs text-gray-600 mt-2 font-medium">All registered customers</p>
+          </CardContent>
+        </Card>
+        
+        <Card 
+          className={`bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200 ${
+            filterStatus === 'active' && filterState === 'all' && filterType === 'all' && filterVerified === 'all' ? 'ring-2 ring-green-500 shadow-2xl' : ''
+          }`}
+          onClick={() => {
+            setFilterStatus('active');
+            setFilterState('all');
+            setFilterType('all');
+            setFilterVerified('all');
+            setSearchTerm('');
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-green-500/10 to-green-600/20"></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Active</CardTitle>
+            <div className="p-2 rounded-lg bg-green-500/20">
+              <User className="w-4 h-4 text-green-600" />
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold text-gray-900 mb-1">
+              {customers.filter(c => c.is_active).length}
+            </div>
+            <p className="text-xs text-gray-600 mt-2 font-medium">Can place orders</p>
+          </CardContent>
+        </Card>
+        
+        <Card 
+          className={`bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200 ${
+            filterType === 'business' ? 'ring-2 ring-blue-500 shadow-2xl' : ''
+          }`}
+          onClick={() => {
+            setFilterStatus('all');
+            setFilterState('all');
+            setFilterType('business');
+            setFilterVerified('all');
+            setSearchTerm('');
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-blue-600/20"></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Business</CardTitle>
+            <div className="p-2 rounded-lg bg-blue-500/20">
+              <Building className="w-4 h-4 text-blue-600" />
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold text-gray-900 mb-1">
+              {customers.filter(c => c.customer_type === 'business').length}
+            </div>
+            <p className="text-xs text-gray-600 mt-2 font-medium">Corporate customers</p>
+          </CardContent>
+        </Card>
+        
+        <Card 
+          className={`bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200 ${
+            filterType === 'individual' ? 'ring-2 ring-orange-500 shadow-2xl' : ''
+          }`}
+          onClick={() => {
+            setFilterStatus('all');
+            setFilterState('all');
+            setFilterType('individual');
+            setFilterVerified('all');
+            setSearchTerm('');
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-orange-600/20"></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Individual</CardTitle>
+            <div className="p-2 rounded-lg bg-orange-500/20">
+              <Users className="w-4 h-4 text-orange-600" />
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold text-gray-900 mb-1">
+              {customers.filter(c => c.customer_type === 'individual').length}
+            </div>
+            <p className="text-xs text-gray-600 mt-2 font-medium">Personal customers</p>
+          </CardContent>
+        </Card>
+        
+        <Card 
+          className={`bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200 ${
+            filterVerified === 'verified' ? 'ring-2 ring-purple-500 shadow-2xl' : ''
+          }`}
+          onClick={() => {
+            setFilterStatus('all');
+            setFilterState('all');
+            setFilterType('all');
+            setFilterVerified('verified');
+            setSearchTerm('');
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-purple-600/20"></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Verified</CardTitle>
+            <div className="p-2 rounded-lg bg-purple-500/20">
+              <User className="w-4 h-4 text-purple-600" />
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold text-gray-900 mb-1">
+              {customers.filter(c => c.is_verified).length}
+            </div>
+            <p className="text-xs text-gray-600 mt-2 font-medium">Verified accounts</p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Filters and Search */}
@@ -869,6 +1142,23 @@ const Customers: React.FC = () => {
                 ))}
               </SelectContent>
             </Select>
+            
+            {(filterStatus !== 'all' || filterState !== 'all' || filterType !== 'all' || filterVerified !== 'all' || searchTerm) && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  setFilterStatus('all');
+                  setFilterState('all');
+                  setFilterType('all');
+                  setFilterVerified('all');
+                  setSearchTerm('');
+                }}
+                className="bg-white/50 border-white/60 hover:bg-white/70"
+              >
+                Clear All Filters
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -927,24 +1217,31 @@ const Customers: React.FC = () => {
                       {customer.is_active ? 'Active' : 'Inactive'}
                     </Badge>
                   </td>
-                                     <td className="p-4">
-                     <div className="flex gap-2">
-                       <Button 
-                         size="sm" 
-                         variant="outline"
-                         onClick={() => handleEditCustomer(customer)}
-                       >
-                         <Edit className="w-4 h-4" />
-                       </Button>
-                       <Button
-                         size="sm"
-                         variant="outline"
-                         onClick={() => handleWhatsApp(customer)}
-                       >
-                         <MessageCircle className="w-4 h-4" />
-                       </Button>
-                     </div>
-                   </td>
+                                                       <td className="p-4">
+                    <div className="flex gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => handleEditCustomer(customer)}
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleWhatsApp(customer)}
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleDeleteCustomer(customer)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -984,6 +1281,56 @@ const Customers: React.FC = () => {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+        <DialogContent className="max-w-md">
+          
+          <div className="space-y-4 text-center">
+            <div className="flex items-center justify-center w-16 h-16 mx-auto bg-red-100 rounded-full">
+              <Trash2 className="w-8 h-8 text-red-600" />
+            </div>
+            <div>
+              <p className="text-gray-700 font-medium">
+                Are you sure you want to delete this customer?
+              </p>
+              <p className="text-sm text-gray-500 mt-1">
+                {customerToDelete?.company_name || `${customerToDelete?.first_name} ${customerToDelete?.last_name}`}
+              </p>
+              <p className="text-xs text-red-500 mt-2">
+                This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex justify-center space-x-3 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setCustomerToDelete(null);
+                }}
+                disabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={confirmDeleteCustomer}
+                disabled={isDeleting}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete Customer'
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

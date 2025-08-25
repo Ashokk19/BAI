@@ -158,14 +158,7 @@ function SortableCategory({ category, onEdit, onDelete }: SortableCategoryProps)
                 <p className="text-xs text-blue-600 font-medium mt-1">Total Items</p>
               </div>
 
-              {/* Stock Value */}
-              <div className="bg-green-50 rounded-lg p-2 border border-green-200">
-                <div className="flex items-center justify-between">
-                  <DollarSign className="w-4 h-4 text-green-600" />
-                  <span className="text-xs font-medium text-green-800">₹{category.total_stock_value.toLocaleString()}</span>
-                </div>
-                <p className="text-xs text-green-600 font-medium mt-1">Stock Value</p>
-              </div>
+
 
               {/* Low Stock */}
               {category.low_stock_items > 0 && (
@@ -393,49 +386,67 @@ export default function ItemCategories() {
           
           {/* Overall Statistics */}
           {!isLoading && categories.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mt-3">
-              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200 shadow-lg">
-                <div className="flex items-center justify-between">
-                  <Package2 className="w-5 h-5 text-blue-600" />
-                  <span className="text-sm font-bold text-blue-800">{totalStats.total_items}</span>
-                </div>
-                <p className="text-xs text-blue-600 font-medium mt-1">Total Items</p>
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+              <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200">
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-blue-600/20"></div>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+                  <CardTitle className="text-sm font-semibold text-gray-700">Total Items</CardTitle>
+                  <div className="p-2 rounded-lg bg-blue-500/20">
+                    <Package2 className="w-4 h-4 text-blue-600" />
+                  </div>
+                </CardHeader>
+                <CardContent className="relative z-10">
+                  <div className="text-2xl font-bold text-gray-900 mb-1">{totalStats.total_items}</div>
+                  <p className="text-xs text-gray-600 mt-2 font-medium">All inventory items</p>
+                </CardContent>
+              </Card>
               
-              <div className="bg-green-50 rounded-lg p-3 border border-green-200 shadow-lg">
-                <div className="flex items-center justify-between">
-                  <DollarSign className="w-5 h-5 text-green-600" />
-                  <span className="text-sm font-bold text-green-800">₹{totalStats.total_stock_value.toLocaleString()}</span>
-                </div>
-                <p className="text-xs text-green-600 font-medium mt-1">Stock Value</p>
-              </div>
+
               
-              <div className="bg-indigo-50 rounded-lg p-3 border border-indigo-200 shadow-lg">
-                <div className="flex items-center justify-between">
-                  <TrendingUp className="w-5 h-5 text-indigo-600" />
-                  <span className="text-sm font-bold text-indigo-800">{totalStats.total_current_stock}</span>
-                </div>
-                <p className="text-xs text-indigo-600 font-medium mt-1">Total Stock</p>
-              </div>
+              <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200">
+                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-indigo-600/20"></div>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+                  <CardTitle className="text-sm font-semibold text-gray-700">Total Stock</CardTitle>
+                  <div className="p-2 rounded-lg bg-indigo-500/20">
+                    <TrendingUp className="w-4 h-4 text-indigo-600" />
+                  </div>
+                </CardHeader>
+                <CardContent className="relative z-10">
+                  <div className="text-2xl font-bold text-gray-900 mb-1">{totalStats.total_current_stock}</div>
+                  <p className="text-xs text-gray-600 mt-2 font-medium">Available items</p>
+                </CardContent>
+              </Card>
               
               {totalStats.low_stock_items > 0 && (
-                <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200 shadow-lg">
-                  <div className="flex items-center justify-between">
-                    <TrendingDown className="w-5 h-5 text-yellow-600" />
-                    <span className="text-sm font-bold text-yellow-800">{totalStats.low_stock_items}</span>
-                  </div>
-                  <p className="text-xs text-yellow-600 font-medium mt-1">Low Stock</p>
-                </div>
+                <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200">
+                  <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/10 to-yellow-600/20"></div>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+                    <CardTitle className="text-sm font-semibold text-gray-700">Low Stock</CardTitle>
+                    <div className="p-2 rounded-lg bg-yellow-500/20">
+                      <TrendingDown className="w-4 h-4 text-yellow-600" />
+                    </div>
+                  </CardHeader>
+                  <CardContent className="relative z-10">
+                    <div className="text-2xl font-bold text-gray-900 mb-1">{totalStats.low_stock_items}</div>
+                    <p className="text-xs text-gray-600 mt-2 font-medium">Need reordering</p>
+                  </CardContent>
+                </Card>
               )}
               
               {totalStats.out_of_stock_items > 0 && (
-                <div className="bg-red-50 rounded-lg p-3 border border-red-200 shadow-lg">
-                  <div className="flex items-center justify-between">
-                    <AlertTriangle className="w-5 h-5 text-red-600" />
-                    <span className="text-sm font-bold text-red-800">{totalStats.out_of_stock_items}</span>
-                  </div>
-                  <p className="text-xs text-red-600 font-medium mt-1">Out of Stock</p>
-                </div>
+                <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200">
+                  <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-red-600/20"></div>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+                    <CardTitle className="text-sm font-semibold text-gray-700">Out of Stock</CardTitle>
+                    <div className="p-2 rounded-lg bg-red-500/20">
+                      <AlertTriangle className="w-4 h-4 text-red-600" />
+                    </div>
+                  </CardHeader>
+                  <CardContent className="relative z-10">
+                    <div className="text-2xl font-bold text-gray-900 mb-1">{totalStats.out_of_stock_items}</div>
+                    <p className="text-xs text-gray-600 mt-2 font-medium">Requires attention</p>
+                  </CardContent>
+                </Card>
               )}
             </div>
           )}

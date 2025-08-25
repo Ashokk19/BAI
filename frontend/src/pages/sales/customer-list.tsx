@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Search, Plus, Edit, Trash2, Download, Upload, Phone, Mail, MapPin, Building } from "lucide-react"
+import { Search, Plus, Edit, Trash2, Download, Upload, Phone, Mail, MapPin, Building, Loader2, Users } from "lucide-react"
 import { toast } from "sonner"
 
 interface Customer {
@@ -28,6 +28,12 @@ interface Customer {
   totalAmount: number
   status: "Active" | "Inactive"
   createdAt: string
+}
+
+interface PincodeData {
+  city: string
+  state: string
+  district: string
 }
 
 export default function CustomerList() {
@@ -80,6 +86,65 @@ export default function CustomerList() {
     pincode: "",
     customerType: "Individual" as "Individual" | "Business",
   })
+  const [isLoadingPincode, setIsLoadingPincode] = useState(false)
+
+  // PIN code lookup function
+  const fetchPincodeDetails = async (pincode: string) => {
+    if (!pincode || pincode.length !== 6) {
+      return
+    }
+
+    setIsLoadingPincode(true)
+    try {
+      const response = await fetch(`https://api.postalpincode.in/pincode/${pincode}`)
+      const data = await response.json()
+      
+      if (data[0]?.Status === "Success" && data[0]?.PostOffice?.length > 0) {
+        const postOffice = data[0].PostOffice[0]
+        const pincodeData: PincodeData = {
+          city: postOffice.District || postOffice.Block || "",
+          state: postOffice.State || "",
+          district: postOffice.District || ""
+        }
+        
+        setFormData(prev => ({
+          ...prev,
+          city: pincodeData.city,
+          state: pincodeData.state
+        }))
+        
+        toast.success(`Location found: ${pincodeData.city}, ${pincodeData.state}`)
+      } else {
+        toast.error("Invalid PIN code or location not found")
+        setFormData(prev => ({
+          ...prev,
+          city: "",
+          state: ""
+        }))
+      }
+    } catch (error) {
+      console.error("Error fetching PIN code details:", error)
+      toast.error("Failed to fetch location details")
+      setFormData(prev => ({
+        ...prev,
+        city: "",
+        state: ""
+      }))
+    } finally {
+      setIsLoadingPincode(false)
+    }
+  }
+
+  // Handle PIN code change with debouncing
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (formData.pincode.length === 6) {
+        fetchPincodeDetails(formData.pincode)
+      }
+    }, 1000) // 1 second delay
+
+    return () => clearTimeout(timeoutId)
+  }, [formData.pincode])
 
   const filteredCustomers = customers.filter(
     (customer) =>
@@ -142,8 +207,8 @@ export default function CustomerList() {
     setIsDialogOpen(true)
   }
 
-  const handleDelete = (id: string) => {
-    setCustomers(customers.filter((customer) => customer.id !== id))
+  const handleDelete = (customerId: string) => {
+    setCustomers(customers.filter((customer) => customer.id !== customerId))
     toast.success("Customer deleted successfully!")
   }
 
@@ -152,34 +217,35 @@ export default function CustomerList() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-violet-600 to-purple-700 bg-clip-text text-transparent">
-            Customer Management
+          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
+            <Building className="w-8 h-8 text-purple-600" />
+            Customer List
           </h1>
-          <p className="text-gray-600 mt-1">Manage your customer database</p>
+          <p className="text-gray-600">Manage your customer database and relationships</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" className="bg-white/50 backdrop-blur-sm border-white/20">
-            <Upload className="w-4 h-4 mr-2" />
-            Import
-          </Button>
-          <Button variant="outline" className="bg-white/50 backdrop-blur-sm border-white/20">
-            <Download className="w-4 h-4 mr-2" />
+          <Button variant="outline" className="flex items-center gap-2">
+            <Download className="w-4 h-4" />
             Export
+          </Button>
+          <Button variant="outline" className="flex items-center gap-2">
+            <Upload className="w-4 h-4" />
+            Import
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700">
+              <Button className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Customer
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl bg-white/95 backdrop-blur-xl border-white/20">
+            <DialogContent className="sm:max-w-md">
               <DialogHeader>
                 <DialogTitle>{editingCustomer ? "Edit Customer" : "Add New Customer"}</DialogTitle>
               </DialogHeader>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="name">Customer Name</Label>
+                  <Label htmlFor="name">Name</Label>
                   <Input
                     id="name"
                     value={formData.name}
@@ -243,12 +309,32 @@ export default function CustomerList() {
                   />
                 </div>
                 <div>
+                  <Label htmlFor="pincode">PIN Code *</Label>
+                  <div className="relative">
+                    <Input
+                      id="pincode"
+                      value={formData.pincode}
+                      onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
+                      className="bg-white/50 border-white/20 pr-8"
+                      placeholder="Enter 6-digit PIN code"
+                      maxLength={6}
+                    />
+                    {isLoadingPincode && (
+                      <Loader2 className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 animate-spin text-gray-400" />
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Enter PIN code to auto-fill city and state
+                  </p>
+                </div>
+                <div>
                   <Label htmlFor="city">City</Label>
                   <Input
                     id="city"
                     value={formData.city}
-                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                    className="bg-white/50 border-white/20"
+                    readOnly
+                    className="bg-gray-50 border-gray-200 cursor-not-allowed"
+                    placeholder="Auto-filled from PIN code"
                   />
                 </div>
                 <div>
@@ -256,17 +342,9 @@ export default function CustomerList() {
                   <Input
                     id="state"
                     value={formData.state}
-                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                    className="bg-white/50 border-white/20"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="pincode">Pincode</Label>
-                  <Input
-                    id="pincode"
-                    value={formData.pincode}
-                    onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
-                    className="bg-white/50 border-white/20"
+                    readOnly
+                    className="bg-gray-50 border-gray-200 cursor-not-allowed"
+                    placeholder="Auto-filled from PIN code"
                   />
                 </div>
               </div>
@@ -302,7 +380,7 @@ export default function CustomerList() {
       <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Building className="w-5 h-5" />
+            <Users className="w-5 h-5" />
             Customers ({filteredCustomers.length})
           </CardTitle>
         </CardHeader>
@@ -312,8 +390,8 @@ export default function CustomerList() {
               <TableRow>
                 <TableHead>Customer</TableHead>
                 <TableHead>Contact</TableHead>
-                <TableHead>GSTIN</TableHead>
                 <TableHead>Location</TableHead>
+                <TableHead>Type</TableHead>
                 <TableHead>Orders</TableHead>
                 <TableHead>Total Amount</TableHead>
                 <TableHead>Status</TableHead>
@@ -326,13 +404,7 @@ export default function CustomerList() {
                   <TableCell>
                     <div>
                       <div className="font-medium">{customer.name}</div>
-                      <div className="text-sm text-gray-500">{customer.id}</div>
-                      <Badge
-                        variant={customer.customerType === "Business" ? "default" : "secondary"}
-                        className="mt-1"
-                      >
-                        {customer.customerType}
-                      </Badge>
+                      <div className="text-sm text-gray-500">{customer.gstin}</div>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -348,25 +420,38 @@ export default function CustomerList() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <code className="text-xs bg-gray-100 px-2 py-1 rounded">{customer.gstin}</code>
-                  </TableCell>
-                  <TableCell>
                     <div className="flex items-center gap-1 text-sm">
                       <MapPin className="w-3 h-3" />
                       {customer.city}, {customer.state}
                     </div>
+                    <div className="text-xs text-gray-500">{customer.pincode}</div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={customer.customerType === "Business" ? "default" : "secondary"}>
+                      {customer.customerType}
+                    </Badge>
                   </TableCell>
                   <TableCell>{customer.totalOrders}</TableCell>
                   <TableCell>₹{customer.totalAmount.toLocaleString()}</TableCell>
                   <TableCell>
-                    <Badge variant={customer.status === "Active" ? "default" : "secondary"}>{customer.status}</Badge>
+                    <Badge variant={customer.status === "Active" ? "default" : "destructive"}>
+                      {customer.status}
+                    </Badge>
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => handleEdit(customer)}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEdit(customer)}
+                      >
                         <Edit className="w-3 h-3" />
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => handleDelete(customer.id)}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(customer.id)}
+                      >
                         <Trash2 className="w-3 h-3" />
                       </Button>
                     </div>

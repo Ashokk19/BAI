@@ -48,21 +48,23 @@ class AuthService:
         """
         return self.pwd_context.hash(password)
     
-    def authenticate_user(self, db: Session, identifier: str, password: str) -> Optional[User]:
+    def authenticate_user(self, db: Session, identifier: str, password: str, account_id: str) -> Optional[User]:
         """
-        Authenticate a user with username/email and password.
+        Authenticate a user with username/email, password, and account_id.
         
         Args:
             db: Database session
             identifier: User's username or email
             password: User's password
+            account_id: User's account ID
             
         Returns:
             User object if authentication successful, None otherwise
         """
-        # Try to find user by email first, then by username
+        # Try to find user by email first, then by username, and account_id
         user = db.query(User).filter(
-            (User.email == identifier) | (User.username == identifier)
+            (User.email == identifier) | (User.username == identifier),
+            User.account_id == account_id
         ).first()
         
         if not user:
@@ -149,8 +151,15 @@ class AuthService:
             hashed_password=hashed_password,
             first_name=user_data["first_name"],
             last_name=user_data["last_name"],
+            account_id=user_data.get("account_id", "TestAccount"),
             phone=user_data.get("phone"),
+            mobile=user_data.get("mobile"),
             address=user_data.get("address"),
+            city=user_data.get("city"),
+            state=user_data.get("state"),
+            postal_code=user_data.get("postal_code"),
+            company=user_data.get("company"),
+            designation=user_data.get("designation"),
             is_admin=user_data.get("is_admin", False)
         )
         

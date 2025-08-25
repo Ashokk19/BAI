@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi import HTTPException
 import uvicorn
 
-from routers import auth, inventory, sales, purchases, dashboard
+from routers import auth, inventory, sales, purchases, dashboard, customers, organization, user_management
 from database.database import engine, Base
 from config.settings import settings
 
@@ -37,10 +37,13 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(customers.router, prefix="/api/customers", tags=["Customers"])
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
 app.include_router(sales.router, prefix="/api/sales", tags=["Sales"])
 app.include_router(purchases.router, prefix="/api/purchases", tags=["Purchases"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+app.include_router(organization.router, prefix="/api/organization", tags=["Organization"])
+app.include_router(user_management.router, prefix="/api/user-management", tags=["User Management"])
 
 @app.get("/")
 async def root():

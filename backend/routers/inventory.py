@@ -77,6 +77,7 @@ class ItemResponse(BaseModel):
     is_serialized: bool
     tax_rate: float
     tax_type: str
+    account_id: str
     created_at: datetime
     is_low_stock: bool
     stock_value: float
@@ -107,18 +108,25 @@ async def get_inventory_summary(
 ):
     """Get inventory summary with key metrics."""
     
+    # Filter items by account_id to ensure data isolation
     # Get total items count
-    total_items = db.query(Item).count()
+    total_items = db.query(Item).filter(Item.account_id == current_user.account_id).count()
     
     # Get low stock items
-    low_stock_items = db.query(Item).filter(Item.current_stock <= Item.minimum_stock).count()
+    low_stock_items = db.query(Item).filter(
+        Item.current_stock <= Item.minimum_stock,
+        Item.account_id == current_user.account_id
+    ).count()
     
     # Get total stock value
-    items = db.query(Item).all()
+    items = db.query(Item).filter(Item.account_id == current_user.account_id).all()
     total_stock_value = sum(item.stock_value for item in items)
     
-    # Get active categories
-    active_categories = db.query(ItemCategory).filter(ItemCategory.is_active == True).count()
+    # Get active categories for this account
+    active_categories = db.query(ItemCategory).filter(
+        ItemCategory.is_active == True,
+        ItemCategory.account_id == current_user.account_id
+    ).count()
     
     return {
         "total_items": total_items,
@@ -136,8 +144,10 @@ async def export_items(
 ):
     """Export items to CSV format."""
     
-    # Get all items with category names
-    items = db.query(Item).join(ItemCategory).all()
+    # Get items for this customer with category names
+    items = db.query(Item).join(ItemCategory).filter(
+        Item.account_id == current_user.account_id
+    ).all()
     
     # Create CSV content
     output = io.StringIO()
@@ -291,7 +301,8 @@ async def import_items(
                     is_serialized=bool(row.get('Is Serialized', False)),
                     tax_rate=Decimal(str(row.get('Tax Rate', 0))),
                     tax_type=row.get('Tax Type', 'inclusive'),
-                    barcode=row.get('Barcode', '')
+                    barcode=row.get('Barcode', ''),
+                    account_id=current_user.account_id
                 )
                 
                 db.add(item)
@@ -300,6 +311,7 @@ async def import_items(
                 # Create inventory log
                 log_entry = InventoryLog(
                     item_id=item.id,
+                    account_id=current_user.account_id,
                     transaction_type="initial_stock",
                     quantity_before=0,
                     quantity_change=item.current_stock,
@@ -330,6 +342,7 @@ async def import_items(
                 quantity_before=0,
                 quantity_after=imported_count,
                 user_id=current_user.id,
+                account_id=current_user.account_id,
                 notes=f"Bulk import completed: {imported_count} items imported from file '{file.filename}', {len(errors)} errors",
                 transaction_reference=file.filename
             )
@@ -377,7 +390,8 @@ async def get_items(
 ):
     """Get items list with optional filtering."""
     
-    query = db.query(Item)
+    # Filter by account_id from current user
+    query = db.query(Item).filter(Item.account_id == current_user.account_id)
     
     if search:
         query = query.filter(Item.name.contains(search) | Item.sku.contains(search))
@@ -396,7 +410,10 @@ async def get_item(
 ):
     """Get specific item by ID."""
     
-    item = db.query(Item).filter(Item.id == item_id).first()
+    item = db.query(Item).filter(
+        Item.id == item_id,
+        Item.account_id == current_user.account_id
+    ).first()
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -411,7 +428,10 @@ async def get_categories(
 ):
     """Get item categories."""
     
-    categories = db.query(ItemCategory).filter(ItemCategory.is_active == True).all()
+    categories = db.query(ItemCategory).filter(
+        ItemCategory.is_active == True,
+        ItemCategory.account_id == current_user.account_id
+    ).all()
     return categories
 
 @router.get("/categories/with-stats", response_model=List[ItemCategoryWithStatsResponse])
@@ -421,12 +441,18 @@ async def get_categories_with_stats(
 ):
     """Get item categories with statistics from items table."""
     
-    categories = db.query(ItemCategory).filter(ItemCategory.is_active == True).all()
+    categories = db.query(ItemCategory).filter(
+        ItemCategory.is_active == True,
+        ItemCategory.account_id == current_user.account_id
+    ).all()
     categories_with_stats = []
     
     for category in categories:
-        # Get all items in this category
-        items_query = db.query(Item).filter(Item.category_id == category.id)
+        # Get all items in this category for this customer
+        items_query = db.query(Item).filter(
+            Item.category_id == category.id,
+            Item.account_id == current_user.account_id
+        )
         all_items = items_query.all()
         
         # Calculate statistics
@@ -473,7 +499,11 @@ async def get_expiry_tracking(
     
     from datetime import datetime, timedelta
     
-    expiry_items = db.query(Item).filter(Item.has_expiry == True).all()
+    # Filter items by account_id to ensure data isolation
+    expiry_items = db.query(Item).filter(
+        Item.has_expiry == True,
+        Item.account_id == current_user.account_id
+    ).all()
     
     # Calculate expiry status for items
     expiry_data = []
@@ -528,7 +558,10 @@ async def get_inventory_logs(
     """Get inventory logs with formatted data for frontend."""
     
     # Use left join to include logs even when items are deleted
-    query = db.query(InventoryLog).join(User, InventoryLog.recorded_by == User.id)
+    # Filter by account_id from current user
+    query = db.query(InventoryLog).filter(
+        InventoryLog.account_id == current_user.account_id
+    ).join(User, InventoryLog.recorded_by == User.id)
     
     if item_id:
         query = query.filter(InventoryLog.item_id == item_id)
@@ -602,7 +635,11 @@ async def get_low_stock_items(
 ):
     """Get items that are low in stock."""
     
-    low_stock_items = db.query(Item).filter(Item.current_stock <= Item.minimum_stock).all()
+    # Filter items by account_id to ensure data isolation
+    low_stock_items = db.query(Item).filter(
+        Item.current_stock <= Item.minimum_stock,
+        Item.account_id == current_user.account_id
+    ).all()
     
     items_data = []
     for item in low_stock_items:
@@ -686,57 +723,33 @@ async def create_item(
 ):
     """Create a new item."""
     
-    # Check if SKU already exists
-    existing_item = db.query(Item).filter(Item.sku == item_data.sku).first()
+    # Check if item with same SKU already exists for this customer
+    existing_item = db.query(Item).filter(
+        Item.sku == item_data.sku,
+        Item.account_id == current_user.account_id
+    ).first()
+    
     if existing_item:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Item with SKU '{item_data.sku}' already exists"
         )
     
-    # Verify category exists
-    category = db.query(ItemCategory).filter(ItemCategory.id == item_data.category_id).first()
-    if not category:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Category not found"
-        )
-    
-    # Create new item
+    # Create item with account_id
     item = Item(
-        name=item_data.name,
-        description=item_data.description,
-        sku=item_data.sku,
-        barcode=item_data.barcode,
-        category_id=item_data.category_id,
-        unit_price=Decimal(str(item_data.unit_price)),
-        cost_price=Decimal(str(item_data.cost_price)) if item_data.cost_price else None,
-        selling_price=Decimal(str(item_data.selling_price)),
-        current_stock=item_data.current_stock,
-        minimum_stock=item_data.minimum_stock,
-        maximum_stock=item_data.maximum_stock,
-        unit_of_measure=item_data.unit_of_measure,
-        weight=item_data.weight,
-        dimensions=item_data.dimensions,
-        has_expiry=item_data.has_expiry,
-        shelf_life_days=item_data.shelf_life_days,
-        expiry_date=item_data.expiry_date,
-        is_active=item_data.is_active,
-        is_serialized=item_data.is_serialized,
-        tax_rate=Decimal(str(item_data.tax_rate)),
-        tax_type=item_data.tax_type
+        **item_data.model_dump(),
+        account_id=current_user.account_id
     )
     
     db.add(item)
     db.commit()
     db.refresh(item)
     
-    # Log item creation
+    # Log the creation
     InventoryService.log_item_creation(
         db=db,
         item=item,
-        user_id=current_user.id,
-        notes=f"New item '{item.name}' created with {item.current_stock} units"
+        user_id=current_user.id
     )
     db.commit()
     
@@ -845,7 +858,8 @@ async def delete_item(
         item_name=item_name,
         item_sku=item_sku,
         final_stock=final_stock,
-        user_id=current_user.id
+        user_id=current_user.id,
+        account_id=current_user.account_id
     )
     
     # Commit the log entry
@@ -865,8 +879,12 @@ async def create_category(
 ):
     """Create a new category."""
     
-    # Check if category name already exists
-    existing_category = db.query(ItemCategory).filter(ItemCategory.name == category_data.name).first()
+    # Check if category name already exists for this customer
+    existing_category = db.query(ItemCategory).filter(
+        ItemCategory.name == category_data.name,
+        ItemCategory.account_id == current_user.account_id
+    ).first()
+    
     if existing_category:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -874,9 +892,8 @@ async def create_category(
         )
     
     category = ItemCategory(
-        name=category_data.name,
-        description=category_data.description,
-        is_active=category_data.is_active
+        **category_data.dict(),
+        account_id=current_user.account_id
     )
     
     db.add(category)
