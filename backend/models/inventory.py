@@ -17,6 +17,9 @@ class InventoryLog(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     
+    # Customer identification for multi-tenant support
+    account_id = Column(String(100), nullable=False, default="TestAccount", index=True)
+    
     # Item relationship
     item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
     item = relationship("Item")

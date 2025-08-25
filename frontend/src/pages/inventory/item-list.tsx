@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Search, Plus, Edit, Trash2, Download, Upload, Package, AlertTriangle, Filter, ArrowUpRight, ArrowDownRight } from "lucide-react"
+import { Search, Plus, Edit, Trash2, Download, Upload, Package, AlertTriangle, Filter } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -45,6 +45,14 @@ export default function ItemList() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [formData, setFormData] = useState<Partial<ItemCreate>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const handleStatCardClick = (status: string) => {
+    setFilterStatus(status)
+    setCategoryFilter('all')
+    setSearchTerm('')
+    // Clear URL params
+    window.history.replaceState({}, '', window.location.pathname)
+  }
 
   const clearFormData = () => {
     setFormData({
@@ -146,34 +154,26 @@ export default function ItemList() {
     {
       title: "Total Items",
       value: items.length.toString(),
-      change: "+12%",
-      changeType: "positive" as const,
       icon: Package,
       description: "All inventory items"
     },
     {
       title: "In Stock",
       value: items.filter(item => getItemStatus(item) === 'in_stock').length.toString(),
-      change: "+8%",
-      changeType: "positive" as const, 
       icon: Package,
       description: "Available items"
     },
     {
       title: "Low Stock",
       value: items.filter(item => getItemStatus(item) === 'low_stock').length.toString(),
-      change: "+3",
-      changeType: "negative" as const,
       icon: AlertTriangle,
       description: "Need reordering"
     },
     {
-      title: "Total Value",
-      value: `₹${items.reduce((sum, item) => sum + (item.current_stock * item.unit_price), 0).toLocaleString()}`,
-      change: "+15.3%",
-      changeType: "positive" as const,
-      icon: Package,
-      description: "Current inventory worth"
+      title: "Out of Stock",
+      value: items.filter(item => getItemStatus(item) === 'out_of_stock').length.toString(),
+      icon: AlertTriangle,
+      description: "Items with zero stock"
     }
   ];
 
@@ -599,32 +599,56 @@ export default function ItemList() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {statsData.map((stat) => (
-            <Card key={stat.title} className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl hover:bg-white/50 hover:shadow-2xl transition-all duration-300 ring-1 ring-white/60 relative overflow-hidden group">
-              <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-white/20"></div>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
-                <CardTitle className="text-sm font-semibold text-gray-700">{stat.title}</CardTitle>
-                <div className={`p-2 rounded-lg ${stat.changeType === "positive" ? "bg-violet-500/20" : "bg-orange-500/20"}`}>
-                  <stat.icon className={`w-4 h-4 ${stat.changeType === "positive" ? "text-violet-600" : "text-orange-600"}`} />
-                </div>
-              </CardHeader>
-              <CardContent className="relative z-10">
-                <div className="text-2xl font-bold text-gray-900 mb-1">{stat.value}</div>
-                <div className="flex items-center space-x-2">
-                  <span className={`text-sm font-semibold flex items-center ${stat.changeType === "positive" ? "text-green-600" : "text-red-600"}`}>
-                    {stat.changeType === "positive" ? (
-                      <ArrowUpRight className="w-3 h-3 mr-1" />
-                    ) : (
-                      <ArrowDownRight className="w-3 h-3 mr-1" />
-                    )}
-                    {stat.change}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-600 mt-2 font-medium">{stat.description}</p>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+          {statsData.map((stat) => {
+            const isSelected = (stat.title === "In Stock" && filterStatus === 'in_stock') ||
+                              (stat.title === "Low Stock" && filterStatus === 'low_stock') ||
+                              (stat.title === "Out of Stock" && filterStatus === 'out_of_stock') ||
+                              (stat.title === "Total Items" && filterStatus === 'all');
+            
+            return (
+              <Card 
+                key={stat.title} 
+                className={`bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl hover:bg-white/50 hover:shadow-2xl transition-all duration-300 ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 ${
+                  isSelected ? 'ring-2 ring-violet-500 shadow-2xl' : ''
+                }`}
+                onClick={() => {
+                  if (stat.title === "In Stock") handleStatCardClick('in_stock');
+                  else if (stat.title === "Low Stock") handleStatCardClick('low_stock');
+                  else if (stat.title === "Out of Stock") handleStatCardClick('out_of_stock');
+                  else if (stat.title === "Total Items") handleStatCardClick('all');
+                }}
+              >
+                <div className={`absolute inset-0 ${
+                  stat.title === "Total Items" ? "bg-gradient-to-br from-blue-500/10 to-blue-600/20" : 
+                  stat.title === "In Stock" ? "bg-gradient-to-br from-green-500/10 to-green-600/20" : 
+                  stat.title === "Low Stock" ? "bg-gradient-to-br from-yellow-500/10 to-yellow-600/20" : 
+                  "bg-gradient-to-br from-red-500/10 to-red-600/20"
+                }`}></div>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+                  <CardTitle className="text-sm font-semibold text-gray-700">{stat.title}</CardTitle>
+                  
+                  <div className={`p-2 rounded-lg ${
+                    stat.title === "Total Items" ? "bg-blue-500/20" : 
+                    stat.title === "In Stock" ? "bg-green-500/20" : 
+                    stat.title === "Low Stock" ? "bg-yellow-500/20" : 
+                    "bg-red-500/20"
+                  }`}>
+                    <stat.icon className={`w-4 h-4 ${
+                      stat.title === "Total Items" ? "text-blue-600" : 
+                      stat.title === "In Stock" ? "text-green-600" : 
+                      stat.title === "Low Stock" ? "text-yellow-600" : 
+                      "text-red-600"
+                    }`} />
+                  </div>
+                </CardHeader>
+                <CardContent className="relative z-10">
+                  <div className="text-2xl font-bold text-gray-900 mb-1">{stat.value}</div>
+                  <p className="text-xs text-gray-600 mt-2 font-medium">{stat.description}</p>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
         {/* Search and Filter */}
@@ -645,7 +669,7 @@ export default function ItemList() {
                              <div className="relative">
                  <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
                  <select
-                   className="pl-10 pr-4 py-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-md appearance-none"
+                   className="pl-10 pr-4 py-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-md appearance-none w-40"
                    value={filterStatus}
                    onChange={(e) => setFilterStatus(e.target.value)}
                  >
@@ -658,7 +682,7 @@ export default function ItemList() {
                <div className="relative">
                  <Package className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
                  <select
-                   className="pl-10 pr-4 py-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-md appearance-none"
+                   className="pl-10 pr-4 py-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-md appearance-none w-40"
                    value={categoryFilter}
                    onChange={(e) => setCategoryFilter(e.target.value)}
                  >
@@ -674,7 +698,7 @@ export default function ItemList() {
                  {(categoryFilter !== 'all' || filterStatus !== 'all' || searchTerm) && (
                    <Button 
                      variant="outline" 
-                     className="bg-white/80 backdrop-blur-lg border border-white/90 hover:bg-white/90"
+                     className="bg-white/80 backdrop-blur-lg border border-white/90 hover:bg-white/90 h-12 px-4"
                      onClick={() => {
                        setCategoryFilter('all')
                        setFilterStatus('all')
@@ -683,12 +707,12 @@ export default function ItemList() {
                        window.history.replaceState({}, '', window.location.pathname)
                      }}
                    >
-                     Clear Filters
+                     Clear All Filters
                    </Button>
                  )}
                  <Button 
                    variant="outline" 
-                   className="bg-white/80 backdrop-blur-lg border border-white/90 hover:bg-white/90"
+                   className="bg-white/80 backdrop-blur-lg border border-white/90 hover:bg-white/90 h-12 px-4"
                    onClick={() => document.getElementById('import-file')?.click()}
                  >
                    <Upload className="w-4 h-4 mr-2" />
@@ -703,7 +727,7 @@ export default function ItemList() {
                 />
                 <Button 
                   variant="outline" 
-                  className="bg-white/80 backdrop-blur-lg border border-white/90 hover:bg-white/90"
+                  className="bg-white/80 backdrop-blur-lg border border-white/90 hover:bg-white/90 h-12 px-4"
                   onClick={handleExportItems}
                 >
                   <Download className="w-4 h-4 mr-2" />
@@ -713,6 +737,8 @@ export default function ItemList() {
             </div>
           </CardContent>
         </Card>
+
+
 
         {/* Items Table */}
         <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Minus, Save, Send, FileText, Calculator, User, Package, MessageCircle, Search, Download } from 'lucide-react';
 import { customerApi, Customer } from '../../services/customerApi';
 import { inventoryApi } from '../../services/inventoryApi';
+import { organizationService, OrganizationProfile } from '../../services/organizationService';
 import { useNotifications, NotificationContainer } from '../../components/ui/notification';
 
 interface Item {
@@ -63,6 +64,7 @@ const TaxInvoice: React.FC = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [gstSlabs, setGstSlabs] = useState<GSTSlab[]>([]);
+  const [organization, setOrganization] = useState<OrganizationProfile | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
   const [invoice, setInvoice] = useState<Invoice>({
@@ -105,6 +107,7 @@ const TaxInvoice: React.FC = () => {
     loadCustomers();
     loadItems();
     loadGSTSlabs();
+    loadOrganization();
   }, []);
 
   // Initialize item search states for existing items
@@ -219,6 +222,18 @@ const TaxInvoice: React.FC = () => {
     setGstSlabs(mockGSTSlabs);
   };
 
+  const loadOrganization = async () => {
+    try {
+      const orgData = await organizationService.getOrganizationProfile();
+      setOrganization(orgData);
+      console.log('Organization data loaded:', orgData);
+    } catch (error) {
+      console.error('Error loading organization:', error);
+      // Organization is optional, continue without it
+      setOrganization(null);
+    }
+  };
+
   const getCustomerDisplayName = (customer: Customer) => {
     const displayName = customer.company_name || `${customer.first_name} ${customer.last_name}`;
     console.log('getCustomerDisplayName for:', customer.email, 'result:', displayName);
@@ -284,8 +299,8 @@ const TaxInvoice: React.FC = () => {
       unit_price: 0,
       discount_amount: 0,
       gst_rate: 18,
-      cgst_rate: 9,
-      sgst_rate: 9,
+      cgst_rate: 0,
+      sgst_rate: 0,
       igst_rate: 0,
       cgst_amount: 0,
       sgst_amount: 0,
@@ -351,30 +366,21 @@ const TaxInvoice: React.FC = () => {
       }
     }
     
-    // If GST slab is changed, update GST rates
+    // If GST slab is changed, update GST rates (simplified)
     if (field === 'gst_rate') {
+      // Keep the existing logic for backward compatibility but simplify tax calculation
       const gstSlab = gstSlabs.find(g => g.rate === value);
       if (gstSlab) {
-        const isInterState = invoice.customer_state.toLowerCase() !== invoice.company_state.toLowerCase();
-        if (isInterState) {
-          newItems[index].cgst_rate = 0;
-          newItems[index].sgst_rate = 0;
-          newItems[index].igst_rate = gstSlab.igst_rate;
-        } else {
-          newItems[index].cgst_rate = gstSlab.cgst_rate;
-          newItems[index].sgst_rate = gstSlab.sgst_rate;
-          newItems[index].igst_rate = 0;
-        }
+        newItems[index].cgst_rate = gstSlab.cgst_rate;
+        newItems[index].sgst_rate = gstSlab.sgst_rate;
+        newItems[index].igst_rate = gstSlab.igst_rate;
       }
     }
     
     // Recalculate amounts
     const item = newItems[index];
     const baseAmount = (item.quantity * item.unit_price) - item.discount_amount;
-    item.cgst_amount = (baseAmount * item.cgst_rate) / 100;
-    item.sgst_amount = (baseAmount * item.sgst_rate) / 100;
-    item.igst_amount = (baseAmount * item.igst_rate) / 100;
-    item.tax_amount = item.cgst_amount + item.sgst_amount + item.igst_amount;
+    item.tax_amount = (baseAmount * item.gst_rate) / 100;
     item.line_total = baseAmount + item.tax_amount;
     
     setInvoiceItems(newItems);
@@ -382,17 +388,11 @@ const TaxInvoice: React.FC = () => {
 
   const calculateTotals = () => {
     const subtotal = invoiceItems.reduce((sum, item) => sum + ((item.quantity * item.unit_price) - item.discount_amount), 0);
-    const totalCGST = invoiceItems.reduce((sum, item) => sum + item.cgst_amount, 0);
-    const totalSGST = invoiceItems.reduce((sum, item) => sum + item.sgst_amount, 0);
-    const totalIGST = invoiceItems.reduce((sum, item) => sum + item.igst_amount, 0);
-    const totalTax = totalCGST + totalSGST + totalIGST;
+    const totalTax = invoiceItems.reduce((sum, item) => sum + item.tax_amount, 0);
     const totalAmount = subtotal + totalTax;
     
     return {
       subtotal,
-      totalCGST,
-      totalSGST,
-      totalIGST,
       totalTax,
       totalAmount
     };
@@ -517,14 +517,14 @@ const TaxInvoice: React.FC = () => {
             }
             
             .company-info h1 {
-              font-size: 20px;
+              font-size: 24px;
               font-weight: bold;
               color: #7c3aed;
               margin-bottom: 4px;
             }
             
             .company-info p {
-              font-size: 11px;
+              font-size: 13px;
               color: #666;
               margin: 1px 0;
               line-height: 1.2;
@@ -535,14 +535,14 @@ const TaxInvoice: React.FC = () => {
             }
             
             .invoice-title h2 {
-              font-size: 24px;
+              font-size: 28px;
               font-weight: bold;
               color: #333;
               margin-bottom: 4px;
             }
             
             .invoice-number {
-              font-size: 13px;
+              font-size: 15px;
               color: #7c3aed;
               font-weight: bold;
             }
@@ -564,7 +564,7 @@ const TaxInvoice: React.FC = () => {
             }
             
             .detail-label {
-              font-size: 10px;
+              font-size: 11px;
               color: #666;
               text-transform: uppercase;
               font-weight: bold;
@@ -572,7 +572,7 @@ const TaxInvoice: React.FC = () => {
             }
             
             .detail-value {
-              font-size: 12px;
+              font-size: 14px;
               font-weight: bold;
               color: #333;
             }
@@ -601,7 +601,7 @@ const TaxInvoice: React.FC = () => {
             }
             
             .section-title {
-              font-size: 11px;
+              font-size: 12px;
               font-weight: bold;
               color: #7c3aed;
               text-transform: uppercase;
@@ -611,7 +611,7 @@ const TaxInvoice: React.FC = () => {
             }
             
             .customer-name {
-              font-size: 14px;
+              font-size: 16px;
               font-weight: bold;
               color: #333;
               margin-bottom: 6px;
@@ -619,7 +619,7 @@ const TaxInvoice: React.FC = () => {
             
             .customer-details p, .company-details p {
               margin-bottom: 2px;
-              font-size: 11px;
+              font-size: 12px;
               color: #555;
               line-height: 1.3;
             }
@@ -646,7 +646,7 @@ const TaxInvoice: React.FC = () => {
               padding: 8px 6px;
               text-align: left;
               font-weight: bold;
-              font-size: 10px;
+              font-size: 12px;
               color: white;
               text-transform: uppercase;
             }
@@ -666,7 +666,7 @@ const TaxInvoice: React.FC = () => {
             
             .items-table td {
               padding: 6px;
-              font-size: 11px;
+              font-size: 12px;
               color: #333;
               line-height: 1.2;
             }
@@ -678,7 +678,7 @@ const TaxInvoice: React.FC = () => {
             }
             
             .item-sku {
-              font-size: 9px;
+              font-size: 10px;
               color: #666;
               font-style: italic;
             }
@@ -708,7 +708,7 @@ const TaxInvoice: React.FC = () => {
             
             .summary-table td {
               padding: 6px 10px;
-              font-size: 11px;
+              font-size: 12px;
             }
             
             .summary-table .label {
@@ -733,7 +733,7 @@ const TaxInvoice: React.FC = () => {
             .total-row .label,
             .total-row .value {
               color: white;
-              font-size: 12px;
+              font-size: 14px;
               font-weight: bold;
               padding: 8px 10px;
             }
@@ -750,15 +750,49 @@ const TaxInvoice: React.FC = () => {
             }
             
             .amount-words .label {
-              font-size: 10px;
+              font-size: 11px;
               color: #666;
               margin-bottom: 2px;
             }
             
             .amount-words .value {
-              font-size: 12px;
+              font-size: 14px;
               font-weight: bold;
               color: #333;
+            }
+            
+            /* Bank Details */
+            .bank-details {
+              background: #f8f9fa;
+              padding: 8px 12px;
+              border-radius: 4px;
+              border: 1px solid #e9ecef;
+              margin-bottom: 12px;
+            }
+            
+            .bank-details .title {
+              font-size: 12px;
+              font-weight: bold;
+              color: #7c3aed;
+              margin-bottom: 4px;
+              text-transform: uppercase;
+            }
+            
+            .bank-details .bank-info {
+              display: flex;
+              justify-content: space-between;
+              gap: 20px;
+            }
+            
+            .bank-details .bank-item {
+              flex: 1;
+              font-size: 11px;
+              color: #555;
+            }
+            
+            .bank-details .bank-item strong {
+              color: #333;
+              font-weight: bold;
             }
             
             /* Footer */
@@ -769,7 +803,7 @@ const TaxInvoice: React.FC = () => {
               margin-top: 20px;
               padding-top: 10px;
               border-top: 2px solid #e9ecef;
-              font-size: 10px;
+              font-size: 11px;
               color: #666;
             }
             
@@ -791,10 +825,15 @@ const TaxInvoice: React.FC = () => {
             <!-- Header -->
             <div class="header">
               <div class="company-info">
-                <h1>Your Company Name</h1>
-                <p>Address Line 1, City, State - PIN</p>
-                <p>Phone: +91 XXXXX-XXXXX | Email: contact@yourcompany.com</p>
-                <p>GST: XXAXXXXXXXX | PAN: XXXXXXXXXX</p>
+                <h1>${organization?.company_name || 'Your Company Name'}</h1>
+                <p>${[
+                  organization?.address,
+                  organization?.city,
+                  organization?.state,
+                  organization?.postal_code
+                ].filter(Boolean).join(', ') || 'Address Line 1, City, State - PIN'}</p>
+                <p>Phone: ${organization?.phone || '+91 XXXXX-XXXXX'} | Email: ${organization?.email || 'contact@yourcompany.com'}</p>
+                <p>GST: ${organization?.gst_number || 'XXAXXXXXXXX'} | PAN: ${organization?.pan_number || 'XXXXXXXXXX'}</p>
               </div>
               
               <div class="invoice-title">
@@ -832,14 +871,12 @@ const TaxInvoice: React.FC = () => {
               <div class="bill-to">
                 <div class="section-title">Bill To</div>
                 <div class="customer-name">${customerName}</div>
-                <div class="customer-details">
-                  <p><strong>Code:</strong> ${selectedCustomer ? selectedCustomer.customer_code : 'ADHOC'}</p>
-                  <p><strong>Email:</strong> ${currentCustomer.email}</p>
-                  ${currentCustomer.mobile ? `<p><strong>Mobile:</strong> ${currentCustomer.mobile}</p>` : ''}
-                  ${currentCustomer.gst_number ? `<p><strong>GST:</strong> ${currentCustomer.gst_number}</p>` : ''}
-                  ${currentCustomer.billing_address ? `<p><strong>Address:</strong> ${currentCustomer.billing_address}</p>` : ''}
-                  ${currentCustomer.city || currentCustomer.state ? `<p><strong>Location:</strong> ${[currentCustomer.city, currentCustomer.state].filter(Boolean).join(', ')}</p>` : ''}
-                </div>
+                                 <div class="customer-details">
+                   ${currentCustomer.billing_address ? `<p><strong>Address:</strong> ${currentCustomer.billing_address}</p>` : ''}
+                   ${currentCustomer.city || currentCustomer.state ? `<p>${[currentCustomer.city, currentCustomer.state].filter(Boolean).join(', ')}</p>` : ''}
+                   <p><strong>Email:</strong> ${currentCustomer.email}</p>
+                   ${currentCustomer.gst_number ? `<p><strong>GST:</strong> ${currentCustomer.gst_number}</p>` : ''}
+                 </div>
               </div>
               
               <div class="company-details">
@@ -869,10 +906,9 @@ const TaxInvoice: React.FC = () => {
               <tbody>
                 ${invoiceItems.map((item, index) => `
                   <tr>
-                    <td>
-                      <div class="item-name">${item.item_name}</div>
-                      <div class="item-sku">${item.item_sku}</div>
-                    </td>
+                                         <td>
+                       <div class="item-name">${item.item_name}</div>
+                     </td>
                     <td>${item.quantity}</td>
                     <td>₹${item.unit_price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                     <td>${item.gst_rate}%</td>
@@ -885,38 +921,28 @@ const TaxInvoice: React.FC = () => {
             
             <!-- Summary Section -->
             <div class="summary-section">
-              <table class="summary-table">
-                <tr>
-                  <td class="label">Subtotal</td>
-                  <td class="value">₹${totals.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                </tr>
-                ${totals.totalCGST > 0 ? `
-                <tr class="tax-breakdown">
-                  <td class="label">CGST</td>
-                  <td class="value">₹${totals.totalCGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                </tr>
-                <tr class="tax-breakdown">
-                  <td class="label">SGST</td>
-                  <td class="value">₹${totals.totalSGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                </tr>
-                ` : ''}
-                ${totals.totalIGST > 0 ? `
-                <tr class="tax-breakdown">
-                  <td class="label">IGST</td>
-                  <td class="value">₹${totals.totalIGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                </tr>
-                ` : ''}
-                <tr class="total-row">
-                  <td class="label">Total Amount</td>
-                  <td class="value">₹${totals.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                </tr>
-              </table>
+                             <table class="summary-table">
+                 <tr>
+                   <td class="label">Subtotal</td>
+                   <td class="value">₹${totals.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                 </tr>
+                 
+                 <tr>
+                   <td class="label">Tax Total</td>
+                   <td class="value">₹${totals.totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                 </tr>
+
+                 <tr class="total-row">
+                   <td class="label">Total Amount</td>
+                   <td class="value">₹${totals.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                 </tr>
+               </table>
             </div>
             
                           ${invoice.notes ? `
              <div style="background: #f8f9fa; padding: 8px; border-radius: 4px; border-left: 2px solid #7c3aed; margin-bottom: 12px;">
-               <div style="font-weight: bold; margin-bottom: 3px; color: #7c3aed; font-size: 10px;">Notes:</div>
-               <div style="color: #555; font-size: 10px; line-height: 1.3;">${invoice.notes}</div>
+               <div style="font-weight: bold; margin-bottom: 3px; color: #7c3aed; font-size: 11px;">Notes:</div>
+               <div style="color: #555; font-size: 11px; line-height: 1.3;">${invoice.notes}</div>
              </div>
              ` : ''}
             
@@ -926,11 +952,39 @@ const TaxInvoice: React.FC = () => {
               <div class="value">${convertNumberToWords(totals.totalAmount)} Rupees Only</div>
             </div>
             
+            <!-- Bank Details -->
+            ${organization?.bank_name || organization?.bank_account_number || organization?.bank_ifsc_code ? `
+            <div class="bank-details">
+              <div class="title">Bank Details for Payment</div>
+              <div class="bank-info">
+                ${organization?.bank_name ? `
+                <div class="bank-item">
+                  <strong>Bank Name:</strong><br>
+                  ${organization.bank_name}
+                </div>` : ''}
+                ${organization?.bank_account_number ? `
+                <div class="bank-item">
+                  <strong>Account Number:</strong><br>
+                  ${organization.bank_account_number}
+                </div>` : ''}
+                ${organization?.bank_ifsc_code ? `
+                <div class="bank-item">
+                  <strong>IFSC Code:</strong><br>
+                  ${organization.bank_ifsc_code}
+                </div>` : ''}
+              </div>
+              ${organization?.bank_account_holder_name ? `
+              <div style="margin-top: 4px; font-size: 11px; color: #666;">
+                <strong>Account Holder:</strong> ${organization.bank_account_holder_name}
+              </div>` : ''}
+            </div>
+            ` : ''}
+            
             <!-- Footer -->
             <div class="footer-info">
               <div>
                 <strong>Thank you for your business!</strong><br>
-                For any queries: contact@yourcompany.com
+                For any queries: ${organization?.email || 'contact@yourcompany.com'}
               </div>
               <div style="text-align: right;">
                 Generated: ${currentDate.toLocaleDateString('en-IN')}<br>
@@ -1388,9 +1442,9 @@ const TaxInvoice: React.FC = () => {
           <div className="space-y-4">
             {invoiceItems.map((item, index) => (
               <div key={index} className="border border-gray-200 rounded-lg p-4">
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                <div className="flex flex-wrap gap-3 items-end">
                   {/* Item Selection */}
-                  <div className="md:col-span-3">
+                  <div className="flex-1 min-w-[200px]">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Item
                     </label>
@@ -1437,43 +1491,43 @@ const TaxInvoice: React.FC = () => {
                   </div>
                   
                   {/* Quantity */}
-                  <div className="md:col-span-2">
+                  <div className="w-20">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Quantity
                     </label>
                     <input
                       type="number"
                       value={item.quantity}
-                      onChange={(e) => updateInvoiceItem(index, 'quantity', parseFloat(e.target.value))}
+                      onChange={(e) => updateInvoiceItem(index, 'quantity', parseInt(e.target.value))}
                       className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                       min="0"
-                      step="0.01"
+                      step="1"
                     />
                   </div>
                   
                   {/* Unit Price */}
-                  <div className="md:col-span-2">
+                  <div className="w-24">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Unit Price
                     </label>
                     <input
                       type="number"
                       value={item.unit_price}
-                      onChange={(e) => updateInvoiceItem(index, 'unit_price', parseFloat(e.target.value))}
+                      onChange={(e) => updateInvoiceItem(index, 'unit_price', parseInt(e.target.value))}
                       className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                       min="0"
-                      step="0.01"
+                      step="1"
                     />
                   </div>
                   
                   {/* GST Rate */}
-                  <div className="md:col-span-2">
+                  <div className="w-24">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       GST Rate
                     </label>
                     <select
                       value={item.gst_rate}
-                      onChange={(e) => updateInvoiceItem(index, 'gst_rate', parseFloat(e.target.value))}
+                      onChange={(e) => updateInvoiceItem(index, 'gst_rate', parseInt(e.target.value))}
                       className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     >
                       {gstSlabs.map(slab => (
@@ -1484,8 +1538,18 @@ const TaxInvoice: React.FC = () => {
                     </select>
                   </div>
                   
+                  {/* Tax Amount */}
+                  <div className="w-28">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Tax Amount
+                    </label>
+                    <div className="p-2 bg-gray-50 rounded text-right font-medium">
+                      ₹{item.tax_amount.toFixed(2)}
+                    </div>
+                  </div>
+                  
                   {/* Line Total */}
-                  <div className="md:col-span-2">
+                  <div className="w-28">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Line Total
                     </label>
@@ -1495,7 +1559,7 @@ const TaxInvoice: React.FC = () => {
                   </div>
                   
                   {/* Remove Button */}
-                  <div className="md:col-span-1">
+                  <div className="w-12">
                     <button
                       onClick={() => removeInvoiceItem(index)}
                       className="text-red-600 hover:text-red-800 p-2"
@@ -1505,23 +1569,7 @@ const TaxInvoice: React.FC = () => {
                   </div>
                 </div>
                 
-                {/* GST Breakdown */}
-                <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                  <div className="grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <span className="font-medium">CGST ({item.cgst_rate}%):</span>
-                      <span className="float-right">₹{item.cgst_amount.toFixed(2)}</span>
-                    </div>
-                    <div>
-                      <span className="font-medium">SGST ({item.sgst_rate}%):</span>
-                      <span className="float-right">₹{item.sgst_amount.toFixed(2)}</span>
-                    </div>
-                    <div>
-                      <span className="font-medium">IGST ({item.igst_rate}%):</span>
-                      <span className="float-right">₹{item.igst_amount.toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
+
               </div>
             ))}
           </div>
@@ -1544,12 +1592,6 @@ const TaxInvoice: React.FC = () => {
                   <div className="flex justify-between">
                     <span className="text-gray-600">Subtotal:</span>
                     <span className="font-semibold">₹{totals.subtotal.toFixed(2)}</span>
-                  </div>
-                  
-                  <div className="flex justify-between text-xs">
-                    <span>CGST: ₹{totals.totalCGST.toFixed(2)}</span>
-                    <span>SGST: ₹{totals.totalSGST.toFixed(2)}</span>
-                    <span>IGST: ₹{totals.totalIGST.toFixed(2)}</span>
                   </div>
                   
                   <div className="flex justify-between border-t pt-2">

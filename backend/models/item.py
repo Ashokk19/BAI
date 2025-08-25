@@ -16,9 +16,12 @@ class ItemCategory(Base):
     __tablename__ = "item_categories"
     
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), unique=True, nullable=False)
+    name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
+    
+    # Customer identification for multi-tenant support
+    account_id = Column(String(100), nullable=False, default="TestAccount", index=True)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -39,8 +42,11 @@ class Item(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
-    sku = Column(String(50), unique=True, nullable=False)
+    sku = Column(String(50), nullable=False)
     barcode = Column(String(50), unique=True, nullable=True)
+    
+    # Customer identification for multi-tenant support
+    account_id = Column(String(100), nullable=False, default="TestAccount", index=True)
     
     # Category relationship
     category_id = Column(Integer, ForeignKey("item_categories.id"), nullable=False)

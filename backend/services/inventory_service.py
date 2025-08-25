@@ -23,6 +23,7 @@ class InventoryService:
         quantity_before: float,
         quantity_after: float,
         user_id: int,
+        account_id: str,
         notes: Optional[str] = None,
         transaction_reference: Optional[str] = None,
         unit_cost: Optional[float] = None
@@ -37,6 +38,7 @@ class InventoryService:
             quantity_before: Quantity before the change
             quantity_after: Quantity after the change
             user_id: ID of the user performing the action
+            account_id: Account ID for multi-tenant support
             notes: Optional notes about the transaction
             transaction_reference: Optional reference (e.g., import filename)
             unit_cost: Optional unit cost at time of transaction
@@ -48,6 +50,7 @@ class InventoryService:
         
         log_entry = InventoryLog(
             item_id=item_id,
+            account_id=account_id,
             transaction_type=transaction_type,
             transaction_reference=transaction_reference,
             quantity_before=Decimal(str(quantity_before)),
@@ -77,6 +80,7 @@ class InventoryService:
             quantity_before=0,
             quantity_after=item.current_stock,
             user_id=user_id,
+            account_id=item.account_id,
             notes=notes or f"New item '{item.name}' created with initial stock",
             unit_cost=float(item.unit_price) if item.unit_price else None
         )
@@ -101,6 +105,7 @@ class InventoryService:
             quantity_before=old_stock,
             quantity_after=item.current_stock,
             user_id=user_id,
+            account_id=item.account_id,
             notes=notes_text,
             unit_cost=float(item.unit_price) if item.unit_price else None
         )
@@ -113,6 +118,7 @@ class InventoryService:
         item_sku: str,
         final_stock: int,
         user_id: int,
+        account_id: str,
         notes: Optional[str] = None
     ) -> InventoryLog:
         """Log when an item is deleted."""
@@ -123,6 +129,7 @@ class InventoryService:
             quantity_before=final_stock,
             quantity_after=0,
             user_id=user_id,
+            account_id=account_id,
             notes=notes or f"Item '{item_name}' (SKU: {item_sku}) deleted",
         )
     

@@ -86,26 +86,26 @@ class CustomerApiService {
     if (filters.state) params.append('state', filters.state);
     
     const queryString = params.toString();
-    const url = `/sales/customers${queryString ? `?${queryString}` : ''}`;
+    const url = `/api/customers${queryString ? `?${queryString}` : ''}`;
     
     return await apiService.get<CustomerListResponse>(url);
   }
 
   async getCustomer(id: number): Promise<Customer> {
-    return await apiService.get<Customer>(`/sales/customers/${id}`);
+    return await apiService.get<Customer>(`/api/customers/${id}`);
   }
 
   async createCustomer(customerData: CustomerCreate): Promise<Customer> {
-    return await apiService.post<Customer>('/sales/customers', customerData);
+    return await apiService.post<Customer>('/api/customers', customerData);
   }
 
   async updateCustomer(id: number, customerData: CustomerUpdate): Promise<Customer> {
-    return await apiService.put<Customer>(`/sales/customers/${id}`, customerData);
+    return await apiService.put<Customer>(`/api/customers/${id}`, customerData);
   }
 
   async deleteCustomer(id: number): Promise<void> {
     try {
-      return await apiService.delete<void>(`/sales/customers/${id}`);
+      return await apiService.delete<void>(`/api/customers/${id}`);
     } catch (error: any) {
       const errorMessage = error.response?.data?.detail || 'Failed to delete customer';
       throw new Error(errorMessage);
@@ -113,11 +113,11 @@ class CustomerApiService {
   }
 
   async toggleCustomerStatus(id: number): Promise<Customer> {
-    return await apiService.patch<Customer>(`/sales/customers/${id}/toggle-status`);
+    return await apiService.patch<Customer>(`/api/customers/${id}/toggle-status`);
   }
 
   async getCustomerSummary(): Promise<any> {
-    return await apiService.get<any>('/sales/customers/summary');
+    return await apiService.get<any>('/api/customers/summary');
   }
 }
 

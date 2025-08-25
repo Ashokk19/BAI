@@ -36,7 +36,8 @@ async def get_customers(
 ):
     """Get customers list with pagination and filters."""
     
-    query = db.query(Customer)
+    # Filter by account_id from current user
+    query = db.query(Customer).filter(Customer.account_id == current_user.account_id)
     
     # Apply search filter
     if search:
@@ -90,7 +91,10 @@ async def get_customer(
 ):
     """Get a specific customer by ID."""
     
-    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    customer = db.query(Customer).filter(
+        Customer.id == customer_id,
+        Customer.account_id == current_user.account_id
+    ).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     
@@ -104,9 +108,10 @@ async def create_customer(
 ):
     """Create a new customer."""
     
-    # Check if customer code already exists
+    # Check if customer code already exists for this account
     existing_customer = db.query(Customer).filter(
-        Customer.customer_code == customer_data.customer_code
+        Customer.customer_code == customer_data.customer_code,
+        Customer.account_id == current_user.account_id
     ).first()
     if existing_customer:
         raise HTTPException(
@@ -114,9 +119,10 @@ async def create_customer(
             detail="Customer code already exists"
         )
     
-    # Check if email already exists
+    # Check if email already exists for this account
     existing_email = db.query(Customer).filter(
-        Customer.email == customer_data.email
+        Customer.email == customer_data.email,
+        Customer.account_id == current_user.account_id
     ).first()
     if existing_email:
         raise HTTPException(
@@ -124,8 +130,10 @@ async def create_customer(
             detail="Email already exists"
         )
     
-    # Create new customer
-    customer = Customer(**customer_data.model_dump())
+    # Create new customer with account_id
+    customer_data_dict = customer_data.model_dump()
+    customer_data_dict['account_id'] = current_user.account_id
+    customer = Customer(**customer_data_dict)
     db.add(customer)
     db.commit()
     db.refresh(customer)
@@ -141,14 +149,18 @@ async def update_customer(
 ):
     """Update an existing customer."""
     
-    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    customer = db.query(Customer).filter(
+        Customer.id == customer_id,
+        Customer.account_id == current_user.account_id
+    ).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     
     # Check if customer code already exists (if being updated)
     if customer_data.customer_code and customer_data.customer_code != customer.customer_code:
         existing_customer = db.query(Customer).filter(
-            Customer.customer_code == customer_data.customer_code
+            Customer.customer_code == customer_data.customer_code,
+            Customer.account_id == current_user.account_id
         ).first()
         if existing_customer:
             raise HTTPException(
@@ -159,7 +171,8 @@ async def update_customer(
     # Check if email already exists (if being updated)
     if customer_data.email and customer_data.email != customer.email:
         existing_email = db.query(Customer).filter(
-            Customer.email == customer_data.email
+            Customer.email == customer_data.email,
+            Customer.account_id == current_user.account_id
         ).first()
         if existing_email:
             raise HTTPException(
@@ -185,7 +198,10 @@ async def delete_customer(
 ):
     """Delete a customer."""
     
-    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    customer = db.query(Customer).filter(
+        Customer.id == customer_id,
+        Customer.account_id == current_user.account_id
+    ).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     
@@ -194,6 +210,27 @@ async def delete_customer(
     
     return {"message": "Customer deleted successfully"}
 
+@router.patch("/{customer_id}/toggle-status")
+async def toggle_customer_status(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Toggle customer active status."""
+    
+    customer = db.query(Customer).filter(
+        Customer.id == customer_id,
+        Customer.account_id == current_user.account_id
+    ).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    customer.is_active = not customer.is_active
+    db.commit()
+    db.refresh(customer)
+    
+    return customer
+
 @router.get("/summary/list", response_model=List[CustomerSummary])
 async def get_customers_summary(
     db: Session = Depends(get_db),
@@ -201,7 +238,10 @@ async def get_customers_summary(
 ):
     """Get customers summary for dropdowns and quick selection."""
     
-    customers = db.query(Customer).filter(Customer.is_active == True).all()
+    customers = db.query(Customer).filter(
+        Customer.is_active == True,
+        Customer.account_id == current_user.account_id
+    ).all()
     
     customer_summaries = []
     for customer in customers:
@@ -222,6 +262,45 @@ async def get_customers_summary(
     
     return customer_summaries
 
+@router.get("/summary", response_model=dict)
+async def get_customers_summary_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get customers summary statistics."""
+    
+    total_customers = db.query(Customer).filter(
+        Customer.account_id == current_user.account_id
+    ).count()
+    
+    active_customers = db.query(Customer).filter(
+        Customer.is_active == True,
+        Customer.account_id == current_user.account_id
+    ).count()
+    
+    business_customers = db.query(Customer).filter(
+        Customer.customer_type == "business",
+        Customer.account_id == current_user.account_id
+    ).count()
+    
+    individual_customers = db.query(Customer).filter(
+        Customer.customer_type == "individual",
+        Customer.account_id == current_user.account_id
+    ).count()
+    
+    verified_customers = db.query(Customer).filter(
+        Customer.is_verified == True,
+        Customer.account_id == current_user.account_id
+    ).count()
+    
+    return {
+        "total": total_customers,
+        "active": active_customers,
+        "business": business_customers,
+        "individual": individual_customers,
+        "verified": verified_customers
+    }
+
 @router.get("/tamil-nadu/list", response_model=List[CustomerResponse])
 async def get_tamil_nadu_customers(
     db: Session = Depends(get_db),
@@ -230,7 +309,8 @@ async def get_tamil_nadu_customers(
     """Get customers from Tamil Nadu."""
     
     customers = db.query(Customer).filter(
-        Customer.state.ilike("%Tamil Nadu%")
+        Customer.state.ilike("%Tamil Nadu%"),
+        Customer.account_id == current_user.account_id
     ).all()
     
     return customers
@@ -476,13 +556,17 @@ async def seed_tamil_nadu_customers(
     
     created_customers = []
     for customer_data in tamil_nadu_customers:
-        # Check if customer already exists
+        # Check if customer already exists for this account
         existing_customer = db.query(Customer).filter(
-            Customer.customer_code == customer_data["customer_code"]
+            Customer.customer_code == customer_data["customer_code"],
+            Customer.account_id == current_user.account_id
         ).first()
         
         if not existing_customer:
-            customer = Customer(**customer_data)
+            # Add account_id to customer data
+            customer_data_with_account = customer_data.copy()
+            customer_data_with_account["account_id"] = current_user.account_id
+            customer = Customer(**customer_data_with_account)
             db.add(customer)
             created_customers.append(customer_data["customer_code"])
     

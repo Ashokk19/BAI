@@ -26,6 +26,9 @@ import PaymentsMade from './pages/purchases/payments-made';
 import PurchaseOrders from './pages/purchases/purchase-orders';
 import PurchaseReceived from './pages/purchases/purchase-received';
 import VendorCredits from './pages/purchases/vendor-credits';
+import Profile from './pages/Profile';
+import Settings from './pages/Settings';
+import OrganizationSettings from './pages/OrganizationSettings';
 
 // Protected Route component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -329,6 +332,40 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <VendorCredits />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Profile and Settings Routes */}
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Profile />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Settings />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/organization-settings"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <OrganizationSettings />
                   </Layout>
                 </ProtectedRoute>
               }

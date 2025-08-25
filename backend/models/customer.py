@@ -16,15 +16,18 @@ class Customer(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     
+    # Account ID for multi-tenant support
+    account_id = Column(String(100), nullable=False, default="TestAccount", index=True)
+    
     # Basic information
-    customer_code = Column(String(50), unique=True, nullable=False)
+    customer_code = Column(String(50), nullable=False)
     company_name = Column(String(200), nullable=True)
     contact_person = Column(String(100), nullable=True)
     first_name = Column(String(50), nullable=True)
     last_name = Column(String(50), nullable=True)
     
     # Contact information
-    email = Column(String(255), unique=True, index=True, nullable=False)
+    email = Column(String(255), index=True, nullable=False)
     phone = Column(String(20), nullable=True)
     mobile = Column(String(20), nullable=True)
     website = Column(String(255), nullable=True)

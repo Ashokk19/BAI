@@ -1,3 +1,5 @@
+"use client"
+
 import { useState } from "react"
 import { Eye, EyeOff, Mail, Lock, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -7,16 +9,19 @@ import APP_CONFIG from "@/config/app"
 import Footer from "@/components/Layout/Footer"
 
 export default function Register() {
-  const [showPassword, setShowPassword] = useState(false)
   const [formData, setFormData] = useState({
     email: "",
-    password: "",
     username: "",
+    password: "",
+    confirmPassword: "",
     first_name: "",
     last_name: "",
+    account_id: "TestAccount",
     phone: "",
     address: ""
   })
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -47,6 +52,11 @@ export default function Register() {
       return
     }
 
+    if (formData.password !== formData.confirmPassword) {
+      setError("Passwords do not match")
+      return
+    }
+
     setIsLoading(true)
     
     try {
@@ -61,6 +71,7 @@ export default function Register() {
           password: formData.password,
           first_name: formData.first_name,
           last_name: formData.last_name,
+          account_id: formData.account_id,
           phone: formData.phone || null,
           address: formData.address || null
         })
@@ -102,44 +113,44 @@ export default function Register() {
 
       {/* Main content */}
       <div className="flex-1 flex items-center justify-center p-4 relative z-10">
-      <div className="w-full max-w-md mx-auto relative z-10">
-        <div className="bg-white/40 backdrop-blur-3xl border border-white/80 rounded-3xl p-8 shadow-2xl ring-2 ring-white/60 hover:bg-white/50 hover:ring-white/70 transition-all duration-300 relative overflow-hidden">
-          {/* Enhanced glass effect overlay */}
-          <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-white/20 rounded-3xl"></div>
+        <div className="w-full max-w-md mx-auto relative z-10">
+          <div className="bg-white/40 backdrop-blur-3xl border border-white/80 rounded-3xl p-8 shadow-2xl ring-2 ring-white/60 hover:bg-white/50 hover:ring-white/70 transition-all duration-300 relative overflow-hidden">
+            {/* Enhanced glass effect overlay */}
+            <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-white/20 rounded-3xl"></div>
 
-          <div className="space-y-6 relative z-10">
-            {/* Header */}
-            <div className="text-center space-y-4">
-              <div className="flex items-center justify-center space-x-3">
-                <div className={`w-12 h-12 ${APP_CONFIG.logo.bgColor} rounded-xl flex items-center justify-center shadow-lg`}>
-                  <span className="text-2xl">{APP_CONFIG.logo.icon}</span>
+            <div className="space-y-6 relative z-10">
+              {/* Header */}
+              <div className="text-center space-y-4">
+                <div className="flex items-center justify-center space-x-3">
+                  <div className={`w-12 h-12 ${APP_CONFIG.logo.bgColor} rounded-xl flex items-center justify-center shadow-lg`}>
+                    <span className="text-2xl">{APP_CONFIG.logo.icon}</span>
+                  </div>
+                  <div>
+                    <h1 className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-700 bg-clip-text text-transparent">
+                      {APP_CONFIG.name}
+                    </h1>
+                  </div>
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-700 bg-clip-text text-transparent">
-                    {APP_CONFIG.name}
-                  </h1>
+                  <h3 className="text-gray-900 text-2xl font-bold">Create Account</h3>
+                  <p className="text-gray-700 font-semibold">Sign up to get started with {APP_CONFIG.name}</p>
                 </div>
               </div>
-              <div>
-                <h3 className="text-gray-900 text-2xl font-bold">Create Account</h3>
-                <p className="text-gray-700 font-semibold">Sign up to get started with {APP_CONFIG.name}</p>
-              </div>
-            </div>
 
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
-                {error}
-              </div>
-            )}
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
+                  {error}
+                </div>
+              )}
 
-            {success && (
-              <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-lg text-sm">
-                {success}
-              </div>
-            )}
+              {success && (
+                <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-lg text-sm">
+                  {success}
+                </div>
+              )}
 
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="username" className="text-gray-800 font-bold">
                       Username *
@@ -203,6 +214,30 @@ export default function Register() {
                 </div>
 
                 <div className="space-y-2">
+                  <Label htmlFor="account_id" className="text-gray-800 font-bold">
+                    Account ID *
+                  </Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
+                    <select
+                      id="account_id"
+                      name="account_id"
+                      value={formData.account_id}
+                      onChange={(e) => setFormData({...formData, account_id: e.target.value})}
+                      className="pl-10 w-full bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-md appearance-none pr-4"
+                      disabled={isLoading}
+                      required
+                    >
+                      <option value="TestAccount">TestAccount</option>
+                      <option value="AccountA">Account A</option>
+                      <option value="AccountB">Account B</option>
+                      <option value="AccountC">Account C</option>
+                      <option value="DemoAccount">Demo Account</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="email" className="text-gray-800 font-bold">
                     Email Address *
                   </Label>
@@ -251,6 +286,34 @@ export default function Register() {
                 </div>
 
                 <div className="space-y-2">
+                  <Label htmlFor="confirmPassword" className="text-gray-800 font-bold">
+                    Confirm Password *
+                  </Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
+                    <Input
+                      id="confirmPassword"
+                      name="confirmPassword"
+                      type={showConfirmPassword ? "text" : "password"}
+                      placeholder="Confirm your password"
+                      value={formData.confirmPassword}
+                      onChange={handleInputChange}
+                      className="pl-10 pr-10 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 placeholder:text-gray-600 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold"
+                      disabled={isLoading}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-600 hover:text-gray-800 transition-colors"
+                      disabled={isLoading}
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="phone" className="text-gray-800 font-bold">
                     Phone (Optional)
                   </Label>
@@ -293,10 +356,10 @@ export default function Register() {
           </div>
         </div>
       </div>
-      </div>
-      
-      {/* Footer */}
-      <Footer />
     </div>
+    
+    {/* Footer */}
+    <Footer />
+  </div>
   )
 } 

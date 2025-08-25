@@ -11,7 +11,8 @@ from decimal import Decimal
 
 class CustomerBase(BaseModel):
     """Base customer schema with common fields."""
-    customer_code: str = Field(..., max_length=50, description="Unique customer code")
+    account_id: str = Field(default="TestAccount", max_length=100, description="Account ID for multi-tenant support")
+    customer_code: str = Field(..., max_length=50, description="Customer code")
     company_name: Optional[str] = Field(None, max_length=200, description="Company name")
     contact_person: Optional[str] = Field(None, max_length=100, description="Contact person name")
     first_name: Optional[str] = Field(None, max_length=50, description="First name")

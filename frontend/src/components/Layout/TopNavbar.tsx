@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../utils/AuthContext';
 import APP_CONFIG from '@/config/app';
 
@@ -9,9 +10,25 @@ interface TopNavbarProps {
 const TopNavbar: React.FC<TopNavbarProps> = ({ onMenuClick }) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   const handleLogout = () => {
     logout();
+    setShowUserMenu(false);
+  };
+
+  const handleProfileClick = () => {
+    navigate('/profile');
+    setShowUserMenu(false);
+  };
+
+  const handleSettingsClick = () => {
+    navigate('/settings');
+    setShowUserMenu(false);
+  };
+
+  const handleOrganizationSettingsClick = () => {
+    navigate('/organization-settings');
     setShowUserMenu(false);
   };
 
@@ -86,16 +103,22 @@ const TopNavbar: React.FC<TopNavbarProps> = ({ onMenuClick }) => {
                   </div>
                   <div className="py-1">
                     <button
-                      onClick={() => setShowUserMenu(false)}
+                      onClick={handleProfileClick}
                       className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                     >
                       Your Profile
                     </button>
                     <button
-                      onClick={() => setShowUserMenu(false)}
+                      onClick={handleSettingsClick}
                       className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                     >
                       Settings
+                    </button>
+                    <button
+                      onClick={handleOrganizationSettingsClick}
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    >
+                      Organization Settings
                     </button>
                   </div>
                   <div className="py-1">
