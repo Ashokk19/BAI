@@ -17,6 +17,9 @@ class Invoice(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     
+    # Multi-tenancy support
+    account_id = Column(String(50), nullable=False, index=True)
+    
     # Invoice identification
     invoice_number = Column(String(50), unique=True, nullable=False)
     invoice_date = Column(DateTime(timezone=True), nullable=False)

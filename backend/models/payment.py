@@ -17,6 +17,9 @@ class Payment(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     
+    # Multi-tenancy
+    account_id = Column(String(100), nullable=False, default="TestAccount", index=True)
+    
     # Payment identification
     payment_number = Column(String(50), unique=True, nullable=False)
     payment_date = Column(DateTime(timezone=True), nullable=False)

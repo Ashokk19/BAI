@@ -31,8 +31,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Include routers
@@ -44,6 +45,11 @@ app.include_router(purchases.router, prefix="/api/purchases", tags=["Purchases"]
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(organization.router, prefix="/api/organization", tags=["Organization"])
 app.include_router(user_management.router, prefix="/api/user-management", tags=["User Management"])
+
+@app.options("/{path:path}")
+async def options_handler(path: str):
+    """Handle CORS preflight requests."""
+    return {"message": "OK"}
 
 @app.get("/")
 async def root():

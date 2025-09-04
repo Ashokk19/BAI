@@ -91,6 +91,9 @@ class SalesReturnResponse(SalesReturnBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
     items: List[SalesReturnItemResponse] = []
+    # Additional fields for frontend display
+    customer_name: Optional[str] = None
+    invoice_number: Optional[str] = None
     
     class Config:
         from_attributes = True

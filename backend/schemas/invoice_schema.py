@@ -45,6 +45,7 @@ class InvoiceItemResponse(InvoiceItemBase):
 
 class InvoiceBase(BaseModel):
     """Base invoice schema."""
+    account_id: str = Field(..., description="Account ID for organization isolation")
     customer_id: int = Field(..., description="Customer ID")
     invoice_date: datetime = Field(..., description="Invoice date")
     due_date: Optional[datetime] = Field(None, description="Due date")

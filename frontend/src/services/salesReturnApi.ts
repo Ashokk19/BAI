@@ -182,5 +182,33 @@ export const salesReturnApi = {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     return response.json();
+  },
+
+  /**
+   * Update a sales return
+   */
+  async updateSalesReturn(returnId: number, updateData: Partial<SalesReturnCreate>): Promise<SalesReturn> {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}/${returnId}`), {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(updateData),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+  },
+
+  /**
+   * Download credit report for a sales return
+   */
+  async downloadCreditReport(returnId: number): Promise<string> {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}/${returnId}/credit-report`), {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.text();
   }
 }; 

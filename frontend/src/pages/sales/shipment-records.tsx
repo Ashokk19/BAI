@@ -15,6 +15,7 @@ import { CalendarIcon, Plus, Search, Ship, Eye, Download, Truck, Package } from 
 import { format } from "date-fns"
 import { shipmentApi, Shipment as ApiShipment, ShipmentCreate } from "../../services/shipmentApi"
 import { customerApi, Customer } from "../../services/customerApi"
+import { invoiceApi, Invoice } from "../../services/invoiceApi"
 import { useNotifications, NotificationContainer } from "../../components/ui/notification"
 
 // Using Shipment interface from shipmentApi as ApiShipment
@@ -23,26 +24,34 @@ export default function ShipmentRecords() {
   const notifications = useNotifications()
   const [shipments, setShipments] = useState<ApiShipment[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
+  const [invoicesLoading, setInvoicesLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<Date>()
   const [expectedDate, setExpectedDate] = useState<Date>()
   const [formData, setFormData] = useState({
     customer_id: 0,
-    customer: "",
-    invoiceNumber: "",
-    deliveryNoteNumber: "",
+    invoice_id: 0,
     shipping_address: "",
     carrier: "",
     shipping_method: "",
+    tracking_number: "",
     notes: "",
+    total_weight: 0,
+    shipping_cost: 0,
+    package_count: 1,
+    dimensions: "",
+    insurance_cost: 0,
+    special_instructions: "",
   })
 
   // Load shipments on component mount
   useEffect(() => {
     loadShipments()
     loadCustomers()
+    loadInvoices()
   }, [])
 
   // Reload when search changes
@@ -81,6 +90,69 @@ export default function ShipmentRecords() {
     }
   }
 
+  const loadInvoices = async () => {
+    try {
+      setInvoicesLoading(true)
+      console.log('Loading invoices...')
+      const response = await invoiceApi.getInvoices({ limit: 1000 })
+      console.log('Invoices loaded:', response)
+      console.log('Number of invoices:', response.invoices.length)
+      setInvoices(response.invoices)
+    } catch (error: any) {
+      console.error('Error loading invoices:', error)
+      console.error('Error details:', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data
+      })
+    } finally {
+      setInvoicesLoading(false)
+    }
+  }
+
+  const handleInvoiceChange = (invoiceId: number) => {
+    const selectedInvoice = invoices.find(invoice => invoice.id === invoiceId)
+    if (selectedInvoice) {
+      
+      // Get customer details for fallback address
+      const customer = customers.find(c => c.id === selectedInvoice.customer_id)
+      
+      // Try to get shipping address with fallbacks
+      let shippingAddress = selectedInvoice.shipping_address || ''
+      
+      // Fallback 1: Use billing address if shipping address is empty
+      if (!shippingAddress && selectedInvoice.billing_address) {
+        shippingAddress = selectedInvoice.billing_address
+      }
+      
+      // Fallback 2: Use customer address if both invoice addresses are empty
+      if (!shippingAddress && customer) {
+        // Try customer shipping address first, then billing address
+        let customerAddress = customer.shipping_address || customer.billing_address || ''
+        
+        // If no address field, construct from individual fields
+        if (!customerAddress) {
+          customerAddress = [
+            customer.city,
+            customer.state,
+            customer.postal_code
+          ].filter(Boolean).join(', ')
+        }
+        
+        if (customerAddress) {
+          shippingAddress = customerAddress
+        }
+      }
+      
+      setFormData({
+        ...formData,
+        invoice_id: invoiceId,
+        customer_id: selectedInvoice.customer_id,
+        shipping_address: shippingAddress
+      })
+    }
+  }
+
   const getCustomerName = (customerId: number): string => {
     const customer = customers.find(c => c.id === customerId)
     if (customer) {
@@ -89,18 +161,55 @@ export default function ShipmentRecords() {
     return 'Unknown Customer'
   }
 
+  const getInvoiceNumber = (invoiceId: number): string => {
+    const invoice = invoices.find(i => i.id === invoiceId)
+    return invoice ? invoice.invoice_number : 'Unknown Invoice'
+  }
+
   const [statusFilter, setStatusFilter] = useState("all")
 
+  const validateForm = (): boolean => {
+    if (!formData.customer_id) {
+      notifications.error('Validation Error', 'Please select a customer')
+      return false
+    }
+    if (!formData.shipping_address.trim()) {
+      notifications.error('Validation Error', 'Please enter shipping address')
+      return false
+    }
+    if (!formData.carrier) {
+      notifications.error('Validation Error', 'Please select a carrier')
+      return false
+    }
+    if (!formData.shipping_method) {
+      notifications.error('Validation Error', 'Please select shipping method')
+      return false
+    }
+    return true
+  }
+
   const handleCreateShipment = async () => {
+    if (!validateForm()) {
+      return
+    }
+    
     try {
       const shipmentData: ShipmentCreate = {
         customer_id: formData.customer_id,
+        invoice_id: formData.invoice_id || undefined,
         shipping_address: formData.shipping_address,
         carrier: formData.carrier,
         shipping_method: formData.shipping_method,
+        tracking_number: formData.tracking_number || undefined,
         notes: formData.notes,
         ship_date: selectedDate ? selectedDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         expected_delivery_date: expectedDate ? expectedDate.toISOString().split('T')[0] : undefined,
+        total_weight: formData.total_weight,
+        shipping_cost: formData.shipping_cost,
+        package_count: formData.package_count,
+        dimensions: formData.dimensions,
+        insurance_cost: formData.insurance_cost,
+        special_instructions: formData.special_instructions,
       }
 
       await shipmentApi.createShipment(shipmentData)
@@ -108,13 +217,18 @@ export default function ShipmentRecords() {
       // Reset form and reload data
       setFormData({
         customer_id: 0,
-        customer: "",
-        invoiceNumber: "",
-        deliveryNoteNumber: "",
+        invoice_id: 0,
         shipping_address: "",
         carrier: "",
         shipping_method: "",
+        tracking_number: "",
         notes: "",
+        total_weight: 0,
+        shipping_cost: 0,
+        package_count: 1,
+        dimensions: "",
+        insurance_cost: 0,
+        special_instructions: "",
       })
       setSelectedDate(undefined)
       setExpectedDate(undefined)
@@ -128,12 +242,9 @@ export default function ShipmentRecords() {
     }
   }
 
-  const updateStatus = async (
-    id: number,
-    status: "preparing" | "shipped" | "in_transit" | "out_for_delivery" | "delivered" | "exception",
-  ) => {
+  const updateStatus = async (id: number, status: string) => {
     try {
-      // TODO: Implement status update API call when available
+      await shipmentApi.updateShipment(id, { status: status })
       notifications.success('Status Updated!', `Shipment status changed to ${status}.`)
       loadShipments() // Reload to get updated data
     } catch (error) {
@@ -146,15 +257,13 @@ export default function ShipmentRecords() {
     switch (status) {
       case "Delivered":
         return "bg-green-100 text-green-800"
-      case "Out for Delivery":
-        return "bg-blue-100 text-blue-800"
       case "In Transit":
+        return "bg-blue-100 text-blue-800"
+      case "Pending":
         return "bg-yellow-100 text-yellow-800"
-      case "Shipped":
-        return "bg-purple-100 text-purple-800"
-      case "Preparing":
-        return "bg-gray-100 text-gray-800"
-      case "Exception":
+      case "Failed":
+        return "bg-red-100 text-red-800"
+      case "Refused":
         return "bg-red-100 text-red-800"
       default:
         return "bg-gray-100 text-gray-800"
@@ -205,41 +314,50 @@ export default function ShipmentRecords() {
                 <div>
                   <Label htmlFor="customer">Customer</Label>
                   <Select
-                    value={formData.customer}
-                    onValueChange={(value) => setFormData({ ...formData, customer: value })}
+                    value={formData.customer_id.toString()}
+                    onValueChange={(value) => setFormData({ ...formData, customer_id: parseInt(value) })}
                   >
                     <SelectTrigger className="bg-white/50 border-white/20">
                       <SelectValue placeholder="Select customer" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Rajesh Kumar">Rajesh Kumar</SelectItem>
-                      <SelectItem value="Priya Sharma">Priya Sharma</SelectItem>
-                      <SelectItem value="Amit Patel">Amit Patel</SelectItem>
+                      {customers.map((customer) => (
+                        <SelectItem key={customer.id} value={customer.id.toString()}>
+                          {customer.company_name || `${customer.first_name} ${customer.last_name}`}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label htmlFor="invoice">Invoice Number</Label>
-                  <Input
-                    id="invoice"
-                    value={formData.invoiceNumber}
-                    onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
-                    placeholder="INV-2024-001"
-                    className="bg-white/50 border-white/20"
-                  />
+                  <Select
+                    value={formData.invoice_id.toString()}
+                    onValueChange={(value) => handleInvoiceChange(parseInt(value))}
+                  >
+                    <SelectTrigger className="bg-white/50 border-white/20">
+                      <SelectValue placeholder={invoicesLoading ? "Loading invoices..." : "Select invoice"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {invoices.length === 0 ? (
+                        <SelectItem value="" disabled>
+                          {invoicesLoading ? "Loading invoices..." : "No invoices found"}
+                        </SelectItem>
+                      ) : (
+                        invoices.map((invoice) => (
+                          <SelectItem key={invoice.id} value={invoice.id.toString()}>
+                            {invoice.invoice_number} - {getCustomerName(invoice.customer_id)}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {invoices.length === 0 && !invoicesLoading && (
+                    <p className="text-sm text-gray-500 mt-1">No invoices available. Create an invoice first.</p>
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="deliveryNote">Delivery Note Number</Label>
-                  <Input
-                    id="deliveryNote"
-                    value={formData.deliveryNoteNumber}
-                    onChange={(e) => setFormData({ ...formData, deliveryNoteNumber: e.target.value })}
-                    placeholder="DN-2024-001"
-                    className="bg-white/50 border-white/20"
-                  />
-                </div>
                 <div>
                   <Label htmlFor="carrier">Carrier</Label>
                   <Select
@@ -258,6 +376,37 @@ export default function ShipmentRecords() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <Label htmlFor="shipping_method">Shipping Method</Label>
+                  <Select
+                    value={formData.shipping_method}
+                    onValueChange={(value) => setFormData({ ...formData, shipping_method: value })}
+                  >
+                    <SelectTrigger className="bg-white/50 border-white/20">
+                      <SelectValue placeholder="Select method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Express">Express</SelectItem>
+                      <SelectItem value="Standard">Standard</SelectItem>
+                      <SelectItem value="Economy">Economy</SelectItem>
+                      <SelectItem value="Same Day">Same Day</SelectItem>
+                      <SelectItem value="Next Day">Next Day</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="tracking_number">Tracking Number</Label>
+                <Input
+                  id="tracking_number"
+                  value={formData.tracking_number}
+                  onChange={(e) => setFormData({ ...formData, tracking_number: e.target.value })}
+                  placeholder="Enter tracking number (optional - will be auto-generated if left empty)"
+                  className="bg-white/50 border-white/20"
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  Leave empty to auto-generate a tracking number
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -301,8 +450,8 @@ export default function ShipmentRecords() {
                     id="weight"
                     type="number"
                     step="0.1"
-                    value={formData.weight}
-                    onChange={(e) => setFormData({ ...formData, weight: Number.parseFloat(e.target.value) || 0 })}
+                    value={formData.total_weight}
+                    onChange={(e) => setFormData({ ...formData, total_weight: Number.parseFloat(e.target.value) || 0 })}
                     placeholder="0.0"
                     className="bg-white/50 border-white/20"
                   />
@@ -312,9 +461,9 @@ export default function ShipmentRecords() {
                   <Input
                     id="cost"
                     type="number"
-                    value={formData.shippingCost}
+                    value={formData.shipping_cost}
                     onChange={(e) =>
-                      setFormData({ ...formData, shippingCost: Number.parseFloat(e.target.value) || 0 })
+                      setFormData({ ...formData, shipping_cost: Number.parseFloat(e.target.value) || 0 })
                     }
                     placeholder="0.00"
                     className="bg-white/50 border-white/20"
@@ -325,9 +474,70 @@ export default function ShipmentRecords() {
                 <Label htmlFor="address">Shipping Address</Label>
                 <Textarea
                   id="address"
-                  value={formData.shippingAddress}
-                  onChange={(e) => setFormData({ ...formData, shippingAddress: e.target.value })}
-                  placeholder="Complete shipping address"
+                  value={formData.shipping_address}
+                  onChange={(e) => setFormData({ ...formData, shipping_address: e.target.value })}
+                  placeholder="Complete shipping address (will be auto-filled when invoice is selected)"
+                  className="bg-white/50 border-white/20"
+                />
+                {formData.invoice_id > 0 && formData.shipping_address && (
+                  <p className="text-sm text-green-600 mt-1">
+                    ✓ Address auto-populated from invoice/customer data
+                  </p>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="package_count">Package Count</Label>
+                  <Input
+                    id="package_count"
+                    type="number"
+                    value={formData.package_count}
+                    onChange={(e) => setFormData({ ...formData, package_count: parseInt(e.target.value) || 1 })}
+                    placeholder="1"
+                    className="bg-white/50 border-white/20"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="dimensions">Dimensions</Label>
+                  <Input
+                    id="dimensions"
+                    value={formData.dimensions}
+                    onChange={(e) => setFormData({ ...formData, dimensions: e.target.value })}
+                    placeholder="L x W x H (cm)"
+                    className="bg-white/50 border-white/20"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="insurance_cost">Insurance Cost</Label>
+                  <Input
+                    id="insurance_cost"
+                    type="number"
+                    value={formData.insurance_cost}
+                    onChange={(e) => setFormData({ ...formData, insurance_cost: Number.parseFloat(e.target.value) || 0 })}
+                    placeholder="0.00"
+                    className="bg-white/50 border-white/20"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="notes">Notes</Label>
+                  <Input
+                    id="notes"
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    placeholder="Additional notes"
+                    className="bg-white/50 border-white/20"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="special_instructions">Special Instructions</Label>
+                <Textarea
+                  id="special_instructions"
+                  value={formData.special_instructions}
+                  onChange={(e) => setFormData({ ...formData, special_instructions: e.target.value })}
+                  placeholder="Special handling instructions"
                   className="bg-white/50 border-white/20"
                 />
               </div>
@@ -417,12 +627,11 @@ export default function ShipmentRecords() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="preparing">Preparing</SelectItem>
-                <SelectItem value="shipped">Shipped</SelectItem>
-                <SelectItem value="in transit">In Transit</SelectItem>
-                <SelectItem value="out for delivery">Out for Delivery</SelectItem>
-                <SelectItem value="delivered">Delivered</SelectItem>
-                <SelectItem value="exception">Exception</SelectItem>
+                <SelectItem value="Pending">Pending</SelectItem>
+                <SelectItem value="In Transit">In Transit</SelectItem>
+                <SelectItem value="Delivered">Delivered</SelectItem>
+                <SelectItem value="Failed">Failed</SelectItem>
+                <SelectItem value="Refused">Refused</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -463,7 +672,7 @@ export default function ShipmentRecords() {
                     </div>
                   </TableCell>
                   <TableCell>{getCustomerName(shipment.customer_id)}</TableCell>
-                  <TableCell>{shipment.invoice_id ? `INV-${shipment.invoice_id}` : 'N/A'}</TableCell>
+                  <TableCell>{shipment.invoice_id ? getInvoiceNumber(shipment.invoice_id) : 'N/A'}</TableCell>
                   <TableCell>{shipment.carrier || 'N/A'}</TableCell>
                   <TableCell>
                     <code className="text-xs bg-gray-100 px-2 py-1 rounded">{shipment.tracking_number || 'N/A'}</code>
@@ -478,12 +687,11 @@ export default function ShipmentRecords() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Preparing">Preparing</SelectItem>
-                        <SelectItem value="Shipped">Shipped</SelectItem>
+                        <SelectItem value="Pending">Pending</SelectItem>
                         <SelectItem value="In Transit">In Transit</SelectItem>
-                        <SelectItem value="Out for Delivery">Out for Delivery</SelectItem>
                         <SelectItem value="Delivered">Delivered</SelectItem>
-                        <SelectItem value="Exception">Exception</SelectItem>
+                        <SelectItem value="Failed">Failed</SelectItem>
+                        <SelectItem value="Refused">Refused</SelectItem>
                       </SelectContent>
                     </Select>
                   </TableCell>

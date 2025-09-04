@@ -19,6 +19,7 @@ from schemas.payment_schema import (
 )
 from routers.auth import get_current_user
 from services.payment_service import PaymentService
+from services.credit_service import CreditService
 
 router = APIRouter()
 payment_service = PaymentService()
@@ -62,12 +63,69 @@ async def create_payment(
             invoice_id=payment.invoice_id,
             customer_id=payment.customer_id,
             vendor_id=payment.vendor_id,
-            recorded_by=current_user.id
+            recorded_by=current_user.id,
+            account_id=current_user.account_id
         )
         
         db.add(db_payment)
         db.commit()
         db.refresh(db_payment)
+        
+        # Handle credit integration based on payment method and type
+        if payment.payment_method == "credit" and payment.customer_id and payment.invoice_id:
+            # Use customer credit to pay for invoice
+            try:
+                credit_transactions = CreditService.use_credit_for_invoice(
+                    db=db,
+                    customer_id=payment.customer_id,
+                    invoice_id=payment.invoice_id,
+                    amount=payment.amount,
+                    user_id=current_user.id,
+                    payment_reference=payment_number
+                )
+                print(f"Used customer credit for invoice payment: {len(credit_transactions)} transactions created")
+            except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=400, detail=f"Credit usage failed: {str(e)}")
+        
+        elif payment.payment_direction == "incoming" and payment.customer_id and payment.payment_method != "credit":
+            # Customer made a payment - adjust credit balance
+            try:
+                credit_transactions = CreditService.adjust_credit_for_payment(
+                    db=db,
+                    customer_id=payment.customer_id,
+                    payment_amount=payment.amount,
+                    user_id=current_user.id,
+                    payment_id=db_payment.id,
+                    payment_reference=payment_number
+                )
+                print(f"Adjusted customer credit for payment: {len(credit_transactions)} transactions created")
+            except Exception as e:
+                # Log warning but don't fail payment creation
+                print(f"Warning: Credit adjustment failed for payment {payment_number}: {str(e)}")
+        
+        # Delete any pending payments for the same invoice
+        if payment.invoice_id:
+            try:
+                # Find and delete pending payments for this invoice
+                pending_payments = db.query(Payment).filter(
+                    Payment.invoice_id == payment.invoice_id,
+                    Payment.payment_status == "pending",
+                    Payment.account_id == current_user.account_id
+                ).all()
+                
+                for pending_payment in pending_payments:
+                    # Delete associated payment logs first
+                    db.query(PaymentLog).filter(PaymentLog.payment_id == pending_payment.id).delete()
+                    # Delete the pending payment
+                    db.delete(pending_payment)
+                
+                if pending_payments:
+                    print(f"Deleted {len(pending_payments)} pending payment(s) for invoice {payment.invoice_id}")
+                
+            except Exception as e:
+                # Log the error but don't fail the payment creation
+                print(f"Warning: Failed to delete pending payments for invoice {payment.invoice_id}: {str(e)}")
         
         # Create payment log
         payment_log = PaymentLog(
@@ -95,6 +153,7 @@ async def get_payments(
     payment_direction: Optional[str] = Query(None, description="Filter by payment direction"),
     customer_id: Optional[int] = Query(None, description="Filter by customer ID"),
     vendor_id: Optional[int] = Query(None, description="Filter by vendor ID"),
+    invoice_id: Optional[int] = Query(None, description="Filter by invoice ID"),
     start_date: Optional[datetime] = Query(None, description="Filter by start date"),
     end_date: Optional[datetime] = Query(None, description="Filter by end date"),
     current_user: User = Depends(get_current_user),
@@ -111,6 +170,7 @@ async def get_payments(
         payment_direction: Filter by payment direction
         customer_id: Filter by customer ID
         vendor_id: Filter by vendor ID
+        invoice_id: Filter by invoice ID
         start_date: Filter by start date
         end_date: Filter by end date
         current_user: Current authenticated user
@@ -120,7 +180,7 @@ async def get_payments(
         PaymentList: Paginated list of payments
     """
     try:
-        query = db.query(Payment)
+        query = db.query(Payment).filter(Payment.account_id == current_user.account_id)
         
         # Apply filters
         if payment_status:
@@ -133,6 +193,8 @@ async def get_payments(
             query = query.filter(Payment.customer_id == customer_id)
         if vendor_id:
             query = query.filter(Payment.vendor_id == vendor_id)
+        if invoice_id:
+            query = query.filter(Payment.invoice_id == invoice_id)
         if start_date:
             query = query.filter(Payment.payment_date >= start_date)
         if end_date:
@@ -176,7 +238,10 @@ async def get_payment(
         PaymentResponse: Payment details
     """
     try:
-        payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        payment = db.query(Payment).filter(
+            Payment.id == payment_id,
+            Payment.account_id == current_user.account_id
+        ).first()
         if not payment:
             raise HTTPException(status_code=404, detail="Payment not found")
         
@@ -207,7 +272,10 @@ async def update_payment(
         PaymentResponse: Updated payment details
     """
     try:
-        payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        payment = db.query(Payment).filter(
+            Payment.id == payment_id,
+            Payment.account_id == current_user.account_id
+        ).first()
         if not payment:
             raise HTTPException(status_code=404, detail="Payment not found")
         
@@ -244,6 +312,66 @@ async def update_payment(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update payment: {str(e)}")
 
+@router.post("/create-pending-for-invoices")
+async def create_pending_payments_for_invoices(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create pending payment records for all invoices that don't have pending payments.
+    This is useful for existing invoices that were created before this feature was implemented.
+    """
+    try:
+        from models.invoice import Invoice
+        from datetime import datetime
+        import uuid
+        
+        # Get all invoices for this account
+        invoices = db.query(Invoice).filter(Invoice.account_id == current_user.account_id).all()
+        
+        created_count = 0
+        for invoice in invoices:
+            # Check if there's already a pending payment for this invoice
+            existing_pending = db.query(Payment).filter(
+                Payment.invoice_id == invoice.id,
+                Payment.payment_status == "pending",
+                Payment.account_id == current_user.account_id
+            ).first()
+            
+            if not existing_pending:
+                # Create pending payment record
+                pending_payment_number = f"PENDING-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
+                
+                pending_payment = Payment(
+                    payment_number=pending_payment_number,
+                    payment_date=invoice.invoice_date,
+                    payment_type="invoice_payment",
+                    payment_direction="incoming",
+                    amount=invoice.total_amount,
+                    currency=invoice.currency,
+                    payment_method="pending",
+                    payment_status="pending",
+                    reference_number=f"Auto-generated for {invoice.invoice_number}",
+                    notes=f"Automatically generated pending payment for invoice {invoice.invoice_number}",
+                    invoice_id=invoice.id,
+                    customer_id=invoice.customer_id,
+                    recorded_by=current_user.id,
+                    account_id=current_user.account_id
+                )
+                
+                db.add(pending_payment)
+                created_count += 1
+        
+        if created_count > 0:
+            db.commit()
+            return {"message": f"Created {created_count} pending payment records for existing invoices"}
+        else:
+            return {"message": "All invoices already have pending payment records"}
+            
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create pending payments: {str(e)}")
+
 @router.delete("/{payment_id}")
 async def delete_payment(
     payment_id: int,
@@ -262,7 +390,10 @@ async def delete_payment(
         dict: Success message
     """
     try:
-        payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        payment = db.query(Payment).filter(
+            Payment.id == payment_id,
+            Payment.account_id == current_user.account_id
+        ).first()
         if not payment:
             raise HTTPException(status_code=404, detail="Payment not found")
         

@@ -267,6 +267,19 @@ async def forgot_password(email_data: dict, db: Session = Depends(get_db)):
     
     return {"message": "If an account with this email exists, a password reset link has been sent"}
 
+@router.get("/me", response_model=UserResponse)
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """
+    Get current user information.
+    
+    Args:
+        current_user: Current authenticated user
+        
+    Returns:
+        Current user information
+    """
+    return current_user
+
 @router.post("/logout")
 async def logout(current_user: User = Depends(get_current_user)):
     """

@@ -19,6 +19,7 @@ from models.customer import Customer
 from models.invoice import Invoice, InvoiceItem
 from models.item import Item
 from models.gst_slab import GSTSlab
+from services.inventory_service import InventoryService
 from schemas.invoice_schema import (
     InvoiceCreate,
     InvoiceUpdate,
@@ -33,10 +34,30 @@ from schemas.invoice_schema import (
 
 router = APIRouter()
 
-def generate_invoice_number(db: Session) -> str:
+def generate_delivery_note_number(db: Session, account_id: str) -> str:
+    """Generate a new delivery note number."""
+    from models.shipment import DeliveryNote
+    from datetime import datetime
+    
+    last_note = db.query(DeliveryNote).filter(DeliveryNote.account_id == account_id).order_by(DeliveryNote.id.desc()).first()
+    if last_note:
+        try:
+            last_number = int(last_note.delivery_note_number.split('-')[-1])
+            next_number = last_number + 1
+        except:
+            next_number = 1
+    else:
+        next_number = 1
+    
+    current_year = datetime.now().year
+    return f"DN-{current_year}-{next_number:03d}"
+
+def generate_invoice_number(db: Session, account_id: str) -> str:
     """Generate a new invoice number."""
-    # Get the last invoice number
-    last_invoice = db.query(Invoice).order_by(Invoice.id.desc()).first()
+    # Get the last invoice number for this account
+    last_invoice = db.query(Invoice).filter(
+        Invoice.account_id == account_id
+    ).order_by(Invoice.id.desc()).first()
     if last_invoice:
         # Extract number from invoice number (assuming format like INV-2024-001)
         try:
@@ -101,7 +122,7 @@ def calculate_gst_amounts(item_data: dict, customer_state: str, company_state: s
 @router.get("/", response_model=InvoiceList)
 async def get_invoices(
     skip: int = Query(0, ge=0, description="Number of invoices to skip"),
-    limit: int = Query(100, ge=1, le=100, description="Number of invoices to return"),
+    limit: int = Query(100, ge=1, le=1000, description="Number of invoices to return"),
     search: Optional[str] = Query(None, description="Search term"),
     status: Optional[str] = Query(None, description="Filter by status"),
     customer_id: Optional[int] = Query(None, description="Filter by customer"),
@@ -110,7 +131,7 @@ async def get_invoices(
 ):
     """Get invoices list with pagination and filters."""
     
-    query = db.query(Invoice)
+    query = db.query(Invoice).filter(Invoice.account_id == current_user.account_id)
     
     # Apply search filter
     if search:
@@ -158,7 +179,10 @@ async def get_invoice(
 ):
     """Get a specific invoice by ID."""
     
-    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    invoice = db.query(Invoice).filter(
+        Invoice.id == invoice_id,
+        Invoice.account_id == current_user.account_id
+    ).first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
     
@@ -177,8 +201,20 @@ async def create_invoice(
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     
+    # Validate stock availability for all items BEFORE creating invoice
+    stock_validation = InventoryService.validate_invoice_items_stock(
+        db, invoice_data.items, current_user.account_id
+    )
+    
+    if not stock_validation["all_valid"]:
+        error_messages = stock_validation["errors"]
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Stock validation failed: {'; '.join(error_messages)}"
+        )
+    
     # Generate invoice number
-    invoice_number = generate_invoice_number(db)
+    invoice_number = generate_invoice_number(db, current_user.account_id)
     
     # Calculate totals
     subtotal = Decimal(0)
@@ -190,6 +226,7 @@ async def create_invoice(
     # Create invoice
     invoice = Invoice(
         invoice_number=invoice_number,
+        account_id=current_user.account_id,
         customer_id=invoice_data.customer_id,
         invoice_date=invoice_data.invoice_date,
         due_date=invoice_data.due_date,
@@ -234,10 +271,35 @@ async def create_invoice(
             discount_amount=item_data.discount_amount or 0,
             tax_rate=item_data.gst_rate or 0,
             tax_amount=gst_calculations["tax_amount"],
+            cgst_rate=gst_calculations["cgst_rate"],
+            sgst_rate=gst_calculations["sgst_rate"],
+            igst_rate=gst_calculations["igst_rate"],
+            cgst_amount=gst_calculations["cgst_amount"],
+            sgst_amount=gst_calculations["sgst_amount"],
+            igst_amount=gst_calculations["igst_amount"],
             line_total=gst_calculations["line_total"]
         )
         
         db.add(invoice_item)
+        
+        # Reduce stock for this item
+        stock_reduction = InventoryService.reduce_stock_for_sale(
+            db=db,
+            item_id=item_data.item_id,
+            quantity_sold=float(item_data.quantity),
+            user_id=current_user.id,
+            account_id=current_user.account_id,
+            invoice_id=invoice.id,
+            transaction_reference=invoice_number,
+            notes=f"Stock reduced for invoice {invoice_number}"
+        )
+        
+        if not stock_reduction["success"]:
+            # This shouldn't happen since we validated earlier, but just in case
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Failed to reduce stock: {stock_reduction['error']}"
+            )
         
         # Add to totals
         subtotal += gst_calculations["base_amount"]
@@ -255,6 +317,34 @@ async def create_invoice(
     
     db.commit()
     db.refresh(invoice)
+    
+    # Automatically create a delivery note for this invoice
+    try:
+        from models.shipment import DeliveryNote
+        
+        # Generate unique delivery note number
+        delivery_note_number = generate_delivery_note_number(db, current_user.account_id)
+        
+        # Create delivery note record with default "Delivered" status
+        delivery_note = DeliveryNote(
+            delivery_note_number=delivery_note_number,
+            customer_id=invoice.customer_id,
+            invoice_id=invoice.id,
+            delivery_date=invoice.invoice_date,
+            delivery_address=invoice.shipping_address or invoice.billing_address or "Address not specified",
+            delivery_status="Delivered",  # Set to Delivered by default as requested
+            delivery_notes=f"Automatically generated delivery note for invoice {invoice_number}",
+            recorded_by=current_user.id,
+            account_id=current_user.account_id
+        )
+        
+        db.add(delivery_note)
+        db.commit()
+        print(f"Auto-created delivery note {delivery_note_number} for invoice {invoice.invoice_number} with status 'Delivered'")
+        
+    except Exception as e:
+        # Log the error but don't fail the invoice creation
+        print(f"Warning: Failed to create delivery note for invoice {invoice.invoice_number}: {str(e)}")
     
     return invoice
 

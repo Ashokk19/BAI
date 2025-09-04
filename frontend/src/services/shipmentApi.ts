@@ -4,11 +4,12 @@
  * This module provides API functions for shipment and delivery note operations.
  */
 
-import { API_BASE_URL, API_ENDPOINTS, buildApiUrl, getAuthHeaders } from '../config/api.config';
+import { apiService } from './api';
 
 // Types for Shipment API
 export interface Shipment {
   id: number;
+  account_id: string;
   shipment_number: string;
   customer_name: string;
   tracking_number?: string;
@@ -37,6 +38,7 @@ export interface Shipment {
 }
 
 export interface ShipmentCreate {
+  account_id?: string; // Optional as it will be set by backend
   customer_id: number;
   invoice_id?: number;
   status?: string;
@@ -47,6 +49,7 @@ export interface ShipmentCreate {
   shipping_method?: string;
   carrier?: string;
   service_type?: string;
+  tracking_number?: string;
   shipping_address: string;
   billing_address?: string;
   package_count?: number;
@@ -68,6 +71,7 @@ export interface ShipmentListResponse {
 
 export interface DeliveryNote {
   id: number;
+  account_id: string;
   delivery_note_number: string;
   customer_name: string;
   delivery_date: string;
@@ -90,16 +94,30 @@ export interface DeliveryNote {
 }
 
 export interface DeliveryNoteCreate {
-  shipment_id: number;
+  account_id?: string; // Optional as it will be set by backend
+  shipment_id?: number; // Optional as it will be set by backend
   customer_id: number;
   invoice_id?: number;
   delivery_date: string;
-  delivery_time?: string;
   delivery_status?: string;
+  packages_delivered?: number;
+  delivery_time?: string;
   received_by?: string;
   recipient_signature?: string;
   delivery_address: string;
+  condition_on_delivery?: string;
+  photo_proof?: string;
+  delivery_notes?: string;
+  special_instructions?: string;
+}
+
+export interface DeliveryNoteUpdate {
+  delivery_status?: string;
   packages_delivered?: number;
+  delivery_time?: string;
+  received_by?: string;
+  recipient_signature?: string;
+  delivery_address?: string;
   condition_on_delivery?: string;
   photo_proof?: string;
   delivery_notes?: string;
@@ -114,7 +132,7 @@ export interface DeliveryNoteListResponse {
   total_pages: number;
 }
 
-// API Functions
+// Shipment API Service
 export const shipmentApi = {
   /**
    * Get all shipments with optional filtering
@@ -125,7 +143,6 @@ export const shipmentApi = {
     search?: string;
     status?: string;
     customer_id?: number;
-    carrier?: string;
   }): Promise<ShipmentListResponse> {
     const queryParams = new URLSearchParams();
     if (params?.skip !== undefined) queryParams.append('skip', params.skip.toString());
@@ -133,74 +150,39 @@ export const shipmentApi = {
     if (params?.search) queryParams.append('search', params.search);
     if (params?.status) queryParams.append('status', params.status);
     if (params?.customer_id) queryParams.append('customer_id', params.customer_id.toString());
-    if (params?.carrier) queryParams.append('carrier', params.carrier);
 
-    const response = await fetch(buildApiUrl(API_ENDPOINTS.sales.shipments, Object.fromEntries(queryParams.entries())), {
-      headers: getAuthHeaders(),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return response.json();
+    const queryString = queryParams.toString();
+    const url = `/api/sales/shipments${queryString ? `?${queryString}` : ''}`;
+    
+    return await apiService.get<ShipmentListResponse>(url);
   },
 
   /**
-   * Get a specific shipment by ID
+   * Get a single shipment by ID
    */
   async getShipment(shipmentId: number): Promise<Shipment> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.shipments}/${shipmentId}`), {
-      headers: getAuthHeaders(),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return response.json();
+    return await apiService.get<Shipment>(`/api/sales/shipments/${shipmentId}`);
   },
 
   /**
    * Create a new shipment
    */
   async createShipment(shipment: ShipmentCreate): Promise<Shipment> {
-    const response = await fetch(buildApiUrl(API_ENDPOINTS.sales.shipments), {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(shipment),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return response.json();
+    return await apiService.post<Shipment>('/api/sales/shipments', shipment);
   },
 
   /**
    * Update an existing shipment
    */
   async updateShipment(shipmentId: number, shipment: Partial<ShipmentCreate>): Promise<Shipment> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.shipments}/${shipmentId}`), {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(shipment),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return response.json();
+    return await apiService.put<Shipment>(`/api/sales/shipments/${shipmentId}`, shipment);
   },
 
   /**
    * Delete a shipment
    */
   async deleteShipment(shipmentId: number): Promise<{ message: string }> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.shipments}/${shipmentId}`), {
-      method: 'DELETE',
-      headers: getAuthHeaders(),
-    });
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const errorMessage = errorData.detail || `HTTP error! status: ${response.status}`;
-      throw new Error(errorMessage);
-    }
-    return response.json();
+    return await apiService.delete<{ message: string }>(`/api/sales/shipments/${shipmentId}`);
   },
 
   // Delivery Note Functions
@@ -219,54 +201,65 @@ export const shipmentApi = {
     if (params?.search) queryParams.append('search', params.search);
     if (params?.customer_id) queryParams.append('customer_id', params.customer_id.toString());
 
-    const response = await fetch(buildApiUrl(API_ENDPOINTS.sales.deliveryNotes, Object.fromEntries(queryParams.entries())), {
-      headers: getAuthHeaders(),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return response.json();
+    const queryString = queryParams.toString();
+    const url = `/api/sales/shipments/delivery-notes${queryString ? `?${queryString}` : ''}`;
+    
+    return await apiService.get<DeliveryNoteListResponse>(url);
+  },
+
+  /**
+   * Get delivery notes for a specific invoice
+   */
+  async getDeliveryNotesByInvoice(invoiceId: number): Promise<DeliveryNote[]> {
+    return await apiService.get<DeliveryNote[]>(`/api/sales/shipments/delivery-notes/by-invoice/${invoiceId}`);
+  },
+
+  /**
+   * Get shipments for a specific invoice
+   */
+  async getShipmentsByInvoice(invoiceId: number): Promise<Shipment[]> {
+    return await apiService.get<Shipment[]>(`/api/sales/shipments/by-invoice/${invoiceId}`);
   },
 
   /**
    * Create a new delivery note
    */
   async createDeliveryNote(deliveryNote: DeliveryNoteCreate): Promise<DeliveryNote> {
-    const response = await fetch(buildApiUrl(API_ENDPOINTS.sales.deliveryNotes), {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(deliveryNote),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return response.json();
+    return await apiService.post<DeliveryNote>('/api/sales/shipments/delivery-notes', deliveryNote);
+  },
+
+  /**
+   * Update an existing delivery note
+   */
+  async updateDeliveryNote(deliveryNoteId: number, deliveryNote: Partial<DeliveryNoteCreate>): Promise<DeliveryNote> {
+    return await apiService.put<DeliveryNote>(`/api/sales/shipments/delivery-notes/${deliveryNoteId}`, deliveryNote);
+  },
+
+  /**
+   * Delete a delivery note
+   */
+  async deleteDeliveryNote(deliveryNoteId: number): Promise<{ message: string }> {
+    return await apiService.delete<{ message: string }>(`/api/sales/shipments/delivery-notes/${deliveryNoteId}`);
   },
 
   /**
    * Get shipments summary
    */
   async getShipmentsSummary(): Promise<Shipment[]> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.shipments}/summary/list`), {
-      headers: getAuthHeaders(),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return response.json();
+    return await apiService.get<Shipment[]>('/api/sales/shipments/summary/list');
   },
 
   /**
    * Seed sample shipments
    */
   async seedSampleShipments(): Promise<{ message: string; created_shipments: string[] }> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.shipments}/seed-sample-shipments`), {
-      method: 'POST',
-      headers: getAuthHeaders(),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return response.json();
+    return await apiService.post<{ message: string; created_shipments: string[] }>('/api/sales/shipments/seed-sample-shipments');
+  },
+
+  /**
+   * Create delivery note records for existing invoices
+   */
+  async createDeliveryNotesForInvoices(): Promise<{ message: string }> {
+    return await apiService.post<{ message: string }>('/api/sales/shipments/create-delivery-notes-for-invoices');
   },
 }; 
