@@ -203,5 +203,49 @@ export const creditApi = {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     return response.json();
+  },
+
+  /**
+   * Get customer credit balance
+   */
+  async getCustomerCreditBalance(customerId: number): Promise<{
+    customer_id: number;
+    customer_name: string;
+    total_balance: number;
+    available_credits_count: number;
+    available_credits: Array<{
+      id: number;
+      credit_number: string;
+      amount: number;
+      credit_type: string;
+      expiry_date?: string;
+    }>;
+  }> {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.credits}/customers/${customerId}/balance`), {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+  },
+
+  /**
+   * Use customer credit for invoice payment
+   */
+  async useCustomerCredit(customerId: number, invoiceId: number, amount: number): Promise<{
+    message: string;
+    transactions_created: number;
+    transaction_ids: number[];
+  }> {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.credits}/customers/${customerId}/use-credit`), {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ invoice_id: invoiceId, amount: amount }),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
   }
 }; 

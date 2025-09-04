@@ -11,30 +11,71 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon, Plus, Search, RotateCcw, Eye, Download, Package, ArrowLeft, CheckCircle, XCircle } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
+import { CalendarIcon, Plus, Search, RotateCcw, Eye, Download, Package, ArrowLeft, CheckCircle, XCircle, FileText, Clock } from "lucide-react"
 import { format } from "date-fns"
-import { salesReturnApi, SalesReturn as ApiSalesReturn, SalesReturnCreate } from "../../services/salesReturnApi"
+import { salesReturnApi, SalesReturn as ApiSalesReturn, SalesReturnCreate, SalesReturnItem } from "../../services/salesReturnApi"
 import { customerApi, Customer } from "../../services/customerApi"
+import { invoiceApi, Invoice, InvoiceItem } from "../../services/invoiceApi"
 import { useNotifications, NotificationContainer } from "../../components/ui/notification"
 
-// Using SalesReturn interface from salesReturnApi as ApiSalesReturn
+// Enhanced form data interface
+interface ReturnFormData {
+  customer_id: number;
+  invoice_id: number;
+  return_reason: string;
+  refund_method: string;
+  total_return_amount: number;
+  refund_amount: number;
+  return_reason_details: string;
+  internal_notes: string;
+  customer_notes: string;
+  items_condition: string;
+  quality_check_notes: string;
+}
+
+// Item selection interface
+interface ItemToReturn {
+  invoice_item_id: number;
+  item_id: number;
+  item_name: string;
+  item_sku: string;
+  original_quantity: number;
+  return_quantity: number;
+  unit_price: number;
+  return_amount: number;
+  refund_amount: number;
+  condition_on_return: string;
+  return_reason: string;
+  restockable: boolean;
+  notes: string;
+  selected: boolean;
+}
 
 export default function SalesReturns() {
   const notifications = useNotifications()
   const [returns, setReturns] = useState<ApiSalesReturn[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [customerInvoices, setCustomerInvoices] = useState<Invoice[]>([])
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
+  const [itemsToReturn, setItemsToReturn] = useState<ItemToReturn[]>([])
   const [loading, setLoading] = useState(true)
 
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<Date>()
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<ReturnFormData>({
     customer_id: 0,
     invoice_id: 0,
     return_reason: "",
-    refund_method: "Credit Note",
+    refund_method: "Bank Transfer",
     total_return_amount: 0,
     refund_amount: 0,
+    return_reason_details: "",
+    internal_notes: "",
+    customer_notes: "",
+    items_condition: "good",
+    quality_check_notes: "",
   })
 
   // Load sales returns on component mount
@@ -47,6 +88,32 @@ export default function SalesReturns() {
   useEffect(() => {
     loadSalesReturns()
   }, [searchTerm])
+
+  // Load invoices when customer is selected
+  useEffect(() => {
+    if (formData.customer_id > 0) {
+      loadCustomerInvoices(formData.customer_id)
+    } else {
+      setCustomerInvoices([])
+      setSelectedInvoice(null)
+      setItemsToReturn([])
+    }
+  }, [formData.customer_id])
+
+  // Load invoice items when invoice is selected
+  useEffect(() => {
+    if (formData.invoice_id > 0) {
+      loadInvoiceItems(formData.invoice_id)
+    } else {
+      setSelectedInvoice(null)
+      setItemsToReturn([])
+    }
+  }, [formData.invoice_id])
+
+  // Recalculate totals when items change
+  useEffect(() => {
+    calculateTotals()
+  }, [itemsToReturn])
 
   const loadSalesReturns = async () => {
     try {
@@ -79,6 +146,85 @@ export default function SalesReturns() {
     }
   }
 
+  const loadCustomerInvoices = async (customerId: number) => {
+    try {
+      console.log('Loading invoices for customer:', customerId)
+      const response = await invoiceApi.getInvoices({ 
+        customer_id: customerId,
+        limit: 100,
+        status: 'sent' // Only load sent/completed invoices
+      })
+      console.log('Customer invoices loaded:', response.invoices)
+      setCustomerInvoices(response.invoices)
+    } catch (error) {
+      console.error('Error loading customer invoices:', error)
+      notifications.error('Loading Failed', 'Unable to load customer invoices.')
+      setCustomerInvoices([])
+    }
+  }
+
+  const loadInvoiceItems = async (invoiceId: number) => {
+    try {
+      console.log('Loading items for invoice:', invoiceId)
+      const invoice = await invoiceApi.getInvoice(invoiceId)
+      setSelectedInvoice(invoice)
+      
+      // Convert invoice items to returnable items
+      const returnableItems: ItemToReturn[] = invoice.items.map(item => ({
+        invoice_item_id: item.id,
+        item_id: item.item_id,
+        item_name: item.item_name,
+        item_sku: item.item_sku,
+        original_quantity: item.quantity,
+        return_quantity: 1,
+        unit_price: item.unit_price,
+        return_amount: item.unit_price,
+        refund_amount: item.unit_price,
+        condition_on_return: "good",
+        return_reason: "",
+        restockable: true,
+        notes: "",
+        selected: false
+      }))
+      
+      setItemsToReturn(returnableItems)
+      console.log('Returnable items set:', returnableItems)
+    } catch (error) {
+      console.error('Error loading invoice items:', error)
+      notifications.error('Loading Failed', 'Unable to load invoice items.')
+    }
+  }
+
+  const calculateTotals = () => {
+    const selectedItems = itemsToReturn.filter(item => item.selected)
+    const totalReturnAmount = selectedItems.reduce((sum, item) => sum + item.return_amount, 0)
+    const totalRefundAmount = selectedItems.reduce((sum, item) => sum + item.refund_amount, 0)
+    
+    setFormData(prev => ({
+      ...prev,
+      total_return_amount: totalReturnAmount,
+      refund_amount: totalRefundAmount
+    }))
+  }
+
+  const updateItemToReturn = (index: number, field: keyof ItemToReturn, value: any) => {
+    const newItems = [...itemsToReturn]
+    newItems[index] = { ...newItems[index], [field]: value }
+    
+    // Recalculate amounts when quantity changes
+    if (field === 'return_quantity') {
+      const item = newItems[index]
+      item.return_amount = item.unit_price * value
+      item.refund_amount = item.return_amount // Can be adjusted later
+    }
+    
+    setItemsToReturn(newItems)
+  }
+
+  const toggleItemSelection = (index: number) => {
+    updateItemToReturn(index, 'selected', !itemsToReturn[index].selected)
+  }
+
   const getCustomerName = (customerId: number): string => {
     const customer = customers.find(c => c.id === customerId)
     if (customer) {
@@ -87,50 +233,149 @@ export default function SalesReturns() {
     return 'Unknown Customer'
   }
 
+  const resetForm = () => {
+    setFormData({
+      customer_id: 0,
+      invoice_id: 0,
+      return_reason: "",
+      refund_method: "Bank Transfer",
+      total_return_amount: 0,
+      refund_amount: 0,
+      return_reason_details: "",
+      internal_notes: "",
+      customer_notes: "",
+      items_condition: "good",
+      quality_check_notes: "",
+    })
+    setSelectedDate(undefined)
+    setCustomerInvoices([])
+    setSelectedInvoice(null)
+    setItemsToReturn([])
+    setIsDialogOpen(false)
+  }
+
   const handleCreateReturn = async () => {
     try {
+      // Validation
+      if (formData.customer_id === 0) {
+        notifications.error('Validation Error', 'Please select a customer.')
+        return
+      }
+      
+      if (formData.invoice_id === 0) {
+        notifications.error('Validation Error', 'Please select an invoice.')
+        return
+      }
+      
+      if (!formData.return_reason.trim()) {
+        notifications.error('Validation Error', 'Please enter a return reason.')
+        return
+      }
+      
+      const selectedItems = itemsToReturn.filter(item => item.selected)
+      if (selectedItems.length === 0) {
+        notifications.error('Validation Error', 'Please select at least one item to return.')
+        return
+      }
+
+      // Prepare return data
+      const returnItems: SalesReturnItem[] = selectedItems.map(item => ({
+        invoice_item_id: item.invoice_item_id,
+        item_id: item.item_id,
+        item_name: item.item_name,
+        item_sku: item.item_sku,
+        original_quantity: item.original_quantity,
+        return_quantity: item.return_quantity,
+        unit_price: item.unit_price,
+        return_amount: item.return_amount,
+        refund_amount: item.refund_amount,
+        condition_on_return: item.condition_on_return,
+        return_reason: item.return_reason,
+        restockable: item.restockable,
+        notes: item.notes
+      }))
+
       const returnData: SalesReturnCreate = {
         invoice_id: formData.invoice_id,
         customer_id: formData.customer_id,
         return_date: selectedDate ? selectedDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         return_reason: formData.return_reason,
+        return_type: "partial",
+        status: "pending",
         total_return_amount: formData.total_return_amount,
         refund_amount: formData.refund_amount,
+        restocking_fee: 0,
         refund_method: formData.refund_method,
-        items: [] // Would need to be populated based on form
+        refund_status: "pending",
+        return_reason_details: formData.return_reason_details,
+        internal_notes: formData.internal_notes,
+        customer_notes: formData.customer_notes,
+        items_condition: formData.items_condition,
+        quality_check_notes: formData.quality_check_notes,
+        items: returnItems
       }
 
+      console.log('Creating sales return with data:', returnData)
       await salesReturnApi.createSalesReturn(returnData)
       
-      // Reset form
-      setFormData({
-        customer_id: 0,
-        invoice_id: 0,
-        return_reason: "",
-        refund_method: "Credit Note",
-        total_return_amount: 0,
-        refund_amount: 0,
-      })
-      setSelectedDate(undefined)
-      setIsDialogOpen(false)
-      
-      // Reload data
+      // Reset form and reload data
+      resetForm()
       loadSalesReturns()
-      notifications.success('Sales Return Created!', 'The sales return has been created successfully.')
-    } catch (error) {
+      notifications.success('Sales Return Created!', 'The sales return has been created successfully and inventory will be updated.')
+    } catch (error: any) {
       console.error('Error creating sales return:', error)
-      notifications.error('Creation Failed', 'Unable to create sales return. Please try again.')
+      const errorMessage = error.response?.data?.detail || error.message || 'Unable to create sales return. Please try again.'
+      notifications.error('Creation Failed', errorMessage)
     }
   }
 
   const updateStatus = async (id: number, status: string) => {
     try {
-      // TODO: Implement status update API call when available
+      console.log('Updating return status:', { id, status })
+      await salesReturnApi.updateSalesReturn(id, { status })
       notifications.success('Status Updated!', `Return status changed to ${status}.`)
       loadSalesReturns() // Reload to get updated data
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating status:', error)
-      notifications.error('Update Failed', 'Unable to update return status. Please try again.')
+      const errorMessage = error.response?.data?.detail || error.message || 'Unable to update return status. Please try again.'
+      notifications.error('Update Failed', errorMessage)
+    }
+  }
+
+  const updateRefundStatus = async (id: number, refund_status: string) => {
+    try {
+      console.log('Updating refund status:', { id, refund_status })
+      await salesReturnApi.updateSalesReturn(id, { refund_status })
+      notifications.success('Refund Status Updated!', `Refund status changed to ${refund_status}.`)
+      loadSalesReturns() // Reload to get updated data
+    } catch (error: any) {
+      console.error('Error updating refund status:', error)
+      const errorMessage = error.response?.data?.detail || error.message || 'Unable to update refund status. Please try again.'
+      notifications.error('Update Failed', errorMessage)
+    }
+  }
+
+  const downloadCreditReport = async (returnId: number) => {
+    try {
+      console.log('Generating credit report for return ID:', returnId)
+      const htmlContent = await salesReturnApi.downloadCreditReport(returnId)
+      
+      // Open HTML content in new window for printing/saving (like invoice)
+      const newWindow = window.open('', '_blank')
+      if (newWindow) {
+        newWindow.document.write(htmlContent)
+        newWindow.document.close()
+        newWindow.print()
+        newWindow.close()
+        
+        notifications.success('Credit Report Generated!', 'The credit report has been generated and opened for printing.')
+      } else {
+        notifications.error('Popup Blocked', 'Unable to open credit report window. Please check your browser popup settings.')
+      }
+    } catch (error: any) {
+      console.error('Error generating credit report:', error)
+      const errorMessage = error.response?.data?.detail || error.message || 'Unable to generate credit report. Please try again.'
+      notifications.error('Generation Failed', errorMessage)
     }
   }
 
@@ -170,14 +415,15 @@ export default function SalesReturns() {
               Create Return
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl bg-white/95 backdrop-blur-xl border-white/20">
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto bg-white/95 backdrop-blur-xl border-white/20">
             <DialogHeader>
               <DialogTitle>Create Sales Return</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
+            <div className="space-y-6">
+              {/* Step 1: Customer and Invoice Selection */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="customer">Customer</Label>
+                  <Label htmlFor="customer">Customer *</Label>
                   <Select
                     value={formData.customer_id.toString()}
                     onValueChange={(value) => setFormData({ ...formData, customer_id: parseInt(value) })}
@@ -195,63 +441,242 @@ export default function SalesReturns() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="invoice">Invoice ID</Label>
-                  <Input
-                    id="invoice"
-                    type="number"
-                    value={formData.invoice_id || ''}
-                    onChange={(e) => setFormData({ ...formData, invoice_id: parseInt(e.target.value) || 0 })}
-                    placeholder="Enter invoice ID"
+                  <Label htmlFor="invoice">Invoice *</Label>
+                  <Select
+                    value={formData.invoice_id.toString()}
+                    onValueChange={(value) => setFormData({ ...formData, invoice_id: parseInt(value) })}
+                    disabled={formData.customer_id === 0}
+                  >
+                    <SelectTrigger className="bg-white/50 border-white/20">
+                      <SelectValue placeholder={formData.customer_id === 0 ? "Select customer first" : "Select invoice"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customerInvoices.map(invoice => (
+                        <SelectItem key={invoice.id} value={invoice.id.toString()}>
+                          {invoice.invoice_number} - ₹{parseFloat(invoice.total_amount.toString()).toFixed(2)} ({format(new Date(invoice.invoice_date), 'MMM dd, yyyy')})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Step 2: Items Selection */}
+              {selectedInvoice && itemsToReturn.length > 0 && (
+                <div>
+                  <Label>Select Items to Return *</Label>
+                  <div className="mt-2 border rounded-lg p-4 bg-gray-50/50">
+                    <div className="flex justify-between items-center mb-4">
+                      <h4 className="font-medium">Invoice Items: {selectedInvoice.invoice_number}</h4>
+                      <div className="text-sm text-gray-600">
+                        Total Invoice Amount: ₹{parseFloat(selectedInvoice.total_amount.toString()).toFixed(2)}
+                      </div>
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-12">Select</TableHead>
+                          <TableHead>Item</TableHead>
+                          <TableHead>SKU</TableHead>
+                          <TableHead>Original Qty</TableHead>
+                          <TableHead>Return Qty</TableHead>
+                          <TableHead>Unit Price</TableHead>
+                          <TableHead>Return Amount</TableHead>
+                          <TableHead>Condition</TableHead>
+                          <TableHead>Reason</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {itemsToReturn.map((item, index) => (
+                          <TableRow key={item.invoice_item_id}>
+                            <TableCell>
+                              <Checkbox
+                                checked={item.selected}
+                                onCheckedChange={() => toggleItemSelection(index)}
+                              />
+                            </TableCell>
+                            <TableCell className="font-medium">{item.item_name}</TableCell>
+                            <TableCell>{item.item_sku}</TableCell>
+                            <TableCell>{item.original_quantity}</TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                value={item.return_quantity}
+                                onChange={(e) => updateItemToReturn(index, 'return_quantity', parseFloat(e.target.value) || 0)}
+                                min="0"
+                                max={item.original_quantity}
+                                className="w-20"
+                                disabled={!item.selected}
+                              />
+                            </TableCell>
+                            <TableCell>₹{parseFloat(item.unit_price.toString()).toFixed(2)}</TableCell>
+                            <TableCell>₹{parseFloat(item.return_amount.toString()).toFixed(2)}</TableCell>
+                            <TableCell>
+                              <Select
+                                value={item.condition_on_return}
+                                onValueChange={(value) => updateItemToReturn(index, 'condition_on_return', value)}
+                                disabled={!item.selected}
+                              >
+                                <SelectTrigger className="w-28">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="good">Good</SelectItem>
+                                  <SelectItem value="damaged">Damaged</SelectItem>
+                                  <SelectItem value="defective">Defective</SelectItem>
+                                  <SelectItem value="used">Used</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                value={item.return_reason}
+                                onChange={(e) => updateItemToReturn(index, 'return_reason', e.target.value)}
+                                placeholder="Reason"
+                                className="w-32"
+                                disabled={!item.selected}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 3: Return Details */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="return_reason">Return Reason *</Label>
+                  <Select
+                    value={formData.return_reason}
+                    onValueChange={(value) => setFormData({ ...formData, return_reason: value })}
+                  >
+                    <SelectTrigger className="bg-white/50 border-white/20">
+                      <SelectValue placeholder="Select reason" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Defective Product">Defective Product</SelectItem>
+                      <SelectItem value="Wrong Item Sent">Wrong Item Sent</SelectItem>
+                      <SelectItem value="Customer Changed Mind">Customer Changed Mind</SelectItem>
+                      <SelectItem value="Damaged in Transit">Damaged in Transit</SelectItem>
+                      <SelectItem value="Quality Issues">Quality Issues</SelectItem>
+                      <SelectItem value="Not as Described">Not as Described</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="refund_method">Refund Method *</Label>
+                  <Select
+                    value={formData.refund_method}
+                    onValueChange={(value) => setFormData({ ...formData, refund_method: value })}
+                  >
+                    <SelectTrigger className="bg-white/50 border-white/20">
+                      <SelectValue placeholder="Select method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="Cash">Cash</SelectItem>
+                      <SelectItem value="Original Payment">Original Payment Method</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="return_date">Return Date</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start text-left font-normal bg-white/50 border-white/20"
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={selectedDate}
+                        onSelect={setSelectedDate}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div>
+                  <Label htmlFor="items_condition">Overall Items Condition</Label>
+                  <Select
+                    value={formData.items_condition}
+                    onValueChange={(value) => setFormData({ ...formData, items_condition: value })}
+                  >
+                    <SelectTrigger className="bg-white/50 border-white/20">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="good">Good</SelectItem>
+                      <SelectItem value="damaged">Damaged</SelectItem>
+                      <SelectItem value="defective">Defective</SelectItem>
+                      <SelectItem value="used">Used</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="return_reason_details">Return Reason Details</Label>
+                <Textarea
+                  value={formData.return_reason_details}
+                  onChange={(e) => setFormData({ ...formData, return_reason_details: e.target.value })}
+                  placeholder="Provide detailed explanation of the return reason..."
+                  className="bg-white/50 border-white/20"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="customer_notes">Customer Notes</Label>
+                  <Textarea
+                    value={formData.customer_notes}
+                    onChange={(e) => setFormData({ ...formData, customer_notes: e.target.value })}
+                    placeholder="Customer feedback and notes..."
+                    className="bg-white/50 border-white/20"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="internal_notes">Internal Notes</Label>
+                  <Textarea
+                    value={formData.internal_notes}
+                    onChange={(e) => setFormData({ ...formData, internal_notes: e.target.value })}
+                    placeholder="Internal notes for processing team..."
                     className="bg-white/50 border-white/20"
                   />
                 </div>
               </div>
-              <div>
-                <Label>Return Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start bg-white/50 border-white/20">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {selectedDate ? format(selectedDate, "PPP") : "Pick a date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} initialFocus />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div>
-                <Label htmlFor="reason">Return Reason</Label>
-                <Textarea
-                  id="reason"
-                  value={formData.return_reason}
-                  onChange={(e) => setFormData({ ...formData, return_reason: e.target.value })}
-                  placeholder="Reason for return"
-                  className="bg-white/50 border-white/20"
-                />
-              </div>
-              <div>
-                <Label htmlFor="refundMethod">Refund Method</Label>
-                <Select
-                  value={formData.refund_method}
-                  onValueChange={(value: any) => setFormData({ ...formData, refund_method: value })}
-                >
-                  <SelectTrigger className="bg-white/50 border-white/20">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Credit Note">Credit Note</SelectItem>
-                    <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                    <SelectItem value="Cash">Cash</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex justify-end gap-3">
-                <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+
+              {/* Summary */}
+              {formData.total_return_amount > 0 && (
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                  <h4 className="font-medium text-blue-900 mb-2">Return Summary</h4>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>Total Return Amount: <span className="font-semibold">₹{parseFloat(formData.total_return_amount.toString()).toFixed(2)}</span></div>
+                    <div>Refund Amount: <span className="font-semibold">₹{parseFloat(formData.refund_amount.toString()).toFixed(2)}</span></div>
+                    <div>Selected Items: <span className="font-semibold">{itemsToReturn.filter(item => item.selected).length}</span></div>
+                    <div>Refund Method: <span className="font-semibold">{formData.refund_method}</span></div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-2">
+                <Button variant="outline" onClick={resetForm}>
                   Cancel
                 </Button>
                 <Button onClick={handleCreateReturn} className="bg-gradient-to-r from-violet-500 to-purple-600">
-                  Create Return
+                  Create Sales Return
                 </Button>
               </div>
             </div>
@@ -261,149 +686,157 @@ export default function SalesReturns() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Total Returns</p>
-                <p className="text-2xl font-bold text-gray-900">{totalReturns}</p>
+                <p className="text-sm font-medium text-blue-600">Total Returns</p>
+                <p className="text-3xl font-bold text-blue-900">{totalReturns}</p>
               </div>
-              <RotateCcw className="w-8 h-8 text-violet-600" />
+              <RotateCcw className="h-8 w-8 text-blue-500" />
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
+
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Total Refund Amount</p>
-                <p className="text-2xl font-bold text-red-600">₹{totalRefundAmount.toLocaleString()}</p>
+                <p className="text-sm font-medium text-green-600">Total Return Amount</p>
+                <p className="text-3xl font-bold text-green-900">₹{parseFloat(totalRefundAmount.toString()).toFixed(2)}</p>
               </div>
-              <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
-                <span className="text-red-600 font-bold">₹</span>
-              </div>
+              <Package className="h-8 w-8 text-green-500" />
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
+
+        <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Pending Returns</p>
-                <p className="text-2xl font-bold text-orange-600">{pendingReturns}</p>
+                <p className="text-sm font-medium text-yellow-600">Pending Returns</p>
+                <p className="text-3xl font-bold text-yellow-900">{pendingReturns}</p>
               </div>
-              <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
-                <span className="text-orange-600 font-bold">⏳</span>
-              </div>
+              <Clock className="h-8 w-8 text-yellow-500" />
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Search */}
-      <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-        <CardContent className="p-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <Input
-              placeholder="Search returns..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 bg-white/50 border-white/20"
-            />
+      {/* Sales Returns Table */}
+      <Card className="bg-white/60 backdrop-blur-xl border-white/30">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <RotateCcw className="w-5 h-5 text-violet-600" />
+              Sales Returns ({totalReturns})
+            </CardTitle>
+            <div className="flex items-center space-x-2 w-96">
+              <Search className="w-5 h-5 text-gray-400" />
+              <Input
+                placeholder="Search returns by customer, invoice number, or return number..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="bg-white/50 border-white/20"
+              />
+            </div>
           </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex items-center justify-center p-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Return Number</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Invoice</TableHead>
+                  <TableHead>Return Date</TableHead>
+                  <TableHead>Return Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Refund Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {returns.map((returnItem) => (
+                  <TableRow key={returnItem.id}>
+                    <TableCell className="font-medium">{returnItem.return_number}</TableCell>
+                    <TableCell>{returnItem.customer_name}</TableCell>
+                    <TableCell>{returnItem.invoice_number}</TableCell>
+                    <TableCell>{format(new Date(returnItem.return_date), 'MMM dd, yyyy')}</TableCell>
+                    <TableCell>₹{parseFloat(returnItem.total_return_amount.toString()).toFixed(2)}</TableCell>
+                    <TableCell>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(returnItem.status)}`}>
+                        {returnItem.status}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(returnItem.refund_status)}`}>
+                        {returnItem.refund_status}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => downloadCreditReport(returnItem.id)}
+                          title="Download Credit Report"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </Button>
+                        <div className="flex items-start space-x-2">
+                          <div className="w-28">
+                            <label className="text-xs font-medium text-gray-600 mb-1 block">Return Status</label>
+                            <Select
+                              value={returnItem.status}
+                              onValueChange={(value) => updateStatus(returnItem.id, value)}
+                            >
+                              <SelectTrigger className="w-full h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="pending">Pending</SelectItem>
+                                <SelectItem value="approved">Approved</SelectItem>
+                                <SelectItem value="processed">Processed</SelectItem>
+                                <SelectItem value="rejected">Rejected</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="w-28">
+                            <label className="text-xs font-medium text-gray-600 mb-1 block">Refund Status</label>
+                            <Select
+                              value={returnItem.refund_status}
+                              onValueChange={(value) => updateRefundStatus(returnItem.id, value)}
+                            >
+                              <SelectTrigger className="w-full h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="pending">Pending</SelectItem>
+                                <SelectItem value="processed">Processed</SelectItem>
+                                <SelectItem value="completed">Completed</SelectItem>
+                                <SelectItem value="failed">Failed</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      {/* Returns Table */}
-      <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <RotateCcw className="w-5 h-5" />
-            Sales Returns ({returns.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Return Number</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Invoice</TableHead>
-                <TableHead>Return Date</TableHead>
-                <TableHead>Reason</TableHead>
-                <TableHead>Refund Amount</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8">
-                    <div className="flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-violet-600"></div>
-                      <span className="ml-2">Loading sales returns...</span>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : returns.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8">
-                    <div className="text-gray-500">No sales returns found</div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                returns.map((returnItem) => (
-                  <TableRow key={returnItem.id}>
-                    <TableCell>
-                      <div className="font-medium">{returnItem.return_number}</div>
-                    </TableCell>
-                    <TableCell>{returnItem.customer_name}</TableCell>
-                    <TableCell>{returnItem.invoice_number}</TableCell>
-                    <TableCell>{format(new Date(returnItem.return_date), "MMM dd, yyyy")}</TableCell>
-                    <TableCell>
-                      <div className="max-w-32 truncate" title={returnItem.return_reason}>
-                        {returnItem.return_reason}
-                      </div>
-                    </TableCell>
-                    <TableCell>₹{returnItem.refund_amount.toLocaleString()}</TableCell>
-                    <TableCell>
-                      <Select
-                        value={returnItem.status}
-                        onValueChange={(value: any) => updateStatus(returnItem.id, value)}
-                      >
-                        <SelectTrigger className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="approved">Approved</SelectItem>
-                          <SelectItem value="rejected">Rejected</SelectItem>
-                          <SelectItem value="processed">Processed</SelectItem>
-                        </SelectContent>
-                      </Select>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline">
-                        <Eye className="w-3 h-3" />
-                      </Button>
-                      <Button size="sm" variant="outline">
-                        <Download className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-      
       {/* Notification Container */}
-      <NotificationContainer position="top-right" />
+      <NotificationContainer position="top-center" />
     </div>
   )
 }

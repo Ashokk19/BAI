@@ -10,21 +10,21 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localho
 export const API_ENDPOINTS = {
   // Authentication endpoints
   auth: {
-    login: '/auth/login',
-    register: '/auth/register',
-    logout: '/auth/logout',
-    profile: '/auth/profile',
+    login: '/api/auth/login',
+    register: '/api/auth/register',
+    logout: '/api/auth/logout',
+    profile: '/api/auth/profile',
   },
   
   // Sales module endpoints
   sales: {
-    customers: '/sales/customers',
-    invoices: '/sales/invoices',
-    payments: '/sales/payments',
-    credits: '/sales/credits',
-    returns: '/sales/returns',
-    shipments: '/sales/shipments',
-    deliveryNotes: '/sales/shipments/delivery-notes',
+    customers: '/api/sales/customers',
+    invoices: '/api/sales/invoices',
+    payments: '/api/sales/payments/',
+    credits: '/api/sales/credits/',
+    returns: '/api/sales/returns/',
+    shipments: '/api/sales/shipments/',
+    deliveryNotes: '/api/sales/shipments/delivery-notes',
   },
   
   // Inventory module endpoints
@@ -39,18 +39,18 @@ export const API_ENDPOINTS = {
   
   // Purchase module endpoints
   purchases: {
-    vendors: '/purchases/vendors',
-    purchaseOrders: '/purchases/purchase-orders',
-    bills: '/purchases/bills',
-    purchaseReceived: '/purchases/purchase-received',
-    vendorCredits: '/purchases/vendor-credits',
-    paymentsMade: '/purchases/payments-made',
+    vendors: '/api/purchases/vendors',
+    purchaseOrders: '/api/purchases/purchase-orders',
+    bills: '/api/purchases/bills',
+    purchaseReceived: '/api/purchases/purchase-received',
+    vendorCredits: '/api/purchases/vendor-credits',
+    paymentsMade: '/api/purchases/payments-made',
   },
   
   // Dashboard endpoints
   dashboard: {
-    stats: '/dashboard/stats',
-    recentActivities: '/dashboard/recent-activities',
+    stats: '/api/dashboard/stats',
+    recentActivities: '/api/dashboard/recent-activities',
   },
 } as const;
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,9 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon, Plus, Search, Receipt, Eye, Download } from "lucide-react"
+import { CalendarIcon, Plus, Search, Receipt, Eye, Download, Edit, Trash2, ChevronDown, ChevronRight } from "lucide-react"
 import { paymentApi, Payment as ApiPayment, PaymentCreate } from "../../services/paymentApi"
 import { customerApi, Customer } from "../../services/customerApi"
+import { invoiceApi, Invoice } from "../../services/invoiceApi"
 import { useNotifications, NotificationContainer } from "../../components/ui/notification"
 
 // Native date formatting utility
@@ -47,13 +48,28 @@ export default function PaymentLog() {
   const notifications = useNotifications()
   const [payments, setPayments] = useState<ApiPayment[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<Date>()
+  
+  // Invoice search states
+  const [invoiceSearch, setInvoiceSearch] = useState("")
+  const [showInvoiceDropdown, setShowInvoiceDropdown] = useState(false)
+  
+  // Edit/Delete states
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [editingPayment, setEditingPayment] = useState<ApiPayment | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [paymentToDelete, setPaymentToDelete] = useState<ApiPayment | null>(null)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  
   const [formData, setFormData] = useState({
     customer_id: 0,
-    amount: 0,
+    invoice_id: 0,
+    invoice_amount: 0,
+    amount_paid: 0,
     payment_method: "Bank Transfer",
     reference_number: "",
     notes: "",
@@ -63,7 +79,10 @@ export default function PaymentLog() {
   useEffect(() => {
     loadPayments()
     loadCustomers()
+    loadInvoices()
   }, [])
+
+
 
   // Reload when search changes
   useEffect(() => {
@@ -74,14 +93,11 @@ export default function PaymentLog() {
     try {
       setLoading(true)
       const params: any = {
-        limit: 100,
+        limit: 1000, // Increased limit to show more payments
         skip: 0
       }
       
-      if (searchTerm) {
-        params.search = searchTerm
-      }
-
+      // Note: Backend doesn't support search parameter, so we filter on frontend
       const response = await paymentApi.getPayments(params)
       setPayments(response.payments)
     } catch (error) {
@@ -101,8 +117,44 @@ export default function PaymentLog() {
     }
   }
 
+  const loadInvoices = async () => {
+    try {
+      const response = await invoiceApi.getInvoices({ limit: 1000 })
+      setInvoices(response.invoices)
+    } catch (error) {
+      console.error('Error loading invoices:', error)
+    }
+  }
+
   const [statusFilter, setStatusFilter] = useState("all")
   const [methodFilter, setMethodFilter] = useState("all")
+
+  // Handle tile clicks for filtering
+  const handleTileClick = (filterType: string) => {
+    if (filterType === 'all') {
+      setStatusFilter('all')
+    } else if (filterType === 'completed') {
+      setStatusFilter('completed')
+    } else if (filterType === 'partial') {
+      setStatusFilter('partial')
+    } else if (filterType === 'pending') {
+      setStatusFilter('pending')
+    }
+    // Clear search when filtering
+    setSearchTerm('')
+  }
+
+  // Create pending payments for existing invoices
+  const handleCreatePendingForInvoices = async () => {
+    try {
+      const response = await paymentApi.createPendingForInvoices()
+      notifications.success('Pending Payments Created!', response.message)
+      await loadPayments() // Reload payments to show new pending records
+    } catch (error) {
+      console.error('Error creating pending payments:', error)
+      notifications.error('Creation Failed', 'Failed to create pending payments for invoices')
+    }
+  }
 
   const getCustomerName = (customerId?: number): string => {
     if (!customerId) return 'N/A'
@@ -113,28 +165,289 @@ export default function PaymentLog() {
     return 'Unknown Customer'
   }
 
-  const handleCreatePayment = () => {
-    const newPayment: ApiPayment = {
-      id: payments.length + 1,
-      payment_number: `PAY-2024-${String(payments.length + 1).padStart(3, "0")}`,
-      customer_name: getCustomerName(formData.customer_id),
-      payment_date: selectedDate ? formatDate(selectedDate, "yyyy-MM-dd") : new Date().toISOString().split("T")[0],
-      amount: formData.amount,
-      payment_method: formData.payment_method,
-      payment_status: "completed",
-      reference_number: formData.reference_number,
-      notes: formData.notes,
-      customer_id: formData.customer_id,
+  const getInvoiceNumber = (invoiceId: number): string => {
+    const invoice = invoices.find(i => i.id === invoiceId)
+    return invoice ? invoice.invoice_number : 'Unknown Invoice'
+  }
+
+  const getFullInvoiceName = (invoiceId: number): string => {
+    const invoice = invoices.find(i => i.id === invoiceId)
+    if (!invoice) return 'Unknown Invoice'
+    
+    const customerName = getCustomerName(invoice.customer_id)
+    return `${invoice.invoice_number} - ${customerName}`
+  }
+
+  const getInvoiceAmount = (invoiceId: number): number => {
+    const invoice = invoices.find(i => i.id === invoiceId)
+    return invoice ? invoice.total_amount : 0
+  }
+
+  const getBalanceAmount = (invoiceId: number): number => {
+    const invoiceAmount = getInvoiceAmount(invoiceId)
+    const paidAmount = getTotalPaidAmount(invoiceId)
+    return invoiceAmount - paidAmount
+  }
+
+  const getTotalPaidAmount = (invoiceId: number): number => {
+    return payments
+      .filter(payment => payment.invoice_id === invoiceId && payment.payment_status !== 'pending')
+      .reduce((sum, payment) => {
+        const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
+        return sum + amount
+      }, 0)
+  }
+
+  const getPaymentStatus = (invoiceId: number): string => {
+    const invoiceAmount = getInvoiceAmount(invoiceId)
+    const invoicePayments = payments.filter(payment => payment.invoice_id === invoiceId)
+    
+    // Calculate only amounts from completed or partial payments
+    const paidAmount = invoicePayments
+      .filter(payment => payment.payment_status !== 'pending')
+      .reduce((sum, payment) => {
+        const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
+        return sum + amount
+      }, 0)
+    
+    // Check if there are any pending payments
+    const hasPendingPayments = invoicePayments.some(payment => payment.payment_status === 'pending')
+    
+    if (paidAmount >= invoiceAmount) {
+      return 'Completed'
+    } else if (paidAmount > 0) {
+      return 'Partial'
+    } else if (hasPendingPayments) {
+      return 'Pending'
+    } else {
+      return 'Pending'
     }
-    setPayments([...payments, newPayment])
-    setIsDialogOpen(false)
-    notifications.success('Payment Recorded!', 'The payment has been successfully recorded.')
+  }
+
+  const toggleGroupExpansion = (invoiceId: string) => {
+    setExpandedGroups(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(invoiceId)) {
+        newSet.delete(invoiceId)
+      } else {
+        newSet.add(invoiceId)
+      }
+      return newSet
+    })
+  }
+
+  // Filter functions for searchable dropdowns
+  const getFilteredInvoices = () => {
+    if (!invoiceSearch) return invoices;
+    return invoices.filter(invoice => {
+      const invoiceNumber = invoice.invoice_number.toLowerCase();
+      const customerName = getCustomerName(invoice.customer_id).toLowerCase();
+      const searchLower = invoiceSearch.toLowerCase();
+      return invoiceNumber.includes(searchLower) || customerName.includes(searchLower);
+    });
+  }
+
+  // Handle invoice selection
+  const handleInvoiceChange = (invoiceId: number) => {
+    const invoiceAmount = getInvoiceAmount(invoiceId)
+    const balanceAmount = getBalanceAmount(invoiceId)
+    setFormData(prev => ({ 
+      ...prev, 
+      invoice_id: invoiceId, 
+      invoice_amount: invoiceAmount,
+      amount_paid: balanceAmount // Pre-populate with balance amount
+    }))
+    setInvoiceSearch('') // Clear search when invoice is selected
+    setShowInvoiceDropdown(false)
+    
+    if (invoiceId > 0) {
+      const selectedInvoice = invoices.find(i => i.id === invoiceId)
+      if (selectedInvoice) {
+        // Auto-populate invoice amount from invoice
+        setFormData(prev => ({ 
+          ...prev, 
+          invoice_id: invoiceId,
+          invoice_amount: selectedInvoice.total_amount,
+          amount_paid: selectedInvoice.total_amount, // Default to full amount
+          customer_id: selectedInvoice.customer_id
+        }))
+      }
+    }
+  }
+
+  // Handle invoice input changes
+  const handleInvoiceInputChange = (value: string) => {
+    setInvoiceSearch(value);
+    setShowInvoiceDropdown(true);
+    // Clear selected invoice if user starts typing
+    if (value && formData.invoice_id > 0) {
+      setFormData(prev => ({ ...prev, invoice_id: 0 }));
+    }
+  };
+
+  // Get display value for invoice input
+  const getInvoiceInputValue = () => {
+    if (formData.invoice_id > 0) {
+      const invoice = invoices.find(i => i.id === formData.invoice_id)
+      if (invoice) {
+        return `${invoice.invoice_number} - ${getCustomerName(invoice.customer_id)}`
+      }
+    }
+    return invoiceSearch;
+  };
+
+  // Calculate total amount paid for a specific invoice
+  const getTotalAmountPaidForInvoice = (invoiceId: number): number => {
+    const invoicePayments = payments.filter(payment => payment.invoice_id === invoiceId)
+    const totalPaid = invoicePayments.reduce((total, payment) => {
+      // Ensure we're adding numbers, not concatenating strings
+      const paymentAmount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
+      const currentTotal = typeof total === 'string' ? parseFloat(total) : total
+      return currentTotal + paymentAmount
+    }, 0)
+    return totalPaid
+  }
+
+  // Determine payment status based on cumulative amount paid vs invoice amount
+  const calculatePaymentStatus = (amountPaid: number, invoiceAmount: number, invoiceId?: number, isNewPayment: boolean = false): string => {
+    // Ensure we're comparing numbers
+    const paid = typeof amountPaid === 'string' ? parseFloat(amountPaid) : amountPaid
+    const invoice = typeof invoiceAmount === 'string' ? parseFloat(invoiceAmount) : invoiceAmount
+    
+    if (invoiceId && !isNewPayment) {
+      // For existing payments in the table, calculate cumulative amount paid
+      const totalPaid = getTotalAmountPaidForInvoice(invoiceId)
+      if (totalPaid >= invoice) {
+        return "Completed"
+      } else if (totalPaid > 0) {
+        return "Partial"
+      } else {
+        return "Pending"
+      }
+    } else {
+      // For new payments or form display, use the individual amount
+      if (paid >= invoice) {
+        return "Completed"
+      } else if (paid > 0) {
+        return "Partial"
+      } else {
+        return "Pending"
+      }
+    }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      customer_id: 0,
+      invoice_id: 0,
+      invoice_amount: 0,
+      amount_paid: 0,
+      payment_method: "Bank Transfer",
+      reference_number: "",
+      notes: "",
+    })
+    setSelectedDate(undefined)
+    setInvoiceSearch("")
+    setShowInvoiceDropdown(false)
+  }
+
+  const handleCreatePayment = async () => {
+    try {
+      const paymentData = {
+        payment_date: selectedDate ? formatDate(selectedDate, "yyyy-MM-dd") : new Date().toISOString().split("T")[0],
+        payment_type: "customer",
+        payment_direction: "received",
+        amount: formData.amount_paid,
+        payment_method: formData.payment_method,
+        payment_status: calculatePaymentStatus(formData.amount_paid, formData.invoice_amount, formData.invoice_id, true),
+        reference_number: formData.reference_number,
+        notes: formData.notes,
+        invoice_id: formData.invoice_id > 0 ? formData.invoice_id : undefined,
+        customer_id: formData.customer_id,
+      }
+
+      await paymentApi.createPayment(paymentData)
+      await loadPayments() // Reload payments from database
+      setIsDialogOpen(false)
+      resetForm()
+      notifications.success('Payment Recorded!', 'The payment has been successfully recorded.')
+    } catch (error) {
+      console.error('Error creating payment:', error)
+      notifications.error('Creation Failed', 'Unable to record payment. Please try again.')
+    }
+  }
+
+  const handleEditPayment = (payment: ApiPayment) => {
+    setEditingPayment(payment)
+    setFormData({
+      customer_id: payment.customer_id || 0,
+      invoice_id: payment.invoice_id || 0,
+      invoice_amount: getInvoiceAmount(payment.invoice_id || 0),
+      amount_paid: payment.amount,
+      payment_method: payment.payment_method || "Bank Transfer",
+      reference_number: payment.reference_number || "",
+      notes: payment.notes || "",
+    })
+    setSelectedDate(new Date(payment.payment_date))
+    setIsEditDialogOpen(true)
+  }
+
+  const handleUpdatePayment = async () => {
+    if (!editingPayment) return
+
+    try {
+      const paymentData = {
+        payment_date: selectedDate ? formatDate(selectedDate, "yyyy-MM-dd") : new Date().toISOString().split("T")[0],
+        payment_type: "customer",
+        payment_direction: "received",
+        amount: formData.amount_paid,
+        currency: "INR",
+        payment_method: formData.payment_method,
+        payment_status: calculatePaymentStatus(formData.amount_paid, formData.invoice_amount, formData.invoice_id, true),
+        reference_number: formData.reference_number,
+        notes: formData.notes,
+        invoice_id: formData.invoice_id > 0 ? formData.invoice_id : undefined,
+        customer_id: formData.customer_id > 0 ? formData.customer_id : undefined,
+      }
+
+      await paymentApi.updatePayment(editingPayment.id, paymentData)
+      await loadPayments() // Reload payments from database
+      setIsEditDialogOpen(false)
+      setEditingPayment(null)
+      resetForm()
+      notifications.success('Payment Updated!', 'The payment has been successfully updated.')
+    } catch (error) {
+      console.error('Error updating payment:', error)
+      notifications.error('Update Failed', 'Failed to update payment. Please try again.')
+    }
+  }
+
+  const handleDeleteClick = (payment: ApiPayment) => {
+    setPaymentToDelete(payment)
+    setDeleteDialogOpen(true)
+  }
+
+  const handleDeletePayment = async () => {
+    if (!paymentToDelete) return
+
+    try {
+      await paymentApi.deletePayment(paymentToDelete.id)
+      await loadPayments() // Reload payments from database
+      setDeleteDialogOpen(false)
+      setPaymentToDelete(null)
+      notifications.success('Payment Deleted!', 'The payment has been successfully deleted.')
+    } catch (error) {
+      console.error('Error deleting payment:', error)
+      notifications.error('Delete Failed', 'Failed to delete payment. Please try again.')
+    }
   }
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Completed":
         return "bg-green-100 text-green-800"
+      case "Partial":
+        return "bg-blue-100 text-blue-800"
       case "Pending":
         return "bg-yellow-100 text-yellow-800"
       case "Failed":
@@ -149,30 +462,95 @@ export default function PaymentLog() {
     const matchesSearch = !searchTerm || 
       payment.payment_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       payment.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      payment.reference_number?.toLowerCase().includes(searchTerm.toLowerCase())
+      payment.reference_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      getInvoiceNumber(payment.invoice_id || 0).toLowerCase().includes(searchTerm.toLowerCase()) ||
+      getFullInvoiceName(payment.invoice_id || 0).toLowerCase().includes(searchTerm.toLowerCase())
     
-    const matchesStatus = statusFilter === "all" || payment.payment_status?.toLowerCase() === statusFilter.toLowerCase()
+    const matchesStatus = statusFilter === "all" || 
+      payment.payment_status?.toLowerCase() === statusFilter.toLowerCase() ||
+      (statusFilter === "pending" && payment.payment_method === "pending")
     const matchesMethod = methodFilter === "all" || payment.payment_method?.toLowerCase() === methodFilter.toLowerCase()
     
     return matchesSearch && matchesStatus && matchesMethod
   })
 
+  // Group payments by invoice ID
+  const groupedPayments = filteredPayments.reduce((groups: {[key: string]: typeof filteredPayments}, payment) => {
+    const invoiceId = payment.invoice_id ? payment.invoice_id.toString() : 'no-invoice'
+    if (!groups[invoiceId]) {
+      groups[invoiceId] = []
+    }
+    groups[invoiceId].push(payment)
+    return groups
+  }, {})
+
+  // Sort groups by invoice number (no-invoice group at the end)
+  const sortedGroupKeys = Object.keys(groupedPayments).sort((a, b) => {
+    if (a === 'no-invoice') return 1
+    if (b === 'no-invoice') return -1
+    
+    // Get invoice numbers for comparison
+    const invoiceA = getInvoiceNumber(parseInt(a))
+    const invoiceB = getInvoiceNumber(parseInt(b))
+    
+    // Sort by invoice number ascending
+    return invoiceA.localeCompare(invoiceB)
+  })
+
   const totalPayments = payments.length
-  const totalAmount = payments.reduce((sum, payment) => sum + payment.amount, 0)
-  const completedPayments = payments.filter((payment) => payment.payment_status === "completed").length
-  const pendingPayments = payments.filter((payment) => payment.payment_status === "pending").length
+  const totalAmount = payments.reduce((sum, payment) => {
+    // Ensure we're adding numbers, not concatenating strings
+    const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
+    return sum + amount
+  }, 0)
+  const completedPayments = payments.filter((payment) => 
+    payment.payment_status === "Completed" || 
+    (payment.payment_status === "completed" && payment.payment_method !== "pending")
+  ).length
+  const partialPayments = payments.filter((payment) => 
+    payment.payment_status === "Partial" || 
+    payment.payment_status === "partial"
+  ).length
+  const pendingPayments = payments.filter((payment) => 
+    payment.payment_status === "Pending" || 
+    payment.payment_status === "pending" ||
+    payment.payment_method === "pending"
+  ).length
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-violet-600 to-purple-700 bg-clip-text text-transparent">
-            Payment Log
-          </h1>
-          <p className="text-gray-600 mt-1">Track and manage customer payments</p>
-        </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-purple-25 to-indigo-50 relative overflow-hidden">
+      {/* Animated background elements */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 w-96 h-96 bg-gradient-to-r from-violet-100 to-purple-100 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse"></div>
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-gradient-to-r from-purple-50 to-indigo-100 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse delay-1000"></div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-gradient-to-r from-indigo-50 to-violet-100 rounded-full mix-blend-multiply filter blur-3xl opacity-25 animate-pulse delay-500"></div>
+      </div>
+
+      {/* Enhanced grid pattern overlay */}
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(0,0,0,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.02)_1px,transparent_1px)] bg-[size:40px_40px]"></div>
+
+      <div className="relative z-10 p-8 space-y-6">
+        {/* Header */}
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Payment Log</h1>
+            <p className="text-gray-600 font-medium mt-1">Track and manage customer payments • {payments.length} payments total</p>
+          </div>
+          <div className="flex gap-3">
+            <Button 
+              variant="outline" 
+              onClick={handleCreatePendingForInvoices}
+              className="bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 hover:bg-white/90"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Create Pending for Invoices
+            </Button>
+            <Dialog open={isDialogOpen} onOpenChange={(open) => {
+          setIsDialogOpen(open);
+          if (!open) {
+            resetForm();
+          }
+        }}>
           <DialogTrigger asChild>
             <Button className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700">
               <Plus className="w-4 h-4 mr-2" />
@@ -185,6 +563,43 @@ export default function PaymentLog() {
             </DialogHeader>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="invoice">Invoice</Label>
+                  <div className="relative">
+                    <Input
+                      placeholder="Search invoices..."
+                      value={getInvoiceInputValue()}
+                      onChange={(e) => handleInvoiceInputChange(e.target.value)}
+                      onFocus={() => setShowInvoiceDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowInvoiceDropdown(false), 200)}
+                      className="w-full bg-white/50 border-white/20"
+                    />
+                    {showInvoiceDropdown && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                        {getFilteredInvoices().map(invoice => (
+                          <div
+                            key={invoice.id}
+                            onClick={() => handleInvoiceChange(invoice.id)}
+                            className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                          >
+                            <div className="font-medium text-gray-900">
+                              {invoice.invoice_number}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {getCustomerName(invoice.customer_id)}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              ₹{invoice.total_amount.toLocaleString()} • {new Date(invoice.invoice_date).toLocaleDateString()}
+                            </div>
+                          </div>
+                        ))}
+                        {getFilteredInvoices().length === 0 && (
+                          <div className="p-3 text-gray-500 text-sm">No invoices found</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <div>
                   <Label htmlFor="customer">Customer</Label>
                   <Select
@@ -203,30 +618,33 @@ export default function PaymentLog() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="amount">Amount</Label>
+                  <Label htmlFor="invoice_amount">Invoice Amount</Label>
                   <Input
-                    id="amount"
+                    id="invoice_amount"
                     type="number"
-                    value={formData.amount || ''}
-                    onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
+                    value={formData.invoice_amount}
+                    onChange={(e) => setFormData({ ...formData, invoice_amount: Number.parseFloat(e.target.value) || 0 })}
+                    placeholder="0.00"
+                    className="bg-white/50 border-white/20"
+                    readOnly
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="amount_paid">Amount Paid</Label>
+                  <Input
+                    id="amount_paid"
+                    type="number"
+                    value={formData.amount_paid}
+                    onChange={(e) => setFormData({ ...formData, amount_paid: Number.parseFloat(e.target.value) || 0 })}
                     placeholder="0.00"
                     className="bg-white/50 border-white/20"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="amount">Payment Amount</Label>
-                  <Input
-                    id="amount"
-                    type="number"
-                    value={formData.amount}
-                    onChange={(e) => setFormData({ ...formData, amount: Number.parseFloat(e.target.value) || 0 })}
-                    placeholder="0.00"
-                    className="bg-white/50 border-white/20"
-                  />
-                </div>
                 <div>
                   <Label htmlFor="method">Payment Method</Label>
                   <Select
@@ -244,6 +662,14 @@ export default function PaymentLog() {
                       <SelectItem value="cheque">Cheque</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                <div>
+                  <Label>Payment Status</Label>
+                  <div className="flex items-center h-10 px-3 bg-white/50 border border-white/20 rounded-md">
+                    <Badge className={getStatusColor(calculatePaymentStatus(formData.amount_paid, formData.invoice_amount, formData.invoice_id, true))}>
+                      {calculatePaymentStatus(formData.amount_paid, formData.invoice_amount, formData.invoice_id, true)}
+                    </Badge>
+                  </div>
                 </div>
               </div>
               <div>
@@ -271,7 +697,10 @@ export default function PaymentLog() {
                 />
               </div>
               <div className="flex justify-end gap-3">
-                <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+                <Button variant="outline" onClick={() => {
+                  setIsDialogOpen(false)
+                  resetForm()
+                }}>
                   Cancel
                 </Button>
                 <Button onClick={handleCreatePayment} className="bg-gradient-to-r from-violet-500 to-purple-600">
@@ -281,159 +710,481 @@ export default function PaymentLog() {
             </div>
           </DialogContent>
         </Dialog>
+          </div>
+        </div>
+
+        {/* Edit Payment Dialog */}
+        <Dialog open={isEditDialogOpen} onOpenChange={(open) => {
+          setIsEditDialogOpen(open);
+          if (!open) {
+            setEditingPayment(null);
+            resetForm();
+          }
+        }}>
+          <DialogContent className="max-w-2xl bg-white/95 backdrop-blur-xl border-white/20">
+            <DialogHeader>
+              <DialogTitle>Edit Payment</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="invoice">Invoice</Label>
+                  <Input
+                    value={formData.invoice_id > 0 ? getFullInvoiceName(formData.invoice_id) : 'No invoice selected'}
+                    className="w-full bg-gray-100 border-gray-300"
+                    readOnly
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="customer">Customer</Label>
+                  <Select
+                    value={formData.customer_id.toString()}
+                    onValueChange={(value) => setFormData({ ...formData, customer_id: parseInt(value) })}
+                  >
+                    <SelectTrigger className="bg-white/50 border-white/20">
+                      <SelectValue placeholder="Select customer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customers.map(customer => (
+                        <SelectItem key={customer.id} value={customer.id.toString()}>
+                          {customer.company_name || `${customer.first_name} ${customer.last_name}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="invoice_amount">Invoice Amount</Label>
+                  <Input
+                    id="invoice_amount"
+                    type="number"
+                    value={formData.invoice_amount}
+                    onChange={(e) => setFormData({ ...formData, invoice_amount: Number.parseFloat(e.target.value) || 0 })}
+                    placeholder="0.00"
+                    className="bg-white/50 border-white/20"
+                    readOnly
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="amount_paid">Amount Paid</Label>
+                  <Input
+                    id="amount_paid"
+                    type="number"
+                    value={formData.amount_paid}
+                    onChange={(e) => setFormData({ ...formData, amount_paid: Number.parseFloat(e.target.value) || 0 })}
+                    placeholder="0.00"
+                    className="bg-white/50 border-white/20"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="method">Payment Method</Label>
+                  <Select
+                    value={formData.payment_method}
+                    onValueChange={(value: any) => setFormData({ ...formData, payment_method: value })}
+                  >
+                    <SelectTrigger className="bg-white/50 border-white/20">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="credit_card">Credit Card</SelectItem>
+                      <SelectItem value="upi">UPI</SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Payment Status</Label>
+                  <div className="flex items-center h-10 px-3 bg-white/50 border border-white/20 rounded-md">
+                    <Badge className={getStatusColor(calculatePaymentStatus(formData.amount_paid, formData.invoice_amount, formData.invoice_id, true))}>
+                      {calculatePaymentStatus(formData.amount_paid, formData.invoice_amount, formData.invoice_id, true)}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <Label>Payment Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start bg-white/50 border-white/20">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {selectedDate ? formatDate(selectedDate, "PPP") : "Pick a date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} initialFocus />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div>
+                <Label htmlFor="reference">Reference Number</Label>
+                <Input
+                  id="reference"
+                  value={formData.reference_number}
+                  onChange={(e) => setFormData({ ...formData, reference_number: e.target.value })}
+                  placeholder="Transaction/Reference number"
+                  className="bg-white/50 border-white/20"
+                />
+              </div>
+              <div>
+                <Label htmlFor="notes">Notes</Label>
+                <Input
+                  id="notes"
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  placeholder="Additional notes"
+                  className="bg-white/50 border-white/20"
+                />
+              </div>
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" onClick={() => {
+                  setIsEditDialogOpen(false)
+                  setEditingPayment(null)
+                  resetForm()
+                }}>
+                  Cancel
+                </Button>
+                <Button onClick={handleUpdatePayment} className="bg-gradient-to-r from-violet-500 to-purple-600">
+                  Update Payment
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <DialogContent className="max-w-md bg-white/95 backdrop-blur-xl border-white/20">
+            <DialogHeader>
+              <DialogTitle>Delete Payment</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-gray-600">
+                Are you sure you want to delete payment <strong>{paymentToDelete?.payment_number}</strong>? 
+                This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleDeletePayment} variant="destructive">
+                  Delete Payment
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Payments</p>
-                <p className="text-2xl font-bold text-gray-900">{totalPayments}</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
+        {[
+          {
+            title: "Total Payments",
+            value: totalPayments.toString(),
+            icon: Receipt,
+            description: "All payment records",
+            color: "blue",
+            filterType: "all"
+          },
+          {
+            title: "Total Amount",
+            value: `₹${totalAmount.toLocaleString()}`,
+            icon: Receipt,
+            description: "Total amount received",
+            color: "violet",
+            filterType: "all"
+          },
+          {
+            title: "Completed",
+            value: completedPayments.toString(),
+            icon: Receipt,
+            description: "Fully paid invoices",
+            color: "green",
+            filterType: "completed"
+          },
+          {
+            title: "Partial",
+            value: partialPayments.toString(),
+            icon: Receipt,
+            description: "Partially paid invoices",
+            color: "yellow",
+            filterType: "partial"
+          },
+          {
+            title: "Pending",
+            value: pendingPayments.toString(),
+            icon: Receipt,
+            description: "Pending payments",
+            color: "red",
+            filterType: "pending"
+          }
+        ].map((stat) => {
+          const isSelected = (stat.filterType === "all" && statusFilter === "all") ||
+                            (stat.filterType === "completed" && statusFilter === "completed") ||
+                            (stat.filterType === "partial" && statusFilter === "partial") ||
+                            (stat.filterType === "pending" && statusFilter === "pending");
+          
+          return (
+            <Card 
+              key={stat.title} 
+              className={`bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl hover:bg-white/50 hover:shadow-2xl transition-all duration-300 ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 ${
+                isSelected ? 'ring-2 ring-violet-500 shadow-2xl' : ''
+              }`}
+              onClick={() => handleTileClick(stat.filterType)}
+            >
+            <div className={`absolute inset-0 ${
+              stat.color === "blue" ? "bg-gradient-to-br from-blue-500/10 to-blue-600/20" : 
+              stat.color === "violet" ? "bg-gradient-to-br from-violet-500/10 to-violet-600/20" : 
+              stat.color === "green" ? "bg-gradient-to-br from-green-500/10 to-green-600/20" : 
+              stat.color === "yellow" ? "bg-gradient-to-br from-yellow-500/10 to-yellow-600/20" : 
+              "bg-gradient-to-br from-red-500/10 to-red-600/20"
+            }`}></div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+              <CardTitle className="text-sm font-semibold text-gray-700">{stat.title}</CardTitle>
+              
+              <div className={`p-2 rounded-lg ${
+                stat.color === "blue" ? "bg-blue-500/20" : 
+                stat.color === "violet" ? "bg-violet-500/20" : 
+                stat.color === "green" ? "bg-green-500/20" : 
+                stat.color === "yellow" ? "bg-yellow-500/20" : 
+                "bg-red-500/20"
+              }`}>
+                <stat.icon className={`w-4 h-4 ${
+                  stat.color === "blue" ? "text-blue-600" : 
+                  stat.color === "violet" ? "text-violet-600" : 
+                  stat.color === "green" ? "text-green-600" : 
+                  stat.color === "yellow" ? "text-yellow-600" : 
+                  "text-red-600"
+                }`} />
               </div>
-              <Receipt className="w-8 h-8 text-violet-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Amount</p>
-                <p className="text-2xl font-bold text-gray-900">₹{totalAmount.toLocaleString()}</p>
-              </div>
-              <div className="w-8 h-8 bg-violet-100 rounded-full flex items-center justify-center">
-                <span className="text-violet-600 font-bold">₹</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Completed</p>
-                <p className="text-2xl font-bold text-green-600">{completedPayments}</p>
-              </div>
-              <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                <span className="text-green-600 font-bold">✓</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Pending</p>
-                <p className="text-2xl font-bold text-orange-600">{pendingPayments}</p>
-              </div>
-              <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
-                <span className="text-orange-600 font-bold">⏳</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent className="relative z-10">
+              <div className="text-2xl font-bold text-gray-900 mb-1">{stat.value}</div>
+              <p className="text-xs text-gray-600 mt-2 font-medium">{stat.description}</p>
+            </CardContent>
+          </Card>
+        );
+        })}
       </div>
 
-      {/* Filters */}
-      <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-        <CardContent className="p-6">
-          <div className="flex flex-wrap gap-4">
-            <div className="flex-1 min-w-64">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <Input
-                  placeholder="Search payments..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 bg-white/50 border-white/20"
-                />
-              </div>
+      {/* Search and Filter */}
+      <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden mb-8">
+        <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-white/20"></div>
+        <CardContent className="p-6 relative z-10">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
+              <Input
+                type="text"
+                placeholder="Search payments by number, customer, or reference..."
+                className="pl-10 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 placeholder:text-gray-600 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-48 bg-white/50 border-white/20">
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="failed">Failed</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={methodFilter} onValueChange={setMethodFilter}>
-              <SelectTrigger className="w-48 bg-white/50 border-white/20">
-                <SelectValue placeholder="Filter by method" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Methods</SelectItem>
-                <SelectItem value="cash">Cash</SelectItem>
-                <SelectItem value="bank transfer">Bank Transfer</SelectItem>
-                <SelectItem value="credit card">Credit Card</SelectItem>
-                <SelectItem value="upi">UPI</SelectItem>
-                <SelectItem value="cheque">Cheque</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="relative">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="pl-10 pr-4 py-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-md appearance-none w-40">
+                  <SelectValue placeholder="All Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="partial">Partial</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="relative">
+              <Select value={methodFilter} onValueChange={setMethodFilter}>
+                <SelectTrigger className="pl-10 pr-4 py-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-md appearance-none w-40">
+                  <SelectValue placeholder="All Methods" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Methods</SelectItem>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="bank transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="credit card">Credit Card</SelectItem>
+                  <SelectItem value="upi">UPI</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Payments Table */}
-      <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+      <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-white/20"></div>
+        <CardHeader className="relative z-10">
+          <CardTitle className="flex items-center gap-2 text-gray-900">
             <Receipt className="w-5 h-5" />
             Payment Records ({filteredPayments.length})
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative z-10">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Payment Number</TableHead>
-                <TableHead>Customer</TableHead>
                 <TableHead>Invoice</TableHead>
-                <TableHead>Payment Date</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Method</TableHead>
-                <TableHead>Reference</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Invoice Amount</TableHead>
+                <TableHead>Paid Amount</TableHead>
+                <TableHead>Balance</TableHead>
+                <TableHead>Payments</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredPayments.map((payment) => (
-                <TableRow key={payment.id}>
-                  <TableCell>
-                    <div className="font-medium">{payment.payment_number}</div>
-                  </TableCell>
-                  <TableCell>{payment.customer_name || 'N/A'}</TableCell>
-                  <TableCell>{payment.invoice_id ? `INV-${payment.invoice_id}` : 'N/A'}</TableCell>
-                  <TableCell>{formatDate(new Date(payment.payment_date), "MMM dd, yyyy")}</TableCell>
-                  <TableCell>₹{payment.amount.toLocaleString()}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{payment.payment_method}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <code className="text-xs bg-gray-100 px-2 py-1 rounded">{payment.reference_number || 'N/A'}</code>
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={getStatusColor(payment.payment_status)}>{payment.payment_status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline">
-                        <Eye className="w-3 h-3" />
-                      </Button>
-                      <Button size="sm" variant="outline">
-                        <Download className="w-3 h-3" />
-                      </Button>
-                    </div>
+              {sortedGroupKeys.map((invoiceId) => {
+                const groupPayments = groupedPayments[invoiceId]
+                const isNoInvoiceGroup = invoiceId === 'no-invoice'
+                const invoiceNumber = isNoInvoiceGroup ? 'No Invoice' : getInvoiceNumber(parseInt(invoiceId))
+                const totalGroupAmount = groupPayments.reduce((sum, payment) => {
+                  const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
+                  return sum + amount
+                }, 0)
+
+                const invoiceIdNum = isNoInvoiceGroup ? 0 : parseInt(invoiceId)
+                const customerName = isNoInvoiceGroup ? 'N/A' : getCustomerName(groupPayments[0].customer_id)
+                const invoiceAmount = isNoInvoiceGroup ? 0 : getInvoiceAmount(invoiceIdNum)
+                const paidAmount = totalGroupAmount
+                const balanceAmount = invoiceAmount - paidAmount
+                const paymentStatus = isNoInvoiceGroup ? 'N/A' : getPaymentStatus(invoiceIdNum)
+                const isExpanded = expandedGroups.has(invoiceId)
+
+                return (
+                  <React.Fragment key={invoiceId}>
+                    {/* Main Invoice Row */}
+                    <TableRow 
+                      className="bg-white hover:bg-gray-50 cursor-pointer border-b-2"
+                      onClick={() => toggleGroupExpansion(invoiceId)}
+                    >
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                          {invoiceNumber}
+                        </div>
+                      </TableCell>
+                      <TableCell>{customerName}</TableCell>
+                      <TableCell>₹{invoiceAmount.toLocaleString()}</TableCell>
+                      <TableCell>₹{paidAmount.toLocaleString()}</TableCell>
+                      <TableCell>₹{balanceAmount.toLocaleString()}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {groupPayments.length} payment{groupPayments.length !== 1 ? 's' : ''}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={
+                          paymentStatus === "Completed" 
+                            ? "bg-green-100 text-green-800" 
+                            : paymentStatus === "Partial"
+                            ? "bg-yellow-100 text-yellow-800"
+                            : paymentStatus === "Pending"
+                            ? "bg-red-100 text-red-800"
+                            : "bg-gray-100 text-gray-800"
+                        }>
+                          {paymentStatus}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (!isNoInvoiceGroup) {
+                              handleInvoiceChange(invoiceIdNum)
+                              setIsDialogOpen(true)
+                            }
+                          }}
+                          disabled={isNoInvoiceGroup || paymentStatus === "Completed"}
+                        >
+                          Add Payment
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                    
+                    {/* Expanded Sub-Payment Rows */}
+                    {isExpanded && groupPayments.map((payment) => (
+                      <TableRow key={payment.id} className="bg-gray-50 border-l-4 border-l-blue-200">
+                        <TableCell className="pl-8">
+                          <div className="text-sm text-gray-600">{payment.payment_number}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">{formatDate(new Date(payment.payment_date), "MMM dd, yyyy")}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">{payment.payment_method}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm font-medium">₹{payment.amount.toLocaleString()}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">{payment.reference_number || 'N/A'}</div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-xs">
+                            {payment.payment_status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={
+                            payment.payment_status === "completed" 
+                              ? "bg-green-100 text-green-800" 
+                              : payment.payment_status === "pending"
+                              ? "bg-yellow-100 text-yellow-800"
+                              : "bg-blue-100 text-blue-800"
+                          }>
+                            {payment.payment_status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleEditPayment(payment)
+                              }}
+                            >
+                              <Edit className="w-3 h-3" />
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteClick(payment)
+                              }}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </React.Fragment>
+                )
+              })}
+              {filteredPayments.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8">
+                    <div className="text-gray-500">No payments found</div>
                   </TableCell>
                 </TableRow>
-              ))}
+              )}
             </TableBody>
           </Table>
         </CardContent>

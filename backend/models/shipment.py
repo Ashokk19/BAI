@@ -17,6 +17,9 @@ class Shipment(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     
+    # Organization isolation
+    account_id = Column(String(50), nullable=False, index=True)
+    
     # Shipment identification
     shipment_number = Column(String(50), unique=True, nullable=False)
     tracking_number = Column(String(100), nullable=True)
@@ -78,11 +81,14 @@ class DeliveryNote(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     
+    # Organization isolation
+    account_id = Column(String(50), nullable=False, index=True)
+    
     # Delivery note identification
     delivery_note_number = Column(String(50), unique=True, nullable=False)
     
     # Related entities
-    shipment_id = Column(Integer, ForeignKey("shipments.id"), nullable=False)
+    shipment_id = Column(Integer, ForeignKey("shipments.id"), nullable=True)
     shipment = relationship("Shipment")
     
     invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)

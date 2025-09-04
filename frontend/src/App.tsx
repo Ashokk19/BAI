@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './utils/AuthContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -65,6 +66,7 @@ function App() {
     <AuthProvider>
       <Router>
         <div className="App">
+          <Toaster position="top-center" />
           <Routes>
             {/* Public routes */}
             <Route

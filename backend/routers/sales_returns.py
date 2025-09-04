@@ -5,6 +5,7 @@ This module contains the sales returns routes for handling product returns and r
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import List, Optional
@@ -19,6 +20,8 @@ from models.customer import Customer
 from models.invoice import Invoice, InvoiceItem
 from models.item import Item
 from models.sales_return import SalesReturn, SalesReturnItem
+from services.inventory_service import InventoryService
+from templates.credit_note_template import get_credit_note_html
 from schemas.sales_return_schema import (
     SalesReturnCreate,
     SalesReturnUpdate,
@@ -56,18 +59,20 @@ async def get_sales_returns(
 ):
     """Get sales returns list with pagination and filters."""
     
-    query = db.query(SalesReturn)
+    # Always join with Customer and Invoice to get related data
+    query = db.query(SalesReturn).join(Customer).join(Invoice)
     
     # Apply search filter
     if search:
         search_term = f"%{search}%"
-        query = query.join(Customer).filter(
+        query = query.filter(
             or_(
                 SalesReturn.return_number.ilike(search_term),
                 Customer.first_name.ilike(search_term),
                 Customer.last_name.ilike(search_term),
                 Customer.company_name.ilike(search_term),
-                SalesReturn.return_reason.ilike(search_term)
+                SalesReturn.return_reason.ilike(search_term),
+                Invoice.invoice_number.ilike(search_term)
             )
         )
     
@@ -89,8 +94,20 @@ async def get_sales_returns(
     total_pages = ceil(total / limit) if total > 0 else 0
     current_page = (skip // limit) + 1
     
+    # Manually set customer_name and invoice_number for each return
+    response_returns = []
+    for sales_return in returns:
+        # Create dict from sales_return object
+        return_dict = {
+            **{c.name: getattr(sales_return, c.name) for c in sales_return.__table__.columns},
+            'customer_name': sales_return.customer.company_name or f"{sales_return.customer.first_name} {sales_return.customer.last_name}",
+            'invoice_number': sales_return.invoice.invoice_number,
+            'items': []  # Will be populated if needed
+        }
+        response_returns.append(return_dict)
+    
     return SalesReturnList(
-        returns=returns,
+        returns=response_returns,
         total=total,
         page=current_page,
         per_page=limit,
@@ -190,6 +207,33 @@ async def create_sales_return(
         )
         
         db.add(return_item)
+        
+        # Update inventory for returned items (if restockable)
+        if item_data.restockable and item_data.condition_on_return in ['good', 'damaged']:
+            try:
+                # Add returned quantity back to inventory
+                original_stock = item.current_stock
+                item.current_stock += int(item_data.return_quantity)
+                
+                # Create inventory log for the return
+                InventoryService.create_inventory_log(
+                    db=db,
+                    item_id=item_data.item_id,
+                    transaction_type="return",
+                    quantity_before=original_stock,
+                    quantity_after=item.current_stock,
+                    user_id=current_user.id,
+                    account_id=current_user.account_id,
+                    notes=f"Stock returned from sales return {return_number} - Item condition: {item_data.condition_on_return}",
+                    transaction_reference=return_number,
+                    unit_cost=float(item_data.unit_price) if item_data.unit_price else None
+                )
+                
+                print(f"Inventory updated for item {item.name}: {original_stock} -> {item.current_stock} (returned {item_data.return_quantity})")
+                
+            except Exception as e:
+                print(f"Warning: Failed to update inventory for item {item.name}: {str(e)}")
+                # Don't fail the return creation if inventory update fails
     
     db.commit()
     db.refresh(sales_return)
@@ -205,7 +249,7 @@ async def update_sales_return(
 ):
     """Update an existing sales return."""
     
-    sales_return = db.query(SalesReturn).filter(SalesReturn.id == return_id).first()
+    sales_return = db.query(SalesReturn).join(Customer).join(Invoice).filter(SalesReturn.id == return_id).first()
     if not sales_return:
         raise HTTPException(status_code=404, detail="Sales return not found")
     
@@ -217,7 +261,15 @@ async def update_sales_return(
     db.commit()
     db.refresh(sales_return)
     
-    return sales_return
+    # Create response with customer and invoice info
+    return_dict = {
+        **{c.name: getattr(sales_return, c.name) for c in sales_return.__table__.columns},
+        'customer_name': sales_return.customer.company_name or f"{sales_return.customer.first_name} {sales_return.customer.last_name}",
+        'invoice_number': sales_return.invoice.invoice_number,
+        'items': []  # Will be populated if needed
+    }
+    
+    return return_dict
 
 @router.delete("/{return_id}")
 async def delete_sales_return(
@@ -313,4 +365,33 @@ async def seed_sample_returns(
     return {
         "message": f"Successfully created {len(sample_returns)} sample sales returns",
         "created_returns": sample_returns
-    } 
+    }
+
+@router.get("/{return_id}/credit-report")
+async def download_credit_report(
+    return_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate and download credit report for a sales return."""
+    
+    # Get the sales return with all related data
+    sales_return = db.query(SalesReturn).filter(SalesReturn.id == return_id).first()
+    if not sales_return:
+        raise HTTPException(status_code=404, detail="Sales return not found")
+    
+    # Get customer and invoice data
+    customer = db.query(Customer).filter(Customer.id == sales_return.customer_id).first()
+    invoice = db.query(Invoice).filter(Invoice.id == sales_return.invoice_id).first()
+    
+    if not customer or not invoice:
+        raise HTTPException(status_code=404, detail="Related customer or invoice not found")
+    
+    # Get return items
+    return_items = db.query(SalesReturnItem).filter(SalesReturnItem.sales_return_id == sales_return.id).all()
+    
+    # Generate HTML content using template
+    html_content = get_credit_note_html(sales_return, customer, invoice, return_items)
+    
+    # Return HTML response for browser to handle printing/saving
+    return HTMLResponse(content=html_content) 

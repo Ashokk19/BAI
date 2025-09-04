@@ -27,6 +27,7 @@ from schemas.credit_schema import (
     CreditNoteCreate,
     CreditNoteResponse
 )
+from services.credit_service import CreditService
 
 router = APIRouter()
 
@@ -416,4 +417,64 @@ async def seed_sample_credits(
     return {
         "message": f"Successfully created {len(sample_credits)} sample customer credits",
         "created_credits": sample_credits
-    } 
+    }
+
+@router.get("/customers/{customer_id}/balance")
+async def get_customer_credit_balance(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get total available credit balance for a customer."""
+    
+    # Verify customer exists
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    balance = CreditService.get_customer_credit_balance(db, customer_id)
+    available_credits = CreditService.get_available_customer_credits(db, customer_id)
+    
+    return {
+        "customer_id": customer_id,
+        "customer_name": customer.company_name or f"{customer.first_name} {customer.last_name}",
+        "total_balance": balance,
+        "available_credits_count": len(available_credits),
+        "available_credits": [
+            {
+                "id": credit.id,
+                "credit_number": credit.credit_number,
+                "amount": credit.remaining_amount,
+                "credit_type": credit.credit_type,
+                "expiry_date": credit.expiry_date
+            }
+            for credit in available_credits
+        ]
+    }
+
+@router.post("/customers/{customer_id}/use-credit")
+async def use_customer_credit(
+    customer_id: int,
+    invoice_id: int,
+    amount: Decimal,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Use customer credit to pay for an invoice."""
+    
+    try:
+        transactions = CreditService.use_credit_for_invoice(
+            db=db,
+            customer_id=customer_id,
+            invoice_id=invoice_id,
+            amount=amount,
+            user_id=current_user.id
+        )
+        
+        return {
+            "message": f"Successfully used {amount} in credits for invoice",
+            "transactions_created": len(transactions),
+            "transaction_ids": [t.id for t in transactions]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) 

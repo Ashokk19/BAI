@@ -33,9 +33,9 @@ from schemas.shipment_schema import (
 
 router = APIRouter()
 
-def generate_shipment_number(db: Session) -> str:
+def generate_shipment_number(db: Session, account_id: str) -> str:
     """Generate a new shipment number."""
-    last_shipment = db.query(Shipment).order_by(Shipment.id.desc()).first()
+    last_shipment = db.query(Shipment).filter(Shipment.account_id == account_id).order_by(Shipment.id.desc()).first()
     if last_shipment:
         try:
             last_number = int(last_shipment.shipment_number.split('-')[-1])
@@ -48,9 +48,9 @@ def generate_shipment_number(db: Session) -> str:
     current_year = datetime.now().year
     return f"SHP-{current_year}-{next_number:03d}"
 
-def generate_delivery_note_number(db: Session) -> str:
+def generate_delivery_note_number(db: Session, account_id: str) -> str:
     """Generate a new delivery note number."""
-    last_note = db.query(DeliveryNote).order_by(DeliveryNote.id.desc()).first()
+    last_note = db.query(DeliveryNote).filter(DeliveryNote.account_id == account_id).order_by(DeliveryNote.id.desc()).first()
     if last_note:
         try:
             last_number = int(last_note.delivery_note_number.split('-')[-1])
@@ -64,7 +64,7 @@ def generate_delivery_note_number(db: Session) -> str:
     return f"DN-{current_year}-{next_number:03d}"
 
 def generate_tracking_number() -> str:
-    """Generate a tracking number."""
+    """Generate a random tracking number."""
     import random
     import string
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
@@ -82,7 +82,7 @@ async def get_delivery_notes(
 ):
     """Get delivery notes list with pagination and filters."""
     
-    query = db.query(DeliveryNote)
+    query = db.query(DeliveryNote).filter(DeliveryNote.account_id == current_user.account_id)
     
     # Apply search filter
     if search:
@@ -131,33 +131,42 @@ async def create_delivery_note(
 ):
     """Create a new delivery note."""
     
-    # Verify shipment exists
-    shipment = db.query(Shipment).filter(Shipment.id == note_data.shipment_id).first()
-    if not shipment:
-        raise HTTPException(status_code=404, detail="Shipment not found")
-    
-    # Verify customer exists
-    customer = db.query(Customer).filter(Customer.id == note_data.customer_id).first()
+    # Verify customer exists and belongs to the same account
+    customer = db.query(Customer).filter(
+        Customer.id == note_data.customer_id,
+        Customer.account_id == current_user.account_id
+    ).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     
+    # Verify shipment exists and belongs to the same account (if provided)
+    shipment = None
+    if note_data.shipment_id:
+        shipment = db.query(Shipment).filter(
+            Shipment.id == note_data.shipment_id,
+            Shipment.account_id == current_user.account_id
+        ).first()
+        if not shipment:
+            raise HTTPException(status_code=404, detail="Shipment not found")
+    
     # Generate delivery note number
-    note_number = generate_delivery_note_number(db)
+    delivery_note_number = generate_delivery_note_number(db, current_user.account_id)
     
     # Create delivery note
     delivery_note = DeliveryNote(
-        delivery_note_number=note_number,
+        account_id=current_user.account_id,
+        delivery_note_number=delivery_note_number,
         shipment_id=note_data.shipment_id,
-        customer_id=note_data.customer_id,
         invoice_id=note_data.invoice_id,
+        customer_id=note_data.customer_id,
         delivery_date=note_data.delivery_date,
         delivery_time=note_data.delivery_time,
-        delivery_status=note_data.delivery_status,
+        delivery_status=note_data.delivery_status or "Pending",
         received_by=note_data.received_by,
         recipient_signature=note_data.recipient_signature,
         delivery_address=note_data.delivery_address,
-        packages_delivered=note_data.packages_delivered,
-        condition_on_delivery=note_data.condition_on_delivery,
+        packages_delivered=note_data.packages_delivered or 1,
+        condition_on_delivery=note_data.condition_on_delivery or "good",
         photo_proof=note_data.photo_proof,
         delivery_notes=note_data.delivery_notes,
         special_instructions=note_data.special_instructions,
@@ -165,16 +174,129 @@ async def create_delivery_note(
     )
     
     db.add(delivery_note)
-    
-    # Update shipment status if delivered
-    if note_data.delivery_status == "delivered":
-        shipment.status = "delivered"
-        shipment.actual_delivery_date = note_data.delivery_date
-    
     db.commit()
     db.refresh(delivery_note)
     
     return delivery_note
+
+@router.put("/delivery-notes/{delivery_note_id}", response_model=DeliveryNoteResponse)
+async def update_delivery_note(
+    delivery_note_id: int,
+    note_data: DeliveryNoteUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update a delivery note."""
+    
+    # Get the delivery note
+    delivery_note = db.query(DeliveryNote).filter(
+        DeliveryNote.id == delivery_note_id,
+        DeliveryNote.account_id == current_user.account_id
+    ).first()
+    if not delivery_note:
+        raise HTTPException(status_code=404, detail="Delivery note not found")
+    
+    # Update fields
+    old_status = delivery_note.delivery_status
+    for field, value in note_data.dict(exclude_unset=True).items():
+        setattr(delivery_note, field, value)
+    
+    delivery_note.updated_at = func.now()
+    
+    db.commit()
+    db.refresh(delivery_note)
+    
+    # Log status change if delivery_status was updated
+    if old_status != delivery_note.delivery_status:
+        print(f"Delivery note {delivery_note.delivery_note_number} status changed from {old_status} to {delivery_note.delivery_status}")
+        # The frontend invoice history will automatically pick up this change when it refreshes
+    
+    return delivery_note
+
+@router.delete("/delivery-notes/{delivery_note_id}")
+async def delete_delivery_note(
+    delivery_note_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a delivery note."""
+    
+    # Get the delivery note
+    delivery_note = db.query(DeliveryNote).filter(
+        DeliveryNote.id == delivery_note_id,
+        DeliveryNote.account_id == current_user.account_id
+    ).first()
+    if not delivery_note:
+        raise HTTPException(status_code=404, detail="Delivery note not found")
+    
+    # Delete the delivery note
+    db.delete(delivery_note)
+    db.commit()
+    
+    return {"message": "Delivery note deleted successfully"}
+
+@router.get("/delivery-notes/by-invoice/{invoice_id}", response_model=List[DeliveryNoteResponse])
+async def get_delivery_notes_by_invoice(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get delivery notes for a specific invoice."""
+    
+    delivery_notes = db.query(DeliveryNote).filter(
+        DeliveryNote.invoice_id == invoice_id,
+        DeliveryNote.account_id == current_user.account_id
+    ).all()
+    
+    return delivery_notes
+
+@router.get("/by-invoice/{invoice_id}", response_model=List[ShipmentResponse])
+async def get_shipments_by_invoice(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get shipments for a specific invoice."""
+    
+    shipments = db.query(Shipment).filter(
+        Shipment.invoice_id == invoice_id,
+        Shipment.account_id == current_user.account_id
+    ).all()
+    
+    return shipments
+
+@router.post("/fix-unlinked-delivery-notes")
+async def fix_unlinked_delivery_notes(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Fix unlinked delivery notes by linking them to existing shipments."""
+    
+    # Find all delivery notes that have invoice_id but no shipment_id
+    unlinked_delivery_notes = db.query(DeliveryNote).filter(
+        DeliveryNote.account_id == current_user.account_id,
+        DeliveryNote.invoice_id.isnot(None),
+        DeliveryNote.shipment_id.is_(None)
+    ).all()
+    
+    fixed_count = 0
+    for delivery_note in unlinked_delivery_notes:
+        # Find shipment for this invoice
+        shipment = db.query(Shipment).filter(
+            Shipment.invoice_id == delivery_note.invoice_id,
+            Shipment.account_id == current_user.account_id
+        ).first()
+        
+        if shipment:
+            delivery_note.shipment_id = shipment.id
+            fixed_count += 1
+            print(f"Fixed: Linked {delivery_note.delivery_note_number} to {shipment.shipment_number}")
+    
+    if fixed_count > 0:
+        db.commit()
+        return {"message": f"Fixed {fixed_count} unlinked delivery note(s)"}
+    else:
+        return {"message": "No unlinked delivery notes found"}
 
 # Shipment endpoints
 @router.get("/", response_model=ShipmentList)
@@ -190,7 +312,7 @@ async def get_shipments(
 ):
     """Get shipments list with pagination and filters."""
     
-    query = db.query(Shipment)
+    query = db.query(Shipment).filter(Shipment.account_id == current_user.account_id)
     
     # Apply search filter
     if search:
@@ -244,7 +366,10 @@ async def get_shipment(
 ):
     """Get a specific shipment by ID."""
     
-    shipment = db.query(Shipment).filter(Shipment.id == shipment_id).first()
+    shipment = db.query(Shipment).filter(
+        Shipment.id == shipment_id,
+        Shipment.account_id == current_user.account_id
+    ).first()
     if not shipment:
         raise HTTPException(status_code=404, detail="Shipment not found")
     
@@ -258,23 +383,32 @@ async def create_shipment(
 ):
     """Create a new shipment."""
     
-    # Verify customer exists
-    customer = db.query(Customer).filter(Customer.id == shipment_data.customer_id).first()
+    # Verify customer exists and belongs to the same account
+    customer = db.query(Customer).filter(
+        Customer.id == shipment_data.customer_id,
+        Customer.account_id == current_user.account_id
+    ).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     
-    # Verify invoice exists if provided
+    # Verify invoice exists and belongs to the same account if provided
     if shipment_data.invoice_id:
-        invoice = db.query(Invoice).filter(Invoice.id == shipment_data.invoice_id).first()
+        invoice = db.query(Invoice).filter(
+            Invoice.id == shipment_data.invoice_id,
+            Invoice.account_id == current_user.account_id
+        ).first()
         if not invoice:
             raise HTTPException(status_code=404, detail="Invoice not found")
     
-    # Generate shipment number and tracking number
-    shipment_number = generate_shipment_number(db)
-    tracking_number = generate_tracking_number()
+    # Generate shipment number
+    shipment_number = generate_shipment_number(db, current_user.account_id)
+    
+    # Use provided tracking number or generate one if not provided
+    tracking_number = shipment_data.tracking_number or generate_tracking_number()
     
     # Create shipment
     shipment = Shipment(
+        account_id=current_user.account_id,
         shipment_number=shipment_number,
         tracking_number=tracking_number,
         customer_id=shipment_data.customer_id,
@@ -303,6 +437,22 @@ async def create_shipment(
     db.commit()
     db.refresh(shipment)
     
+    # Auto-link existing delivery notes for this invoice
+    if shipment.invoice_id:
+        existing_delivery_notes = db.query(DeliveryNote).filter(
+            DeliveryNote.invoice_id == shipment.invoice_id,
+            DeliveryNote.account_id == current_user.account_id,
+            DeliveryNote.shipment_id.is_(None)  # Only link unlinked delivery notes
+        ).all()
+        
+        for delivery_note in existing_delivery_notes:
+            delivery_note.shipment_id = shipment.id
+            print(f"Auto-linked delivery note {delivery_note.delivery_note_number} to shipment {shipment.shipment_number}")
+        
+        if existing_delivery_notes:
+            db.commit()
+            print(f"Auto-linked {len(existing_delivery_notes)} delivery note(s) to shipment {shipment.shipment_number}")
+    
     return shipment
 
 @router.put("/{shipment_id}", response_model=ShipmentResponse)
@@ -312,9 +462,12 @@ async def update_shipment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Update an existing shipment."""
+    """Update a shipment."""
     
-    shipment = db.query(Shipment).filter(Shipment.id == shipment_id).first()
+    shipment = db.query(Shipment).filter(
+        Shipment.id == shipment_id,
+        Shipment.account_id == current_user.account_id
+    ).first()
     if not shipment:
         raise HTTPException(status_code=404, detail="Shipment not found")
     
@@ -326,6 +479,22 @@ async def update_shipment(
     db.commit()
     db.refresh(shipment)
     
+    # Auto-link existing delivery notes for this invoice if invoice_id was updated
+    if shipment.invoice_id and 'invoice_id' in update_data:
+        existing_delivery_notes = db.query(DeliveryNote).filter(
+            DeliveryNote.invoice_id == shipment.invoice_id,
+            DeliveryNote.account_id == current_user.account_id,
+            DeliveryNote.shipment_id.is_(None)  # Only link unlinked delivery notes
+        ).all()
+        
+        for delivery_note in existing_delivery_notes:
+            delivery_note.shipment_id = shipment.id
+            print(f"Auto-linked delivery note {delivery_note.delivery_note_number} to shipment {shipment.shipment_number}")
+        
+        if existing_delivery_notes:
+            db.commit()
+            print(f"Auto-linked {len(existing_delivery_notes)} delivery note(s) to shipment {shipment.shipment_number}")
+    
     return shipment
 
 @router.delete("/{shipment_id}")
@@ -336,7 +505,10 @@ async def delete_shipment(
 ):
     """Delete a shipment."""
     
-    shipment = db.query(Shipment).filter(Shipment.id == shipment_id).first()
+    shipment = db.query(Shipment).filter(
+        Shipment.id == shipment_id,
+        Shipment.account_id == current_user.account_id
+    ).first()
     if not shipment:
         raise HTTPException(status_code=404, detail="Shipment not found")
     
@@ -345,16 +517,16 @@ async def delete_shipment(
     
     return {"message": "Shipment deleted successfully"}
 
-
-
 @router.get("/summary/list", response_model=List[ShipmentSummary])
 async def get_shipments_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get shipments summary."""
+    """Get shipments summary list."""
     
-    shipments = db.query(Shipment).join(Customer).all()
+    shipments = db.query(Shipment).join(Customer).filter(
+        Shipment.account_id == current_user.account_id
+    ).all()
     
     shipment_summaries = []
     for shipment in shipments:
@@ -381,9 +553,13 @@ async def seed_sample_shipments(
 ):
     """Seed sample shipments for testing."""
     
-    # Get some existing customers and invoices
-    customers = db.query(Customer).limit(3).all()
-    invoices = db.query(Invoice).limit(3).all()
+    # Get some existing customers and invoices for this account
+    customers = db.query(Customer).filter(
+        Customer.account_id == current_user.account_id
+    ).limit(3).all()
+    invoices = db.query(Invoice).filter(
+        Invoice.account_id == current_user.account_id
+    ).limit(3).all()
     
     if not customers:
         raise HTTPException(status_code=400, detail="No customers found. Create customers first.")
@@ -394,13 +570,14 @@ async def seed_sample_shipments(
     statuses = ["pending", "shipped", "in_transit", "delivered"]
     
     for i, customer in enumerate(customers):
-        shipment_number = generate_shipment_number(db)
+        shipment_number = generate_shipment_number(db, current_user.account_id)
         tracking_number = generate_tracking_number()
         
         ship_date = datetime.now() - timedelta(days=i+1)
         expected_delivery = ship_date + timedelta(days=3)
         
         shipment_data = {
+            "account_id": current_user.account_id,
             "shipment_number": shipment_number,
             "tracking_number": tracking_number,
             "customer_id": customer.id,
@@ -428,4 +605,137 @@ async def seed_sample_shipments(
     return {
         "message": f"Successfully created {len(sample_shipments)} sample shipments",
         "created_shipments": sample_shipments
-    } 
+    }
+
+@router.post("/create-delivery-notes-for-invoices")
+async def create_delivery_notes_for_invoices(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create delivery note records for all invoices that don't have delivery notes.
+    This is useful for existing invoices that were created before this feature was implemented.
+    """
+    try:
+        from datetime import datetime
+        import uuid
+        
+        # Get all invoices for this account
+        invoices = db.query(Invoice).filter(Invoice.account_id == current_user.account_id).all()
+        
+        created_count = 0
+        for invoice in invoices:
+            # Check if there's already a delivery note for this invoice
+            existing_delivery_note = db.query(DeliveryNote).filter(
+                DeliveryNote.invoice_id == invoice.id,
+                DeliveryNote.account_id == current_user.account_id
+            ).first()
+            
+            if not existing_delivery_note:
+                # Generate unique delivery note number
+                delivery_note_number = f"DN-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
+                
+                # Create delivery note record
+                delivery_note = DeliveryNote(
+                    delivery_note_number=delivery_note_number,
+                    customer_id=invoice.customer_id,
+                    invoice_id=invoice.id,
+                    delivery_date=invoice.invoice_date,
+                    delivery_address=invoice.shipping_address or invoice.billing_address or "Address not specified",
+                    delivery_status="Delivered",
+                    delivery_notes=f"Automatically generated delivery note for invoice {invoice.invoice_number}",
+                    recorded_by=current_user.id,
+                    account_id=current_user.account_id
+                )
+                
+                db.add(delivery_note)
+                created_count += 1
+        
+        if created_count > 0:
+            db.commit()
+            return {"message": f"Created {created_count} delivery note records for existing invoices"}
+        else:
+            return {"message": "All invoices already have delivery note records"}
+            
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create delivery notes: {str(e)}") 
+
+@router.post("/test-delivery-status-logic")
+async def test_delivery_status_logic(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Test endpoint to verify delivery status logic for invoices."""
+    try:
+        from models.invoice import Invoice
+        
+        # Get all invoices for this account
+        invoices = db.query(Invoice).filter(Invoice.account_id == current_user.account_id).all()
+        
+        if not invoices:
+            return {"message": "No invoices found to test", "invoices": []}
+        
+        test_results = []
+        
+        for invoice in invoices[:5]:  # Test first 5 invoices
+            # Check delivery notes
+            delivery_notes = db.query(DeliveryNote).filter(
+                DeliveryNote.invoice_id == invoice.id,
+                DeliveryNote.account_id == current_user.account_id
+            ).all()
+            
+            # Check shipments
+            shipments = db.query(Shipment).filter(
+                Shipment.invoice_id == invoice.id,
+                Shipment.account_id == current_user.account_id
+            ).all()
+            
+            # Determine delivery status
+            delivery_status = "Pending"
+            if delivery_notes:
+                # Get the most recent delivery note status
+                latest_note = sorted(delivery_notes, key=lambda x: x.created_at, reverse=True)[0]
+                delivery_status = latest_note.delivery_status or "Pending"
+            elif shipments:
+                # Map shipment status to delivery status
+                latest_shipment = sorted(shipments, key=lambda x: x.created_at, reverse=True)[0]
+                if latest_shipment.status.lower() == "delivered":
+                    delivery_status = "Delivered"
+                elif latest_shipment.status.lower() in ["in_transit", "shipped"]:
+                    delivery_status = "In Transit"
+                elif latest_shipment.status.lower() == "cancelled":
+                    delivery_status = "Failed"
+                else:
+                    delivery_status = "Pending"
+            
+            test_results.append({
+                "invoice_id": invoice.id,
+                "invoice_number": invoice.invoice_number,
+                "delivery_status": delivery_status,
+                "delivery_notes_count": len(delivery_notes),
+                "shipments_count": len(shipments),
+                "delivery_notes": [
+                    {
+                        "id": note.id,
+                        "delivery_note_number": note.delivery_note_number,
+                        "delivery_status": note.delivery_status,
+                        "created_at": note.created_at.isoformat()
+                    } for note in delivery_notes
+                ],
+                "shipments": [
+                    {
+                        "id": shipment.id,
+                        "shipment_number": shipment.shipment_number,
+                        "status": shipment.status,
+                        "created_at": shipment.created_at.isoformat()
+                    } for shipment in shipments
+                ]
+            })
+        
+        return {
+            "message": f"Tested delivery status logic for {len(test_results)} invoices",
+            "test_results": test_results
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to test delivery status logic: {str(e)}") 

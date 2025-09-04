@@ -58,20 +58,20 @@ export const paymentApi = {
   async getPayments(params?: {
     skip?: number;
     limit?: number;
-    search?: string;
-    status?: string;
+    payment_status?: string;
     payment_method?: string;
     payment_type?: string;
     customer_id?: number;
+    invoice_id?: number;
   }): Promise<PaymentListResponse> {
     const queryParams = new URLSearchParams();
     if (params?.skip !== undefined) queryParams.append('skip', params.skip.toString());
     if (params?.limit !== undefined) queryParams.append('limit', params.limit.toString());
-    if (params?.search) queryParams.append('search', params.search);
-    if (params?.status) queryParams.append('status', params.status);
+    if (params?.payment_status) queryParams.append('payment_status', params.payment_status);
     if (params?.payment_method) queryParams.append('payment_method', params.payment_method);
     if (params?.payment_type) queryParams.append('payment_type', params.payment_type);
     if (params?.customer_id) queryParams.append('customer_id', params.customer_id.toString());
+    if (params?.invoice_id) queryParams.append('invoice_id', params.invoice_id.toString());
 
     const response = await fetch(buildApiUrl(API_ENDPOINTS.sales.payments, Object.fromEntries(queryParams.entries())), {
       headers: getAuthHeaders(),
@@ -159,6 +159,20 @@ export const paymentApi = {
    */
   async seedSamplePayments(): Promise<{ message: string; created_payments: string[] }> {
     const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.payments}/seed-sample-payments`), {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+  },
+
+  /**
+   * Create pending payment records for existing invoices
+   */
+  async createPendingForInvoices(): Promise<{ message: string }> {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.payments}/create-pending-for-invoices`), {
       method: 'POST',
       headers: getAuthHeaders(),
     });
