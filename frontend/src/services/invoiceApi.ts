@@ -174,7 +174,7 @@ class InvoiceApiService {
     if (filters.payment_status) params.append('payment_status', filters.payment_status);
     
     const queryString = params.toString();
-    const url = `/api/sales/invoices${queryString ? `?${queryString}` : ''}`;
+    const url = `/api/sales/invoices/${queryString ? `?${queryString}` : ''}`;
     
     console.log('🔍 InvoiceApi: Calling URL:', url);
     console.log('🔍 InvoiceApi: Filters:', filters);

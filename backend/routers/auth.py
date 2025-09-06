@@ -35,18 +35,34 @@ async def login(user_login: UserLogin, db: Session = Depends(get_db)):
     Raises:
         HTTPException: If authentication fails
     """
-    user = auth_service.authenticate_user(db, user_login.identifier, user_login.password, user_login.account_id)
-    if not user:
+    try:
+        print(f"🔐 Login attempt for: {user_login.identifier}")
+        print(f"🔐 Account ID: {user_login.account_id}")
+        
+        user = auth_service.authenticate_user(db, user_login.identifier, user_login.password, user_login.account_id)
+        if not user:
+            print(f"❌ Authentication failed for: {user_login.identifier}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username/email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        print(f"✅ User authenticated: {user.email}")
+        
+        if not user.is_active:
+            print(f"❌ User is inactive: {user.email}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Inactive user",
+            )
+    except Exception as e:
+        print(f"❌ Login error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username/email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Inactive user",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error during login: {str(e)}"
         )
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

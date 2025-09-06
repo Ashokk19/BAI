@@ -30,9 +30,9 @@ if (-not (Test-Path "frontend")) {
 }
 
 Write-Host "[1/3] Checking backend virtual environment..." -ForegroundColor Yellow
-if (-not (Test-Path "backend\poc")) {
-    Write-Host "ERROR: Virtual environment 'poc' not found in backend folder!" -ForegroundColor Red
-    Write-Host "Please ensure the 'poc' venv exists in the backend directory." -ForegroundColor Red
+if (-not (Test-Path "backend\.venv")) {
+    Write-Host "ERROR: Virtual environment '.venv' not found in backend folder!" -ForegroundColor Red
+    Write-Host "Please ensure the '.venv' venv exists in the backend directory." -ForegroundColor Red
     Write-Host ""
     Read-Host "Press Enter to exit"
     exit 1
@@ -43,7 +43,8 @@ Write-Host "Opening new terminal for Backend Server..." -ForegroundColor Green
 
 # Start Backend Server
 $backendPath = Join-Path $PWD "backend"
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; poc\Scripts\activate.ps1; Write-Host 'Backend server starting...' -ForegroundColor Green; python -m uvicorn app.main:app --reload --port 8001 --host 0.0.0.0" -WindowStyle Normal
+$uvPath = "C:\Users\ashok\.local\bin"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$backendPath'; `$env:Path = '$uvPath;' + `$env:Path; Write-Host 'Backend server starting...' -ForegroundColor Green; Write-Host 'Current directory:' (Get-Location) -ForegroundColor Yellow; uv run python -m uvicorn app.main:app --reload --port 8001 --host 0.0.0.0" -WindowStyle Normal
 
 # Wait for backend to start
 Write-Host "Waiting for backend to initialize..." -ForegroundColor Yellow

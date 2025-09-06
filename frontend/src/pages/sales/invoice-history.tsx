@@ -239,6 +239,17 @@ export default function InvoiceHistory() {
     }
   }
 
+  // Reset delivery and payment statuses when invoices change
+  useEffect(() => {
+    if (invoices.length > 0) {
+      console.log('🔄 useEffect: Invoices changed, resetting delivery and payment statuses')
+      setDeliveryStatusesLoaded(false)
+      setDeliveryStatuses({})
+      setPaymentStatusesLoaded(false)
+      setPaymentStatuses({})
+    }
+  }, [invoices])
+
   // Load delivery statuses when delivery notes change or when we have invoices but no statuses
   useEffect(() => {
     console.log('🔄 useEffect triggered:', {

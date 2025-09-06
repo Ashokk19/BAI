@@ -102,7 +102,7 @@ export const salesReturnApi = {
    * Get a specific sales return by ID
    */
   async getSalesReturn(returnId: number): Promise<SalesReturn> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}/${returnId}`), {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}${returnId}`), {
       headers: getAuthHeaders(),
     });
     if (!response.ok) {
@@ -130,7 +130,7 @@ export const salesReturnApi = {
    * Update an existing sales return
    */
   async updateSalesReturn(returnId: number, salesReturn: Partial<SalesReturnCreate>): Promise<SalesReturn> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}/${returnId}`), {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}${returnId}`), {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify(salesReturn),
@@ -145,7 +145,7 @@ export const salesReturnApi = {
    * Delete a sales return
    */
   async deleteSalesReturn(returnId: number): Promise<{ message: string }> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}/${returnId}`), {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}${returnId}`), {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
@@ -188,7 +188,7 @@ export const salesReturnApi = {
    * Update a sales return
    */
   async updateSalesReturn(returnId: number, updateData: Partial<SalesReturnCreate>): Promise<SalesReturn> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}/${returnId}`), {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}${returnId}`), {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify(updateData),
@@ -203,7 +203,7 @@ export const salesReturnApi = {
    * Download credit report for a sales return
    */
   async downloadCreditReport(returnId: number): Promise<string> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}/${returnId}/credit-report`), {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}${returnId}/credit-report`), {
       headers: getAuthHeaders(),
     });
     if (!response.ok) {

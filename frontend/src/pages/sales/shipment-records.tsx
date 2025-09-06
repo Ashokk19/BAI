@@ -305,7 +305,7 @@ export default function ShipmentRecords() {
               Create Shipment
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl bg-white/95 backdrop-blur-xl border-white/20">
+          <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto bg-white/95 backdrop-blur-xl border-white/20">
             <DialogHeader>
               <DialogTitle>Create New Shipment</DialogTitle>
             </DialogHeader>

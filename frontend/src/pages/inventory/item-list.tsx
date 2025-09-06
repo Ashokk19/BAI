@@ -67,7 +67,7 @@ export default function ItemList() {
       is_active: true,
       has_expiry: false,
       is_serialized: false,
-      tax_rate: 0,
+      tax_rate: 18,
       tax_type: 'inclusive',
       description: '',
       cost_price: undefined,
@@ -197,7 +197,7 @@ export default function ItemList() {
         is_active: formData.is_active ?? true,
         has_expiry: formData.has_expiry ?? false,
         is_serialized: formData.is_serialized ?? false,
-        tax_rate: formData.tax_rate || 0,
+        tax_rate: formData.tax_rate || 18,
         tax_type: formData.tax_type || 'inclusive',
         description: formData.description,
         cost_price: formData.cost_price,
@@ -551,6 +551,24 @@ export default function ItemList() {
                     onChange={(e) => setFormData({...formData, unit_of_measure: e.target.value})}
                     placeholder="pcs"
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="tax_rate">GST Rate (%)</Label>
+                  <Select
+                    value={formData.tax_rate?.toString() || '18'}
+                    onValueChange={(value) => setFormData({...formData, tax_rate: parseFloat(value)})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select GST rate" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">0% GST</SelectItem>
+                      <SelectItem value="5">5% GST</SelectItem>
+                      <SelectItem value="12">12% GST</SelectItem>
+                      <SelectItem value="18">18% GST</SelectItem>
+                      <SelectItem value="28">28% GST</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="col-span-2 space-y-4">
                   <div className="flex items-center space-x-2">
@@ -970,6 +988,24 @@ export default function ItemList() {
                 onChange={(e) => setFormData({...formData, unit_of_measure: e.target.value})}
                 placeholder="pcs"
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-tax_rate">GST Rate (%)</Label>
+              <Select
+                value={formData.tax_rate?.toString() || '18'}
+                onValueChange={(value) => setFormData({...formData, tax_rate: parseFloat(value)})}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select GST rate" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">0% GST</SelectItem>
+                  <SelectItem value="5">5% GST</SelectItem>
+                  <SelectItem value="12">12% GST</SelectItem>
+                  <SelectItem value="18">18% GST</SelectItem>
+                  <SelectItem value="28">28% GST</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="col-span-2 space-y-4">
               <div className="flex items-center space-x-2">

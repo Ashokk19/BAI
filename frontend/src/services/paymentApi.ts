@@ -86,7 +86,7 @@ export const paymentApi = {
    * Get a specific payment by ID
    */
   async getPayment(paymentId: number): Promise<Payment> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.payments}/${paymentId}`), {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.payments}${paymentId}`), {
       headers: getAuthHeaders(),
     });
     if (!response.ok) {
@@ -114,7 +114,7 @@ export const paymentApi = {
    * Update an existing payment
    */
   async updatePayment(paymentId: number, payment: Partial<PaymentCreate>): Promise<Payment> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.payments}/${paymentId}`), {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.payments}${paymentId}`), {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify(payment),
@@ -129,7 +129,7 @@ export const paymentApi = {
    * Delete a payment
    */
   async deletePayment(paymentId: number): Promise<{ message: string }> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.payments}/${paymentId}`), {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.payments}${paymentId}`), {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });

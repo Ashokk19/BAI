@@ -152,7 +152,7 @@ export const shipmentApi = {
     if (params?.customer_id) queryParams.append('customer_id', params.customer_id.toString());
 
     const queryString = queryParams.toString();
-    const url = `/api/sales/shipments${queryString ? `?${queryString}` : ''}`;
+    const url = `/api/sales/shipments/${queryString ? `?${queryString}` : ''}`;
     
     return await apiService.get<ShipmentListResponse>(url);
   },
@@ -168,7 +168,7 @@ export const shipmentApi = {
    * Create a new shipment
    */
   async createShipment(shipment: ShipmentCreate): Promise<Shipment> {
-    return await apiService.post<Shipment>('/api/sales/shipments', shipment);
+    return await apiService.post<Shipment>('/api/sales/shipments/', shipment);
   },
 
   /**
@@ -225,7 +225,7 @@ export const shipmentApi = {
    * Create a new delivery note
    */
   async createDeliveryNote(deliveryNote: DeliveryNoteCreate): Promise<DeliveryNote> {
-    return await apiService.post<DeliveryNote>('/api/sales/shipments/delivery-notes', deliveryNote);
+    return await apiService.post<DeliveryNote>('/api/sales/shipments/delivery-notes/', deliveryNote);
   },
 
   /**

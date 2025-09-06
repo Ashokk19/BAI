@@ -108,7 +108,7 @@ export const creditApi = {
    * Get a specific customer credit by ID
    */
   async getCustomerCredit(creditId: number): Promise<CustomerCredit> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.credits}/${creditId}`), {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.credits}${creditId}`), {
       headers: getAuthHeaders(),
     });
     if (!response.ok) {
@@ -136,7 +136,7 @@ export const creditApi = {
    * Update an existing customer credit
    */
   async updateCustomerCredit(creditId: number, credit: Partial<CustomerCreditCreate>): Promise<CustomerCredit> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.credits}/${creditId}`), {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.credits}${creditId}`), {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify(credit),
@@ -151,7 +151,7 @@ export const creditApi = {
    * Delete a customer credit
    */
   async deleteCustomerCredit(creditId: number): Promise<{ message: string }> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.credits}/${creditId}`), {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.credits}${creditId}`), {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
@@ -167,7 +167,7 @@ export const creditApi = {
    * Create a credit transaction
    */
   async createCreditTransaction(creditId: number, transaction: CreditTransactionCreate): Promise<CreditTransaction> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.credits}/${creditId}/transactions`), {
+    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.credits}${creditId}/transactions`), {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(transaction),

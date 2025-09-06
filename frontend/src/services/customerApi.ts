@@ -86,7 +86,7 @@ class CustomerApiService {
     if (filters.state) params.append('state', filters.state);
     
     const queryString = params.toString();
-    const url = `/api/customers${queryString ? `?${queryString}` : ''}`;
+    const url = `/api/customers/${queryString ? `?${queryString}` : ''}`;
     
     return await apiService.get<CustomerListResponse>(url);
   }
@@ -96,7 +96,7 @@ class CustomerApiService {
   }
 
   async createCustomer(customerData: CustomerCreate): Promise<Customer> {
-    return await apiService.post<Customer>('/api/customers', customerData);
+    return await apiService.post<Customer>('/api/customers/', customerData);
   }
 
   async updateCustomer(id: number, customerData: CustomerUpdate): Promise<Customer> {

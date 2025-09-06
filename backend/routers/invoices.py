@@ -196,10 +196,22 @@ async def create_invoice(
 ):
     """Create a new invoice with GST calculations."""
     
-    # Verify customer exists
-    customer = db.query(Customer).filter(Customer.id == invoice_data.customer_id).first()
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found")
+    try:
+        print(f"📝 Creating invoice for customer_id: {invoice_data.customer_id}")
+        print(f"📝 Items count: {len(invoice_data.items) if invoice_data.items else 0}")
+        
+        # Verify customer exists
+        customer = db.query(Customer).filter(Customer.id == invoice_data.customer_id).first()
+        if not customer:
+            print(f"❌ Customer not found: {invoice_data.customer_id}")
+            raise HTTPException(status_code=404, detail="Customer not found")
+        
+        print(f"✅ Customer found: {customer.first_name} {customer.last_name}")
+    except Exception as e:
+        print(f"❌ Error in invoice creation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
     
     # Validate stock availability for all items BEFORE creating invoice
     stock_validation = InventoryService.validate_invoice_items_stock(

@@ -12,6 +12,7 @@ interface Item {
   selling_price: number;
   current_stock: number;
   unit_of_measure: string;
+  tax_rate: number;
   gst_slab?: {
     id: number;
     name: string;
@@ -203,13 +204,14 @@ const TaxInvoice: React.FC = () => {
         selling_price: item.selling_price,
         current_stock: item.current_stock,
         unit_of_measure: item.unit_of_measure,
+        tax_rate: item.tax_rate || 18, // Use tax_rate from item or default to 18%
         gst_slab: {
           id: 1,
-          name: `${item.tax_rate}% GST`,
-          rate: item.tax_rate,
-          cgst_rate: item.tax_rate / 2,
-          sgst_rate: item.tax_rate / 2,
-          igst_rate: item.tax_rate
+          name: `${item.tax_rate || 18}% GST`,
+          rate: item.tax_rate || 18,
+          cgst_rate: (item.tax_rate || 18) / 2,
+          sgst_rate: (item.tax_rate || 18) / 2,
+          igst_rate: item.tax_rate || 18
         }
       }));
       setItems(mappedItems.filter(item => item.current_stock > 0)); // Only show items in stock
@@ -391,26 +393,16 @@ const TaxInvoice: React.FC = () => {
           newItems[index].quantity = Math.min(1, item.current_stock);
         }
         
-        if (item.gst_slab) {
-          newItems[index].gst_rate = item.gst_slab.rate;
-          newItems[index].cgst_rate = item.gst_slab.cgst_rate;
-          newItems[index].sgst_rate = item.gst_slab.sgst_rate;
-          newItems[index].igst_rate = item.gst_slab.igst_rate;
-        }
+        // Use tax_rate from inventory item
+        newItems[index].gst_rate = item.tax_rate || 18; // Default to 18% for existing items
+        newItems[index].cgst_rate = newItems[index].gst_rate / 2;
+        newItems[index].sgst_rate = newItems[index].gst_rate / 2;
+        newItems[index].igst_rate = newItems[index].gst_rate;
         console.log('Updated item:', newItems[index]);
       }
     }
     
-    // If GST slab is changed, update GST rates (simplified)
-    if (field === 'gst_rate') {
-      // Keep the existing logic for backward compatibility but simplify tax calculation
-      const gstSlab = gstSlabs.find(g => g.rate === value);
-      if (gstSlab) {
-        newItems[index].cgst_rate = gstSlab.cgst_rate;
-        newItems[index].sgst_rate = gstSlab.sgst_rate;
-        newItems[index].igst_rate = gstSlab.igst_rate;
-      }
-    }
+    // GST rate is now read-only and comes from inventory items
     
     // Recalculate amounts
     const item = newItems[index];
@@ -1911,22 +1903,14 @@ const TaxInvoice: React.FC = () => {
                     />
                   </div>
                   
-                  {/* GST Rate */}
+                  {/* GST Rate - Display Only */}
                   <div className="w-24">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       GST Rate
                     </label>
-                    <select
-                      value={item.gst_rate}
-                      onChange={(e) => updateInvoiceItem(index, 'gst_rate', parseInt(e.target.value))}
-                      className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    >
-                      {gstSlabs.map(slab => (
-                        <option key={slab.id} value={slab.rate}>
-                          {slab.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="p-2 bg-gray-50 rounded text-center font-medium">
+                      {item.gst_rate}%
+                    </div>
                   </div>
                   
                   {/* Tax Amount */}

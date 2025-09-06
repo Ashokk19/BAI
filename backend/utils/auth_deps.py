@@ -13,10 +13,10 @@ from services.auth_service import auth_service
 from models.user import User
 
 # Initialize HTTP Bearer security scheme
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db)
 ) -> User:
     """
@@ -32,6 +32,13 @@ def get_current_user(
     Raises:
         HTTPException: If token is invalid or user not found
     """
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication credentials required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     token = credentials.credentials
     user = auth_service.get_current_user(db, token)
     

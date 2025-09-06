@@ -5,7 +5,6 @@ This module contains the main sales routes and includes all sales-related sub-ro
 """
 
 from fastapi import APIRouter
-from .customers import router as customers_router
 from .invoices import router as invoices_router
 from .sales_returns import router as sales_returns_router
 from .credits import router as credits_router
@@ -14,8 +13,7 @@ from .shipments import router as shipments_router
 
 router = APIRouter()
 
-# Include all sales sub-routers
-router.include_router(customers_router, prefix="/customers", tags=["customers"])
+# Include all sales sub-routers (customers are handled directly via /api/customers)
 router.include_router(invoices_router, prefix="/invoices", tags=["invoices"])
 router.include_router(sales_returns_router, prefix="/returns", tags=["sales-returns"])
 router.include_router(credits_router, prefix="/credits", tags=["credits"])
@@ -28,7 +26,7 @@ async def sales_overview():
     return {
         "message": "Sales Management System",
         "available_endpoints": {
-            "customers": "/api/sales/customers",
+            "customers": "/api/customers",
             "invoices": "/api/sales/invoices", 
             "returns": "/api/sales/returns",
             "credits": "/api/sales/credits",
