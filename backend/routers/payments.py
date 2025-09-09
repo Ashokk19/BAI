@@ -4,7 +4,7 @@ BAI Backend Payments Router
 This module contains the payment management routes for handling payment operations.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -81,6 +81,7 @@ async def create_payment(
                     invoice_id=payment.invoice_id,
                     amount=payment.amount,
                     user_id=current_user.id,
+                    account_id=current_user.account_id,
                     payment_reference=payment_number
                 )
                 print(f"Used customer credit for invoice payment: {len(credit_transactions)} transactions created")
@@ -88,14 +89,34 @@ async def create_payment(
                 db.rollback()
                 raise HTTPException(status_code=400, detail=f"Credit usage failed: {str(e)}")
         
-        elif payment.payment_direction == "incoming" and payment.customer_id and payment.payment_method != "credit":
-            # Customer made a payment - adjust credit balance
+        elif payment.payment_status == "credit" and payment.customer_id and payment.invoice_id:
+            # This is a credit purchase - customer bought on credit (loan)
+            try:
+                credit_transactions = CreditService.process_credit_purchase(
+                    db=db,
+                    customer_id=payment.customer_id,
+                    purchase_amount=payment.amount,
+                    user_id=current_user.id,
+                    account_id=current_user.account_id,
+                    invoice_id=payment.invoice_id,
+                    reference_number=payment.reference_number,
+                    notes=payment.notes
+                )
+                db.commit()
+                print(f"Processed credit purchase: {len(credit_transactions)} credit transactions created")
+            except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=400, detail=f"Credit purchase failed: {str(e)}")
+        
+        elif payment.payment_direction == "incoming" and payment.customer_id and payment.payment_method != "credit" and payment.payment_status != "credit":
+            # Customer made a regular payment - adjust credit balance
             try:
                 credit_transactions = CreditService.adjust_credit_for_payment(
                     db=db,
                     customer_id=payment.customer_id,
                     payment_amount=payment.amount,
                     user_id=current_user.id,
+                    account_id=current_user.account_id,
                     payment_id=db_payment.id,
                     payment_reference=payment_number
                 )
@@ -379,7 +400,7 @@ async def delete_payment(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a payment record.
+    Delete a payment record. Only admin users can delete payment records.
     
     Args:
         payment_id: Payment ID
@@ -390,6 +411,13 @@ async def delete_payment(
         dict: Success message
     """
     try:
+        # Check if user is admin
+        if not current_user.is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admin users can delete payment records"
+            )
+        
         payment = db.query(Payment).filter(
             Payment.id == payment_id,
             Payment.account_id == current_user.account_id

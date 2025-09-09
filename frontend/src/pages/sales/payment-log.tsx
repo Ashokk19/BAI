@@ -296,16 +296,23 @@ export default function PaymentLog() {
     return invoiceSearch;
   };
 
-  // Calculate total amount paid for a specific invoice
-  const getTotalAmountPaidForInvoice = (invoiceId: number): number => {
+  // Calculate total amount paid for a specific invoice and check payment types
+  const getTotalAmountPaidForInvoice = (invoiceId: number): { totalPaid: number, hasCreditPayments: boolean } => {
     const invoicePayments = payments.filter(payment => payment.invoice_id === invoiceId)
-    const totalPaid = invoicePayments.reduce((total, payment) => {
-      // Ensure we're adding numbers, not concatenating strings
+    let totalPaid = 0
+    let hasCreditPayments = false
+    
+    invoicePayments.forEach(payment => {
       const paymentAmount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
-      const currentTotal = typeof total === 'string' ? parseFloat(total) : total
-      return currentTotal + paymentAmount
-    }, 0)
-    return totalPaid
+      totalPaid += paymentAmount
+      
+      // Check if this is a credit payment
+      if (payment.payment_status === 'credit' || payment.payment_method === 'credit') {
+        hasCreditPayments = true
+      }
+    })
+    
+    return { totalPaid, hasCreditPayments }
   }
 
   // Determine payment status based on cumulative amount paid vs invoice amount
@@ -316,8 +323,13 @@ export default function PaymentLog() {
     
     if (invoiceId && !isNewPayment) {
       // For existing payments in the table, calculate cumulative amount paid
-      const totalPaid = getTotalAmountPaidForInvoice(invoiceId)
+      const { totalPaid, hasCreditPayments } = getTotalAmountPaidForInvoice(invoiceId)
+      
       if (totalPaid >= invoice) {
+        // If the invoice is fully covered but has credit payments, show as "Credit"
+        if (hasCreditPayments) {
+          return "Credit"
+        }
         return "Completed"
       } else if (totalPaid > 0) {
         return "Partial"
@@ -446,6 +458,8 @@ export default function PaymentLog() {
     switch (status) {
       case "Completed":
         return "bg-green-100 text-green-800"
+      case "Credit":
+        return "bg-orange-100 text-orange-800"
       case "Partial":
         return "bg-blue-100 text-blue-800"
       case "Pending":
@@ -1085,15 +1099,7 @@ export default function PaymentLog() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge className={
-                          paymentStatus === "Completed" 
-                            ? "bg-green-100 text-green-800" 
-                            : paymentStatus === "Partial"
-                            ? "bg-yellow-100 text-yellow-800"
-                            : paymentStatus === "Pending"
-                            ? "bg-red-100 text-red-800"
-                            : "bg-gray-100 text-gray-800"
-                        }>
+                        <Badge className={getStatusColor(paymentStatus)}>
                           {paymentStatus}
                         </Badge>
                       </TableCell>
@@ -1139,13 +1145,12 @@ export default function PaymentLog() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge className={
-                            payment.payment_status === "completed" 
-                              ? "bg-green-100 text-green-800" 
-                              : payment.payment_status === "pending"
-                              ? "bg-yellow-100 text-yellow-800"
-                              : "bg-blue-100 text-blue-800"
-                          }>
+                          <Badge className={getStatusColor(
+                            payment.payment_status === "completed" ? "Completed" :
+                            payment.payment_status === "pending" ? "Pending" :
+                            payment.payment_status === "credit" ? "Credit" :
+                            payment.payment_status === "partial" ? "Partial" : "Completed"
+                          )}>
                             {payment.payment_status}
                           </Badge>
                         </TableCell>

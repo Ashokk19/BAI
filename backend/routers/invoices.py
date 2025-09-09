@@ -4,7 +4,7 @@ BAI Backend Invoice Router
 This module contains the invoice routes for invoice management with GST calculations.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import List, Optional
@@ -35,7 +35,7 @@ from schemas.invoice_schema import (
 router = APIRouter()
 
 def generate_delivery_note_number(db: Session, account_id: str) -> str:
-    """Generate a new delivery note number."""
+    """Generate a new account-specific delivery note number."""
     from models.shipment import DeliveryNote
     from datetime import datetime
     
@@ -49,17 +49,18 @@ def generate_delivery_note_number(db: Session, account_id: str) -> str:
     else:
         next_number = 1
     
+    # Account-specific format: DN-ACCOUNT-YYYY-NNN
     current_year = datetime.now().year
-    return f"DN-{current_year}-{next_number:03d}"
+    return f"DN-{account_id}-{current_year}-{next_number:03d}"
 
 def generate_invoice_number(db: Session, account_id: str) -> str:
-    """Generate a new invoice number."""
+    """Generate a new account-specific invoice number."""
     # Get the last invoice number for this account
     last_invoice = db.query(Invoice).filter(
         Invoice.account_id == account_id
     ).order_by(Invoice.id.desc()).first()
     if last_invoice:
-        # Extract number from invoice number (assuming format like INV-2024-001)
+        # Extract number from invoice number 
         try:
             last_number = int(last_invoice.invoice_number.split('-')[-1])
             next_number = last_number + 1
@@ -68,9 +69,9 @@ def generate_invoice_number(db: Session, account_id: str) -> str:
     else:
         next_number = 1
     
-    # Format: INV-YYYY-NNN
+    # Account-specific format: INV-ACCOUNT-YYYY-NNN
     current_year = datetime.now().year
-    return f"INV-{current_year}-{next_number:03d}"
+    return f"INV-{account_id}-{current_year}-{next_number:03d}"
 
 def calculate_gst_amounts(item_data: dict, customer_state: str, company_state: str = "Tamil Nadu") -> dict:
     """Calculate GST amounts for an invoice item."""
@@ -200,11 +201,14 @@ async def create_invoice(
         print(f"📝 Creating invoice for customer_id: {invoice_data.customer_id}")
         print(f"📝 Items count: {len(invoice_data.items) if invoice_data.items else 0}")
         
-        # Verify customer exists
-        customer = db.query(Customer).filter(Customer.id == invoice_data.customer_id).first()
+        # Verify customer exists and belongs to the same account
+        customer = db.query(Customer).filter(
+            Customer.id == invoice_data.customer_id,
+            Customer.account_id == current_user.account_id
+        ).first()
         if not customer:
-            print(f"❌ Customer not found: {invoice_data.customer_id}")
-            raise HTTPException(status_code=404, detail="Customer not found")
+            print(f"❌ Customer not found or not accessible: {invoice_data.customer_id}")
+            raise HTTPException(status_code=404, detail="Customer not found or not accessible")
         
         print(f"✅ Customer found: {customer.first_name} {customer.last_name}")
     except Exception as e:
@@ -389,7 +393,14 @@ async def delete_invoice(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete an invoice."""
+    """Delete an invoice. Only admin users can delete invoices."""
+    
+    # Check if user is admin
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can delete invoices"
+        )
     
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not invoice:

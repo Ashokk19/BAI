@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Minus, Save, Send, FileText, Calculator, User, Package, MessageCircle, Search, Download } from 'lucide-react';
-import { customerApi, Customer } from '../../services/customerApi';
+import { customerApi, Customer, CustomerCreditInfo } from '../../services/customerApi';
 import { inventoryApi } from '../../services/inventoryApi';
 import { organizationService, OrganizationProfile } from '../../services/organizationService';
 import { useNotifications, NotificationContainer } from '../../components/ui/notification';
+import { useAuth } from '../../utils/AuthContext';
 
 interface Item {
   id: number;
@@ -81,6 +82,8 @@ const TaxInvoice: React.FC = () => {
   const [whatsAppMessage, setWhatsAppMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [showCreditPaymentDialog, setShowCreditPaymentDialog] = useState(false);
+  const [customerCreditInfo, setCustomerCreditInfo] = useState<any>(null);
   const [paymentFormData, setPaymentFormData] = useState({
     payment_date: new Date().toISOString().split('T')[0],
     payment_method: 'Bank Transfer',
@@ -111,6 +114,9 @@ const TaxInvoice: React.FC = () => {
   
   // BAI Notification System
   const notifications = useNotifications();
+  
+  // Auth context to get current user's account_id
+  const { user } = useAuth();
 
   // Load data on component mount
   useEffect(() => {
@@ -464,7 +470,7 @@ const TaxInvoice: React.FC = () => {
     setIsLoading(true);
     try {
       const invoiceData = {
-        account_id: 'TestAccount', // This will be set by backend from current user
+        account_id: user?.account_id || 'TestAccount', // Use current user's account_id
         customer_id: selectedCustomer?.id || 0,
         invoice_date: new Date(invoice.invoice_date).toISOString(),
         due_date: invoice.due_date ? new Date(invoice.due_date).toISOString() : undefined,
@@ -546,6 +552,117 @@ const TaxInvoice: React.FC = () => {
         errorMessage,
         {
           autoClose: false
+        }
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreditPurchaseClick = async () => {
+    if (!selectedCustomer) {
+      notifications.error(
+        'No Customer Selected',
+        'Please select a customer first.',
+        {
+          autoClose: true,
+          autoCloseDelay: 4000
+        }
+      );
+      return;
+    }
+
+    if (!generatedInvoice) {
+      notifications.error(
+        'No Invoice Generated',
+        'Please generate an invoice first.',
+        {
+          autoClose: true,
+          autoCloseDelay: 4000
+        }
+      );
+      return;
+    }
+
+    try {
+      const creditInfo = await customerApi.getCustomerCreditInfo(selectedCustomer.id);
+      setCustomerCreditInfo(creditInfo);
+      
+      // Set the payment amount to the invoice total for credit purchase
+      const invoiceTotal = calculateTotals().totalAmount;
+      setPaymentFormData(prev => ({ ...prev, amount: invoiceTotal }));
+      
+      setShowCreditPaymentDialog(true);
+    } catch (error) {
+      console.error('Error fetching credit info:', error);
+      notifications.error(
+        'Error',
+        'Failed to fetch customer credit information.',
+        {
+          autoClose: true,
+          autoCloseDelay: 4000
+        }
+      );
+    }
+  };
+
+  const handleConfirmCreditPurchase = async () => {
+    if (!generatedInvoice || !customerCreditInfo) return;
+
+    const invoiceTotal = calculateTotals().totalAmount;
+    
+    // Check if customer has sufficient credit
+    if (customerCreditInfo.total_available_credit < invoiceTotal) {
+      notifications.error(
+        'Insufficient Credit',
+        `Customer has $${customerCreditInfo.total_available_credit.toFixed(2)} available credit, but invoice total is $${invoiceTotal.toFixed(2)}.`,
+        {
+          autoClose: true,
+          autoCloseDelay: 5000
+        }
+      );
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const { paymentApi } = await import('../../services/paymentApi');
+      
+      const paymentData = {
+        payment_date: new Date().toISOString(),
+        payment_type: 'customer',
+        payment_direction: 'incoming', // No actual payment direction since it's credit
+        amount: invoiceTotal,
+        payment_method: 'credit', // Method is credit
+        payment_status: 'credit', // Status is credit (not completed)
+        reference_number: `Credit-${generatedInvoice.invoice_number}`,
+        notes: `Purchase on credit - Amount: $${invoiceTotal}, Available credit before: $${customerCreditInfo.total_available_credit}`,
+        invoice_id: generatedInvoice.id,
+        customer_id: selectedCustomer?.id || 0
+      };
+      
+      await paymentApi.createPayment(paymentData);
+      
+      setShowCreditPaymentDialog(false);
+      setShowPaymentDialog(false);
+      
+      notifications.success(
+        'Credit Purchase Recorded!',
+        `Invoice of $${invoiceTotal.toFixed(2)} has been recorded as credit purchase. Customer's available credit will be reduced.`,
+        {
+          autoClose: true,
+          autoCloseDelay: 5000
+        }
+      );
+      
+    } catch (error) {
+      console.error('Error recording credit purchase:', error);
+      notifications.error(
+        'Credit Purchase Failed',
+        'Failed to record credit purchase. Please try again.',
+        {
+          autoClose: true,
+          autoCloseDelay: 4000
         }
       );
     } finally {
@@ -2193,20 +2310,104 @@ const TaxInvoice: React.FC = () => {
               <button
                 onClick={() => handleCreateInvoiceWithPayment(false)}
                 disabled={isLoading}
-                className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50"
               >
                 {isLoading ? 'Recording...' : 'Record Payment'}
               </button>
               <button
+                onClick={handleCreditPurchaseClick}
+                disabled={isLoading || !selectedCustomer || !generatedInvoice}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
+              >
+                Buy on Credit
+              </button>
+              <button
                 onClick={() => handleCreateInvoiceWithPayment(true)}
                 disabled={isLoading}
-                className="bg-yellow-600 text-white px-6 py-2 rounded-lg hover:bg-yellow-700 disabled:opacity-50"
+                className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 disabled:opacity-50"
               >
                 {isLoading ? 'Recording...' : 'Mark as Pending'}
               </button>
               <button
                 onClick={() => setShowPaymentDialog(false)}
-                className="bg-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-400"
+                className="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credit Purchase Confirmation Dialog */}
+      {showCreditPaymentDialog && customerCreditInfo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4 text-orange-600">Credit Purchase Confirmation</h3>
+            
+            <div className="space-y-4 mb-6">
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <h4 className="font-medium text-blue-800 mb-2">Customer Credit Information</h4>
+                <p className="text-sm text-blue-700">
+                  <strong>Customer:</strong> {customerCreditInfo.customer_name}
+                </p>
+                <p className="text-sm text-blue-700">
+                  <strong>Available Credit:</strong> ${customerCreditInfo.total_available_credit.toFixed(2)}
+                </p>
+                <p className="text-sm text-blue-700">
+                  <strong>Active Credits:</strong> {customerCreditInfo.number_of_active_credits}
+                </p>
+              </div>
+              
+              <div className="bg-orange-50 p-4 rounded-lg">
+                <h4 className="font-medium text-orange-800 mb-2">Purchase Details</h4>
+                <p className="text-sm text-orange-700">
+                  <strong>Invoice Total:</strong> ${calculateTotals().totalAmount.toFixed(2)}
+                </p>
+                <p className="text-sm text-orange-700">
+                  <strong>Purchase Type:</strong> Credit Purchase (No payment made)
+                </p>
+                <p className="text-sm text-orange-700">
+                  <strong>Invoice:</strong> {generatedInvoice?.invoice_number || 'N/A'}
+                </p>
+              </div>
+              
+              <div className={`p-4 rounded-lg ${
+                customerCreditInfo.total_available_credit >= calculateTotals().totalAmount 
+                  ? 'bg-green-50' 
+                  : 'bg-red-50'
+              }`}>
+                {customerCreditInfo.total_available_credit >= calculateTotals().totalAmount ? (
+                  <>
+                    <p className="text-sm text-green-700 font-medium">
+                      ✓ Customer has sufficient credit for this purchase.
+                    </p>
+                    <p className="text-sm text-green-600 mt-1">
+                      Remaining credit after purchase: ${(customerCreditInfo.total_available_credit - calculateTotals().totalAmount).toFixed(2)}
+                    </p>
+                    <p className="text-sm text-green-600 mt-1">
+                      <strong>Note:</strong> No payment will be recorded - this is a credit purchase (loan).
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-red-700 font-medium">
+                    ❌ Insufficient credit. Customer needs ${(calculateTotals().totalAmount - customerCreditInfo.total_available_credit).toFixed(2)} more credit.
+                  </p>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={handleConfirmCreditPurchase}
+                disabled={isLoading || customerCreditInfo.total_available_credit < calculateTotals().totalAmount}
+                className="flex-1 bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50"
+              >
+                {isLoading ? 'Processing...' : 'Confirm Credit Purchase'}
+              </button>
+              <button
+                onClick={() => setShowCreditPaymentDialog(false)}
+                className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400"
               >
                 Cancel
               </button>

@@ -160,7 +160,7 @@ class AuthService:
             postal_code=user_data.get("postal_code"),
             company=user_data.get("company"),
             designation=user_data.get("designation"),
-            is_admin=user_data.get("is_admin", False)
+            is_admin=user_data.get("is_admin", True)  # Set new users as admin by default
         )
         
         db.add(user)

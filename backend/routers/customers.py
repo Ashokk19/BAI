@@ -14,6 +14,7 @@ from database.database import get_db
 from utils.auth_deps import get_current_user
 from models.user import User
 from models.customer import Customer
+from services.credit_service import CreditService
 from schemas.customer_schema import (
     CustomerCreate,
     CustomerUpdate,
@@ -138,6 +139,21 @@ async def create_customer(
     db.commit()
     db.refresh(customer)
     
+    # Create initial credit record if credit_limit > 0
+    if customer.credit_limit and customer.credit_limit > 0:
+        try:
+            CreditService.create_initial_credit_limit(
+                db=db,
+                customer_id=customer.id,
+                credit_amount=customer.credit_limit,
+                user_id=current_user.id,
+                account_id=current_user.account_id
+            )
+            db.commit()
+        except Exception as e:
+            # Log the error but don't fail customer creation
+            print(f"Warning: Failed to create initial credit for customer {customer.id}: {str(e)}")
+    
     return customer
 
 @router.put("/{customer_id}", response_model=CustomerResponse)
@@ -180,6 +196,9 @@ async def update_customer(
                 detail="Email already exists"
             )
     
+    # Store old credit limit for comparison
+    old_credit_limit = customer.credit_limit
+    
     # Update customer fields
     update_data = customer_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -188,7 +207,52 @@ async def update_customer(
     db.commit()
     db.refresh(customer)
     
+    # Sync credit limit changes with credit management
+    if customer_data.credit_limit is not None and customer_data.credit_limit != old_credit_limit:
+        try:
+            CreditService.update_customer_credit_limit(
+                db=db,
+                customer_id=customer.id,
+                new_credit_limit=customer.credit_limit,
+                user_id=current_user.id,
+                account_id=current_user.account_id
+            )
+            db.commit()
+        except Exception as e:
+            # Log the error but don't fail customer update
+            print(f"Warning: Failed to sync credit limit for customer {customer.id}: {str(e)}")
+    
     return customer
+
+@router.get("/{customer_id}/credit-info")
+async def get_customer_credit_info(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get customer's available credit information."""
+    
+    # Verify customer exists and belongs to current account
+    customer = db.query(Customer).filter(
+        Customer.id == customer_id,
+        Customer.account_id == current_user.account_id
+    ).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    # Get credit information
+    credit_info = CreditService.get_customer_available_credit_info(
+        db=db,
+        customer_id=customer_id,
+        account_id=current_user.account_id
+    )
+    
+    return {
+        "customer_id": customer_id,
+        "customer_name": customer.company_name or f"{customer.first_name} {customer.last_name}",
+        "credit_limit": customer.credit_limit,
+        **credit_info
+    }
 
 @router.delete("/{customer_id}")
 async def delete_customer(

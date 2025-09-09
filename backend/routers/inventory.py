@@ -4,7 +4,7 @@ BAI Backend Inventory Router
 This module contains the inventory routes for items, categories, and inventory management.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -196,27 +196,16 @@ async def export_items(
     content = output.getvalue()
     output.close()
     
-    # Create a bytes buffer from the string content
-    bytes_buffer = io.BytesIO(content.encode('utf-8'))
+    # Note: No inventory log needed for exports since no inventory quantities change
     
-    # Log the export operation
-    InventoryService.log_export_operation(
-        db=db,
-        exported_items_count=len(items),
-        user_id=current_user.id,
-        export_format=format,
-        notes=f"Exported {len(items)} items to {format.upper()} format"
-    )
-    db.commit()
-    
-    # Return as streaming response
-    response = StreamingResponse(
-        bytes_buffer,
+    # Return as Response with proper headers to work with CORS
+    return Response(
+        content=content.encode('utf-8'),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=items_export.csv"}
+        headers={
+            "Content-Disposition": "attachment; filename=items_export.csv"
+        }
     )
-    
-    return response
 
 @router.post("/items/import")
 async def import_items(

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
+import { useAuth } from "@/utils/AuthContext"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -9,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon, Search, FileText, Eye, Download, Send, TrendingUp, DollarSign, Clock, CheckCircle, Plus, RefreshCw } from "lucide-react"
+import { CalendarIcon, Search, FileText, Eye, Download, Send, TrendingUp, DollarSign, Clock, CheckCircle, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { invoiceApi, Invoice, InvoiceFilters } from "../../services/invoiceApi"
 import { customerApi, Customer } from "../../services/customerApi"
@@ -128,6 +129,7 @@ const convertNumberToWords = (amount: number): string => {
 }
 
 export default function InvoiceHistory() {
+  const { user } = useAuth()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [deliveryNotes, setDeliveryNotes] = useState<{ [invoiceId: number]: DeliveryNote[] }>({})
@@ -252,20 +254,14 @@ export default function InvoiceHistory() {
 
   // Load delivery statuses when delivery notes change or when we have invoices but no statuses
   useEffect(() => {
-    console.log('🔄 useEffect triggered:', {
-      deliveryStatusesLoaded,
-      isLoadingDeliveryStatuses,
-      deliveryNotesCount: Object.keys(deliveryNotes).length,
-      invoicesCount: invoices.length
-    })
+    const hasDeliveryNotes = Object.keys(deliveryNotes).length > 0
+    const hasInvoices = invoices.length > 0
     
-    if (!deliveryStatusesLoaded && !isLoadingDeliveryStatuses) {
-      if (Object.keys(deliveryNotes).length > 0 || invoices.length > 0) {
-        console.log('🔄 useEffect: Loading delivery statuses because delivery notes changed or invoices available')
-        loadDeliveryStatuses()
-      }
+    if (!deliveryStatusesLoaded && !isLoadingDeliveryStatuses && (hasDeliveryNotes || hasInvoices)) {
+      console.log('🔄 useEffect: Loading delivery statuses because delivery notes changed or invoices available')
+      loadDeliveryStatuses()
     }
-  }, [deliveryNotes, deliveryStatusesLoaded, isLoadingDeliveryStatuses, invoices.length])
+  }, [Object.keys(deliveryNotes).length, deliveryStatusesLoaded, isLoadingDeliveryStatuses, invoices.length])
 
   // Load delivery notes when invoices are loaded (but don't auto-create them)
   useEffect(() => {
@@ -277,33 +273,22 @@ export default function InvoiceHistory() {
   }, [invoices])
 
   const getDeliveryStatus = (invoiceId: number): string => {
-    // Debug logging
-    console.log(`🔍 getDeliveryStatus for invoice ${invoiceId}:`, {
-      deliveryStatusesLoaded,
-      hasStatus: !!deliveryStatuses[invoiceId],
-      status: deliveryStatuses[invoiceId],
-      hasNotes: !!deliveryNotes[invoiceId]?.length
-    })
-    
     // If delivery statuses haven't been loaded yet, show loading state
     if (!deliveryStatusesLoaded) {
       return 'Loading...'
     }
     
-    // If we have a status for this invoice, return it (this should be the processed status from loadDeliveryStatuses)
+    // If we have a status for this invoice, return it
     if (deliveryStatuses[invoiceId]) {
       return deliveryStatuses[invoiceId]
     }
     
-    // If no status found, this means the loadDeliveryStatuses function hasn't processed this invoice yet
-    // or there was an error. Return loading state and trigger a reload if needed.
-    if (deliveryStatuses[invoiceId] === undefined && !isLoadingDeliveryStatuses) {
-      console.log(`🔄 Invoice ${invoiceId}: No delivery status found, triggering reload`)
-      setTimeout(() => loadDeliveryStatuses(), 100)
+    // If currently loading, show loading state
+    if (isLoadingDeliveryStatuses) {
       return 'Loading...'
     }
     
-    // Final fallback
+    // Final fallback - return pending instead of triggering reload to prevent infinite loop
     return 'Pending'
   }
 
@@ -488,16 +473,29 @@ export default function InvoiceHistory() {
             // No payments found, check if there's a pending payment
             statuses[invoice.id] = 'Pending'
           } else {
-            // Calculate total amount paid
-            const totalPaid = payments.payments.reduce((sum, payment) => {
+            // Calculate total amount paid and check for credit payments
+            let totalPaid = 0
+            let hasCreditPayments = false
+            
+            payments.payments.forEach(payment => {
               const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
-              return sum + amount
-            }, 0)
+              totalPaid += amount
+              
+              // Check if this is a credit payment
+              if (payment.payment_status === 'credit' || payment.payment_method === 'credit') {
+                hasCreditPayments = true
+              }
+            })
             
             const invoiceAmount = typeof invoice.total_amount === 'string' ? parseFloat(invoice.total_amount) : invoice.total_amount
             
             if (totalPaid >= invoiceAmount) {
-              statuses[invoice.id] = 'Completed'
+              // If the invoice is fully covered but has credit payments, show as "Credit"
+              if (hasCreditPayments) {
+                statuses[invoice.id] = 'Credit'
+              } else {
+                statuses[invoice.id] = 'Completed'
+              }
             } else if (totalPaid > 0) {
               statuses[invoice.id] = 'Partial'
             } else {
@@ -544,6 +542,8 @@ export default function InvoiceHistory() {
     switch (status) {
       case 'Completed':
         return 'bg-green-100 text-green-800 border-green-200'
+      case 'Credit':
+        return 'bg-orange-100 text-orange-800 border-orange-200'
       case 'Partial':
         return 'bg-blue-100 text-blue-800 border-blue-200'
       case 'Pending':
@@ -1331,6 +1331,27 @@ export default function InvoiceHistory() {
     }
   }
 
+  const handleDeleteInvoice = async (invoiceId: number) => {
+    if (!user?.is_admin) {
+      toast.error('Only admin users can delete invoices')
+      return
+    }
+
+    if (!confirm('Are you sure you want to delete this invoice? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      await invoiceApi.deleteInvoice(invoiceId)
+      toast.success('Invoice deleted successfully!')
+      // Reload invoices to update the list
+      await loadInvoices()
+    } catch (error) {
+      console.error('Error deleting invoice:', error)
+      toast.error('Failed to delete invoice. Please try again.')
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case "paid":
@@ -1625,6 +1646,12 @@ export default function InvoiceHistory() {
                               <Button size="sm" variant="outline" onClick={() => handleSendReminder(invoice.id)}
                                       className="hover:bg-orange-50 hover:border-orange-300">
                                 <Send className="w-3 h-3" />
+                              </Button>
+                            )}
+                            {user?.is_admin && (
+                              <Button size="sm" variant="outline" onClick={() => handleDeleteInvoice(invoice.id)}
+                                      className="hover:bg-red-50 hover:border-red-300">
+                                <Trash2 className="w-3 h-3" />
                               </Button>
                             )}
                           </div>

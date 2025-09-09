@@ -75,6 +75,21 @@ export interface CustomerFilters {
   state?: string;
 }
 
+export interface CustomerCreditInfo {
+  customer_id: number;
+  customer_name: string;
+  credit_limit: number;
+  total_available_credit: number;
+  number_of_active_credits: number;
+  credits: Array<{
+    credit_number: string;
+    credit_type: string;
+    original_amount: number;
+    remaining_amount: number;
+    credit_date: string;
+  }>;
+}
+
 class CustomerApiService {
   async getCustomers(filters: CustomerFilters = {}): Promise<CustomerListResponse> {
     const params = new URLSearchParams();
@@ -110,6 +125,10 @@ class CustomerApiService {
       const errorMessage = error.response?.data?.detail || 'Failed to delete customer';
       throw new Error(errorMessage);
     }
+  }
+
+  async getCustomerCreditInfo(customerId: number): Promise<CustomerCreditInfo> {
+    return await apiService.get<CustomerCreditInfo>(`/api/customers/${customerId}/credit-info`);
   }
 
   async toggleCustomerStatus(id: number): Promise<Customer> {

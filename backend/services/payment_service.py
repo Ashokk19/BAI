@@ -45,7 +45,7 @@ class PaymentService:
                 return False
             
             # Validate payment status
-            valid_statuses = ["pending", "completed", "failed", "cancelled"]
+            valid_statuses = ["pending", "completed", "failed", "cancelled", "credit", "paid", "partial"]
             if payment_data.payment_status not in valid_statuses:
                 return False
             

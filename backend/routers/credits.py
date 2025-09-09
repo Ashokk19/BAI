@@ -31,9 +31,9 @@ from services.credit_service import CreditService
 
 router = APIRouter()
 
-def generate_credit_number(db: Session) -> str:
-    """Generate a new credit number."""
-    last_credit = db.query(CustomerCredit).order_by(CustomerCredit.id.desc()).first()
+def generate_credit_number(db: Session, account_id: str) -> str:
+    """Generate a new account-specific credit number."""
+    last_credit = db.query(CustomerCredit).filter(CustomerCredit.account_id == account_id).order_by(CustomerCredit.id.desc()).first()
     if last_credit:
         try:
             last_number = int(last_credit.credit_number.split('-')[-1])
@@ -43,12 +43,13 @@ def generate_credit_number(db: Session) -> str:
     else:
         next_number = 1
     
+    # Account-specific format: CR-ACCOUNT-YYYY-NNN
     current_year = datetime.now().year
-    return f"CR-{current_year}-{next_number:03d}"
+    return f"CR-{account_id}-{current_year}-{next_number:03d}"
 
-def generate_credit_note_number(db: Session) -> str:
-    """Generate a new credit note number."""
-    last_note = db.query(CreditNote).order_by(CreditNote.id.desc()).first()
+def generate_credit_note_number(db: Session, account_id: str) -> str:
+    """Generate a new account-specific credit note number."""
+    last_note = db.query(CreditNote).filter(CreditNote.account_id == account_id).order_by(CreditNote.id.desc()).first()
     if last_note:
         try:
             last_number = int(last_note.credit_note_number.split('-')[-1])
@@ -58,8 +59,9 @@ def generate_credit_note_number(db: Session) -> str:
     else:
         next_number = 1
     
+    # Account-specific format: CN-ACCOUNT-YYYY-NNN
     current_year = datetime.now().year
-    return f"CN-{current_year}-{next_number:03d}"
+    return f"CN-{account_id}-{current_year}-{next_number:03d}"
 
 @router.get("/", response_model=CustomerCreditList)
 async def get_customer_credits(
@@ -147,7 +149,7 @@ async def create_customer_credit(
         raise HTTPException(status_code=404, detail="Customer not found")
     
     # Generate credit number
-    credit_number = generate_credit_number(db)
+    credit_number = generate_credit_number(db, current_user.account_id)
     
     # Create customer credit
     credit = CustomerCredit(
@@ -319,7 +321,7 @@ async def create_credit_note(
         raise HTTPException(status_code=404, detail="Customer not found")
     
     # Generate credit note number
-    note_number = generate_credit_note_number(db)
+    note_number = generate_credit_note_number(db, current_user.account_id)
     
     # Create credit note
     credit_note = CreditNote(
@@ -375,7 +377,7 @@ async def seed_sample_credits(
         if existing_credit:
             continue
             
-        credit_number = generate_credit_number(db)
+        credit_number = generate_credit_number(db, current_user.account_id)
         
         expiry_date = datetime.now() + timedelta(days=180)  # 6 months expiry
         

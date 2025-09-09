@@ -4,7 +4,7 @@ BAI Backend Invoice Models
 This module contains the Invoice and InvoiceItem models for sales management.
 """
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.sql.sqltypes import Numeric as Decimal
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -20,8 +20,8 @@ class Invoice(Base):
     # Multi-tenancy support
     account_id = Column(String(50), nullable=False, index=True)
     
-    # Invoice identification
-    invoice_number = Column(String(50), unique=True, nullable=False)
+    # Invoice identification - unique per account (not globally unique)
+    invoice_number = Column(String(50), nullable=False)
     invoice_date = Column(DateTime(timezone=True), nullable=False)
     due_date = Column(DateTime(timezone=True), nullable=True)
     
@@ -79,6 +79,11 @@ class Invoice(Base):
     def is_paid(self):
         """Check if invoice is fully paid."""
         return self.paid_amount >= self.total_amount
+    
+    # Unique constraint for invoice_number per account
+    __table_args__ = (
+        UniqueConstraint('account_id', 'invoice_number', name='uq_account_invoice_number'),
+    )
 
 class InvoiceItem(Base):
     """Invoice item model for individual line items in an invoice."""

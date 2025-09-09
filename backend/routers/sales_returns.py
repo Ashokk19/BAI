@@ -4,7 +4,7 @@ BAI Backend Sales Returns Router
 This module contains the sales returns routes for handling product returns and refunds.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
@@ -32,9 +32,9 @@ from schemas.sales_return_schema import (
 
 router = APIRouter()
 
-def generate_return_number(db: Session) -> str:
-    """Generate a new return number."""
-    last_return = db.query(SalesReturn).order_by(SalesReturn.id.desc()).first()
+def generate_return_number(db: Session, account_id: str) -> str:
+    """Generate a new account-specific return number."""
+    last_return = db.query(SalesReturn).filter(SalesReturn.account_id == account_id).order_by(SalesReturn.id.desc()).first()
     if last_return:
         try:
             last_number = int(last_return.return_number.split('-')[-1])
@@ -44,8 +44,9 @@ def generate_return_number(db: Session) -> str:
     else:
         next_number = 1
     
+    # Account-specific format: RET-ACCOUNT-YYYY-NNN
     current_year = datetime.now().year
-    return f"RET-{current_year}-{next_number:03d}"
+    return f"RET-{account_id}-{current_year}-{next_number:03d}"
 
 @router.get("/", response_model=SalesReturnList)
 async def get_sales_returns(
@@ -147,7 +148,7 @@ async def create_sales_return(
         raise HTTPException(status_code=404, detail="Customer not found")
     
     # Generate return number
-    return_number = generate_return_number(db)
+    return_number = generate_return_number(db, current_user.account_id)
     
     # Create sales return
     sales_return = SalesReturn(
@@ -277,7 +278,14 @@ async def delete_sales_return(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete a sales return."""
+    """Delete a sales return. Only admin users can delete sales returns."""
+    
+    # Check if user is admin
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can delete sales returns"
+        )
     
     sales_return = db.query(SalesReturn).filter(SalesReturn.id == return_id).first()
     if not sales_return:
@@ -336,7 +344,7 @@ async def seed_sample_returns(
         if existing_return:
             continue
             
-        return_number = generate_return_number(db)
+        return_number = generate_return_number(db, current_user.account_id)
         
         return_data = {
             "return_number": return_number,

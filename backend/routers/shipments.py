@@ -4,7 +4,7 @@ BAI Backend Shipments Router
 This module contains the shipments routes for shipment and delivery note management.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import List, Optional
@@ -34,7 +34,7 @@ from schemas.shipment_schema import (
 router = APIRouter()
 
 def generate_shipment_number(db: Session, account_id: str) -> str:
-    """Generate a new shipment number."""
+    """Generate a new account-specific shipment number."""
     last_shipment = db.query(Shipment).filter(Shipment.account_id == account_id).order_by(Shipment.id.desc()).first()
     if last_shipment:
         try:
@@ -45,11 +45,12 @@ def generate_shipment_number(db: Session, account_id: str) -> str:
     else:
         next_number = 1
     
+    # Account-specific format: SHP-ACCOUNT-YYYY-NNN
     current_year = datetime.now().year
-    return f"SHP-{current_year}-{next_number:03d}"
+    return f"SHP-{account_id}-{current_year}-{next_number:03d}"
 
 def generate_delivery_note_number(db: Session, account_id: str) -> str:
-    """Generate a new delivery note number."""
+    """Generate a new account-specific delivery note number."""
     last_note = db.query(DeliveryNote).filter(DeliveryNote.account_id == account_id).order_by(DeliveryNote.id.desc()).first()
     if last_note:
         try:
@@ -60,8 +61,9 @@ def generate_delivery_note_number(db: Session, account_id: str) -> str:
     else:
         next_number = 1
     
+    # Account-specific format: DN-ACCOUNT-YYYY-NNN
     current_year = datetime.now().year
-    return f"DN-{current_year}-{next_number:03d}"
+    return f"DN-{account_id}-{current_year}-{next_number:03d}"
 
 def generate_tracking_number() -> str:
     """Generate a random tracking number."""
@@ -219,7 +221,14 @@ async def delete_delivery_note(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete a delivery note."""
+    """Delete a delivery note. Only admin users can delete delivery notes."""
+    
+    # Check if user is admin
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can delete delivery notes"
+        )
     
     # Get the delivery note
     delivery_note = db.query(DeliveryNote).filter(
@@ -503,7 +512,14 @@ async def delete_shipment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete a shipment."""
+    """Delete a shipment. Only admin users can delete shipments."""
+    
+    # Check if user is admin
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can delete shipments"
+        )
     
     shipment = db.query(Shipment).filter(
         Shipment.id == shipment_id,

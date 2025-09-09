@@ -17,6 +17,9 @@ class CustomerCredit(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     
+    # Account ID for multi-tenant support
+    account_id = Column(String(100), nullable=False, default="TestAccount", index=True)
+    
     # Credit identification
     credit_number = Column(String(50), unique=True, nullable=False)
     credit_date = Column(DateTime(timezone=True), nullable=False)
@@ -101,6 +104,9 @@ class CreditTransaction(Base):
     __tablename__ = "credit_transactions"
     
     id = Column(Integer, primary_key=True, index=True)
+    
+    # Account ID for multi-tenant support
+    account_id = Column(String(100), nullable=False, default="TestAccount", index=True)
     
     # Credit relationship
     credit_id = Column(Integer, ForeignKey("customer_credits.id"), nullable=False)

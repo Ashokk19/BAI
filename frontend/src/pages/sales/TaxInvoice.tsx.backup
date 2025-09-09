@@ -447,7 +447,7 @@ const TaxInvoice: React.FC = () => {
     setIsLoading(true);
     try {
       const invoiceData = {
-        account_id: 'TestAccount', // This will be set by backend from current user
+        account_id: user?.account_id || 'TestAccount', // Use current user's account_id
         customer_id: selectedCustomer?.id || 0,
         invoice_date: new Date(invoice.invoice_date).toISOString(),
         due_date: invoice.due_date ? new Date(invoice.due_date).toISOString() : undefined,
@@ -512,7 +512,7 @@ const TaxInvoice: React.FC = () => {
     setIsLoading(true);
     try {
       const invoiceData = {
-        account_id: 'TestAccount', // This will be set by backend from current user
+        account_id: user?.account_id || 'TestAccount', // Use current user's account_id
         customer_id: selectedCustomer?.id || 0,
         invoice_date: new Date(invoice.invoice_date).toISOString(),
         due_date: invoice.due_date ? new Date(invoice.due_date).toISOString() : undefined,
