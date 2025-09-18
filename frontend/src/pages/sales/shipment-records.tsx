@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon, Plus, Search, Ship, Eye, Download, Truck, Package } from "lucide-react"
+import { CalendarIcon, Plus, Search, Ship, Eye, Download, Truck, Package, ChevronLeft, ChevronRight } from "lucide-react"
 import { format } from "date-fns"
 import { shipmentApi, Shipment as ApiShipment, ShipmentCreate } from "../../services/shipmentApi"
 import { customerApi, Customer } from "../../services/customerApi"
@@ -23,14 +23,23 @@ import { useNotifications, NotificationContainer } from "../../components/ui/not
 export default function ShipmentRecords() {
   const notifications = useNotifications()
   const [shipments, setShipments] = useState<ApiShipment[]>([])
+  const [allShipments, setAllShipments] = useState<ApiShipment[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
   const [invoicesLoading, setInvoicesLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
+  const [customerFilter, setCustomerFilter] = useState("all")
+  const [shipmentStatusFilter, setShipmentStatusFilter] = useState("all")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<Date>()
   const [expectedDate, setExpectedDate] = useState<Date>()
+  
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalRecords, setTotalRecords] = useState(0)
+  const recordsPerPage = 10
   const [formData, setFormData] = useState({
     customer_id: 0,
     invoice_id: 0,
@@ -54,25 +63,48 @@ export default function ShipmentRecords() {
     loadInvoices()
   }, [])
 
-  // Reload when search changes
+  // Reload when search, customer filter, or page changes
   useEffect(() => {
     loadShipments()
-  }, [searchTerm])
+  }, [searchTerm, customerFilter, currentPage])
+
+  // Apply shipment status filter when it changes
+  useEffect(() => {
+    if (allShipments.length > 0) {
+      applyShipmentStatusFilter(shipmentStatusFilter)
+    }
+  }, [shipmentStatusFilter, allShipments])
 
   const loadShipments = async () => {
     try {
       setLoading(true)
+      const skip = (currentPage - 1) * recordsPerPage
       const params: any = {
-        limit: 100,
-        skip: 0
+        limit: recordsPerPage,
+        skip: skip,
+        sort_by: 'id',
+        sort_order: 'desc'
       }
       
       if (searchTerm) {
         params.search = searchTerm
       }
 
+      if (customerFilter !== "all") {
+        params.customer_id = parseInt(customerFilter)
+      }
+
       const response = await shipmentApi.getShipments(params)
-      setShipments(response.shipments)
+      
+      // Store all shipments for tile count calculations
+      setAllShipments(response.shipments)
+      
+      // The shipments array will be updated by the useEffect that applies status filter
+      
+      // Calculate pagination info
+      const total = response.total || response.shipments?.length || 0
+      setTotalRecords(total)
+      setTotalPages(Math.ceil(total / recordsPerPage))
     } catch (error) {
       console.error('Error loading shipments:', error)
       notifications.error('Loading Failed', 'Unable to load shipments. Please check your connection.')
@@ -166,7 +198,6 @@ export default function ShipmentRecords() {
     return invoice ? invoice.invoice_number : 'Unknown Invoice'
   }
 
-  const [statusFilter, setStatusFilter] = useState("all")
 
   const validateForm = (): boolean => {
     if (!formData.customer_id) {
@@ -270,23 +301,154 @@ export default function ShipmentRecords() {
     }
   }
 
-  // Filter shipments based on search term and status filter
-  const filteredShipments = shipments.filter(shipment => {
-    const matchesSearch = !searchTerm || 
-      shipment.shipment_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      getCustomerName(shipment.customer_id)?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      shipment.carrier?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      shipment.tracking_number?.toLowerCase().includes(searchTerm.toLowerCase())
-    
-    const matchesStatus = statusFilter === "all" || shipment.status?.toLowerCase() === statusFilter.toLowerCase()
-    
-    return matchesSearch && matchesStatus
-  })
+  // Filter handlers
+  const handleCustomerFilterChange = (value: string) => {
+    setCustomerFilter(value)
+    setCurrentPage(1)
+  }
 
-  const totalShipments = filteredShipments.length
-  const deliveredShipments = filteredShipments.filter((shipment) => shipment.status === "Delivered").length
-  const inTransitShipments = filteredShipments.filter((shipment) => shipment.status === "In Transit").length
-  const totalShippingCost = filteredShipments.reduce((sum, shipment) => sum + (shipment.shipping_cost || 0), 0)
+  const handleShipmentStatusTileClick = (status: string) => {
+    setShipmentStatusFilter(status)
+    setCurrentPage(1)
+    applyShipmentStatusFilter(status)
+  }
+
+  // Apply shipment status filter to shipments
+  const applyShipmentStatusFilter = (status: string) => {
+    if (status === "all") {
+      setShipments(allShipments)
+    } else {
+      const filtered = allShipments.filter(shipment => {
+        // Handle "in-transit" -> "In Transit" mapping
+        const shipmentStatus = shipment.status?.toLowerCase()
+        const filterStatus = status === "in-transit" ? "in transit" : status.toLowerCase()
+        return shipmentStatus === filterStatus
+      })
+      setShipments(filtered)
+    }
+  }
+
+  // Calculate shipment status counts from all shipments (not filtered)
+  const getShipmentStatusCounts = () => {
+    const counts = {
+      all: allShipments.length,
+      pending: 0,
+      'in-transit': 0,
+      delivered: 0,
+      failed: 0,
+      refused: 0
+    }
+    
+    allShipments.forEach(shipment => {
+      const status = shipment.status?.toLowerCase()
+      switch (status) {
+        case 'pending':
+          counts.pending++
+          break
+        case 'in transit':
+          counts['in-transit']++
+          break
+        case 'delivered':
+          counts.delivered++
+          break
+        case 'failed':
+          counts.failed++
+          break
+        case 'refused':
+          counts.refused++
+          break
+      }
+    })
+    
+    return counts
+  }
+
+  // Get tile styling based on status and active state
+  const getTileClassName = (status: string) => {
+    const isActive = shipmentStatusFilter === status
+    const baseClasses = "bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200"
+    const activeClasses = "ring-2 ring-violet-500 shadow-2xl scale-105"
+    
+    return `${baseClasses} ${isActive ? activeClasses : ''}`
+  }
+
+  // Get status-specific styling
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <Package className="w-4 h-4 text-yellow-600" />
+      case 'in-transit':
+        return <Truck className="w-4 h-4 text-blue-600" />
+      case 'delivered':
+        return <Ship className="w-4 h-4 text-green-600" />
+      case 'failed':
+        return <Package className="w-4 h-4 text-red-600" />
+      case 'refused':
+        return <Package className="w-4 h-4 text-red-600" />
+      default:
+        return <Ship className="w-4 h-4 text-gray-600" />
+    }
+  }
+
+  const getTileStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'text-yellow-600'
+      case 'in-transit':
+        return 'text-blue-600'
+      case 'delivered':
+        return 'text-green-600'
+      case 'failed':
+        return 'text-red-600'
+      case 'refused':
+        return 'text-red-600'
+      default:
+        return 'text-gray-600'
+    }
+  }
+
+  const getStatusGradient = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'from-yellow-500/10 to-yellow-600/20'
+      case 'in-transit':
+        return 'from-blue-500/10 to-blue-600/20'
+      case 'delivered':
+        return 'from-green-500/10 to-green-600/20'
+      case 'failed':
+        return 'from-red-500/10 to-red-600/20'
+      case 'refused':
+        return 'from-red-500/10 to-red-600/20'
+      default:
+        return 'from-gray-500/10 to-gray-600/20'
+    }
+  }
+
+  const statusCounts = getShipmentStatusCounts()
+
+  // Pagination handlers
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1)
+    }
+  }
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1)
+    }
+  }
+
+  // Reset to first page when search changes
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
+
 
   return (
     <div className="space-y-6">
@@ -554,54 +716,107 @@ export default function ShipmentRecords() {
         </Dialog>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Shipments</p>
-                <p className="text-2xl font-bold text-gray-900">{totalShipments}</p>
-              </div>
-              <Ship className="w-8 h-8 text-violet-600" />
+      {/* Shipment Status Tiles */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+        <Card 
+          className={getTileClassName("all")}
+          onClick={() => handleShipmentStatusTileClick("all")}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-violet-500/10 to-violet-600/20"></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">All Status</CardTitle>
+            <div className="p-2 rounded-lg bg-violet-500/20">
+              <Ship className="w-4 h-4 text-violet-600" />
             </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold text-violet-600">{statusCounts.all}</div>
+            <p className="text-xs text-gray-600 mt-1">Total shipments</p>
           </CardContent>
         </Card>
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Delivered</p>
-                <p className="text-2xl font-bold text-green-600">{deliveredShipments}</p>
-              </div>
-              <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                <span className="text-green-600 font-bold">✓</span>
-              </div>
+
+        <Card 
+          className={getTileClassName("pending")}
+          onClick={() => handleShipmentStatusTileClick("pending")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('pending')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Pending</CardTitle>
+            <div className="p-2 rounded-lg bg-yellow-500/20">
+              {getStatusIcon('pending')}
             </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getTileStatusColor('pending')}`}>{statusCounts.pending}</div>
+            <p className="text-xs text-gray-600 mt-1">Awaiting shipment</p>
           </CardContent>
         </Card>
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">In Transit</p>
-                <p className="text-2xl font-bold text-yellow-600">{inTransitShipments}</p>
-              </div>
-              <Truck className="w-8 h-8 text-yellow-600" />
+
+        <Card 
+          className={getTileClassName("in-transit")}
+          onClick={() => handleShipmentStatusTileClick("in-transit")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('in-transit')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">In Transit</CardTitle>
+            <div className="p-2 rounded-lg bg-blue-500/20">
+              {getStatusIcon('in-transit')}
             </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getTileStatusColor('in-transit')}`}>{statusCounts['in-transit']}</div>
+            <p className="text-xs text-gray-600 mt-1">On the way</p>
           </CardContent>
         </Card>
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Shipping Cost</p>
-                <p className="text-2xl font-bold text-blue-600">₹{totalShippingCost.toLocaleString()}</p>
-              </div>
-              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                <span className="text-blue-600 font-bold">₹</span>
-              </div>
+
+        <Card 
+          className={getTileClassName("delivered")}
+          onClick={() => handleShipmentStatusTileClick("delivered")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('delivered')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Delivered</CardTitle>
+            <div className="p-2 rounded-lg bg-green-500/20">
+              {getStatusIcon('delivered')}
             </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getTileStatusColor('delivered')}`}>{statusCounts.delivered}</div>
+            <p className="text-xs text-gray-600 mt-1">Successfully delivered</p>
+          </CardContent>
+        </Card>
+
+        <Card 
+          className={getTileClassName("failed")}
+          onClick={() => handleShipmentStatusTileClick("failed")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('failed')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Failed</CardTitle>
+            <div className="p-2 rounded-lg bg-red-500/20">
+              {getStatusIcon('failed')}
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getTileStatusColor('failed')}`}>{statusCounts.failed}</div>
+            <p className="text-xs text-gray-600 mt-1">Delivery failed</p>
+          </CardContent>
+        </Card>
+
+        <Card 
+          className={getTileClassName("refused")}
+          onClick={() => handleShipmentStatusTileClick("refused")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('refused')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Refused</CardTitle>
+            <div className="p-2 rounded-lg bg-red-500/20">
+              {getStatusIcon('refused')}
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getTileStatusColor('refused')}`}>{statusCounts.refused}</div>
+            <p className="text-xs text-gray-600 mt-1">Package refused</p>
           </CardContent>
         </Card>
       </div>
@@ -616,22 +831,22 @@ export default function ShipmentRecords() {
                 <Input
                   placeholder="Search shipments..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => handleSearchChange(e.target.value)}
                   className="pl-10 bg-white/50 border-white/20"
                 />
               </div>
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={customerFilter} onValueChange={handleCustomerFilterChange}>
               <SelectTrigger className="w-48 bg-white/50 border-white/20">
-                <SelectValue placeholder="Filter by status" />
+                <SelectValue placeholder="Filter by customer" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="Pending">Pending</SelectItem>
-                <SelectItem value="In Transit">In Transit</SelectItem>
-                <SelectItem value="Delivered">Delivered</SelectItem>
-                <SelectItem value="Failed">Failed</SelectItem>
-                <SelectItem value="Refused">Refused</SelectItem>
+                <SelectItem value="all">All Customers</SelectItem>
+                {customers.map((customer) => (
+                  <SelectItem key={customer.id} value={customer.id.toString()}>
+                    {customer.company_name || `${customer.first_name} ${customer.last_name}`}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -641,9 +856,14 @@ export default function ShipmentRecords() {
       {/* Shipments Table */}
       <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Ship className="w-5 h-5" />
-            Shipment Records ({filteredShipments.length})
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Ship className="w-5 h-5" />
+              Shipment Records ({totalRecords} total)
+            </div>
+            <div className="text-sm text-gray-600">
+              Page {currentPage} of {totalPages}
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -662,7 +882,7 @@ export default function ShipmentRecords() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredShipments.map((shipment) => (
+              {shipments.map((shipment) => (
                 <TableRow key={shipment.id}>
                   <TableCell>
                     <div className="font-medium">{shipment.shipment_number}</div>
@@ -710,6 +930,69 @@ export default function ShipmentRecords() {
             </TableBody>
           </Table>
         </CardContent>
+        
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-white/20">
+            <div className="text-sm text-gray-600">
+              Showing {((currentPage - 1) * recordsPerPage) + 1} to {Math.min(currentPage * recordsPerPage, totalRecords)} of {totalRecords} results
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePreviousPage}
+                disabled={currentPage === 1}
+                className="bg-white/50 border-white/30 hover:bg-white/70"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </Button>
+              
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  
+                  return (
+                    <Button
+                      key={pageNum}
+                      variant={currentPage === pageNum ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handlePageChange(pageNum)}
+                      className={
+                        currentPage === pageNum
+                          ? "bg-violet-600 hover:bg-violet-700 text-white"
+                          : "bg-white/50 border-white/30 hover:bg-white/70"
+                      }
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+              </div>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNextPage}
+                disabled={currentPage === totalPages}
+                className="bg-white/50 border-white/30 hover:bg-white/70"
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
       
       {/* Notification Container */}

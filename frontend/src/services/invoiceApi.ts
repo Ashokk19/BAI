@@ -120,6 +120,8 @@ export interface InvoiceFilters {
   date_from?: string;
   date_to?: string;
   payment_status?: string;
+  sort_by?: string;
+  sort_order?: string;
 }
 
 export interface GSTSlab {
@@ -172,6 +174,8 @@ class InvoiceApiService {
     if (filters.date_from) params.append('date_from', filters.date_from);
     if (filters.date_to) params.append('date_to', filters.date_to);
     if (filters.payment_status) params.append('payment_status', filters.payment_status);
+    if (filters.sort_by) params.append('sort_by', filters.sort_by);
+    if (filters.sort_order) params.append('sort_order', filters.sort_order);
     
     const queryString = params.toString();
     const url = `/api/sales/invoices/${queryString ? `?${queryString}` : ''}`;

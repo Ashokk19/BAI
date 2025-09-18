@@ -55,6 +55,7 @@ interface ItemToReturn {
 export default function SalesReturns() {
   const notifications = useNotifications()
   const [returns, setReturns] = useState<ApiSalesReturn[]>([])
+  const [allReturns, setAllReturns] = useState<ApiSalesReturn[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [customerInvoices, setCustomerInvoices] = useState<Invoice[]>([])
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
@@ -62,6 +63,8 @@ export default function SalesReturns() {
   const [loading, setLoading] = useState(true)
 
   const [searchTerm, setSearchTerm] = useState("")
+  const [customerFilter, setCustomerFilter] = useState("all")
+  const [returnStatusFilter, setReturnStatusFilter] = useState("all")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<Date>()
   const [formData, setFormData] = useState<ReturnFormData>({
@@ -84,10 +87,10 @@ export default function SalesReturns() {
     loadCustomers()
   }, [])
 
-  // Reload when search changes
+  // Reload when search or filters change
   useEffect(() => {
     loadSalesReturns()
-  }, [searchTerm])
+  }, [searchTerm, customerFilter, returnStatusFilter])
 
   // Load invoices when customer is selected
   useEffect(() => {
@@ -115,6 +118,13 @@ export default function SalesReturns() {
     calculateTotals()
   }, [itemsToReturn])
 
+  // Apply return status filter when it changes
+  useEffect(() => {
+    if (allReturns.length > 0) {
+      applyReturnStatusFilter(returnStatusFilter)
+    }
+  }, [returnStatusFilter, allReturns])
+
   const loadSalesReturns = async () => {
     try {
       setLoading(true)
@@ -127,8 +137,25 @@ export default function SalesReturns() {
         params.search = searchTerm
       }
 
+      if (customerFilter !== "all") {
+        params.customer_id = parseInt(customerFilter)
+      }
+
       const response = await salesReturnApi.getSalesReturns(params)
-      setReturns(response.returns)
+      
+      // Store all returns for accurate tile counts
+      setAllReturns(response.returns)
+      
+      let filteredReturns = response.returns
+
+      // Apply return status filter client-side
+      if (returnStatusFilter !== "all") {
+        filteredReturns = filteredReturns.filter(returnItem => 
+          returnItem.status.toLowerCase() === returnStatusFilter
+        )
+      }
+
+      setReturns(filteredReturns)
     } catch (error) {
       console.error('Error loading sales returns:', error)
       notifications.error('Loading Failed', 'Unable to load sales returns. Please check your connection.')
@@ -397,6 +424,116 @@ export default function SalesReturns() {
   const totalReturns = returns.length
   const totalRefundAmount = returns.reduce((sum, returnItem) => sum + returnItem.refund_amount, 0)
   const pendingReturns = returns.filter((returnItem) => returnItem.status === "pending").length
+
+  // Filter handlers
+  const handleCustomerFilterChange = (value: string) => {
+    setCustomerFilter(value)
+  }
+
+  const handleReturnStatusTileClick = (status: string) => {
+    setReturnStatusFilter(status)
+    applyReturnStatusFilter(status)
+  }
+
+  // Apply return status filter
+  const applyReturnStatusFilter = (status: string) => {
+    if (status === "all") {
+      setReturns(allReturns)
+    } else {
+      const filtered = allReturns.filter(returnItem => 
+        returnItem.status.toLowerCase() === status
+      )
+      setReturns(filtered)
+    }
+  }
+
+  // Calculate return status counts
+  const getReturnStatusCounts = () => {
+    const counts = {
+      all: allReturns.length,
+      pending: 0,
+      approved: 0,
+      processed: 0,
+      rejected: 0
+    }
+    
+    allReturns.forEach(returnItem => {
+      const status = returnItem.status.toLowerCase()
+      switch (status) {
+        case 'pending':
+          counts.pending++
+          break
+        case 'approved':
+          counts.approved++
+          break
+        case 'processed':
+          counts.processed++
+          break
+        case 'rejected':
+          counts.rejected++
+          break
+      }
+    })
+    
+    return counts
+  }
+
+  // Get tile styling based on status and active state
+  const getTileClassName = (status: string) => {
+    const isActive = returnStatusFilter === status
+    const baseClasses = "bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200"
+    const activeClasses = "ring-2 ring-violet-500 shadow-2xl scale-105"
+    
+    return `${baseClasses} ${isActive ? activeClasses : ''}`
+  }
+
+  // Get status-specific styling
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <Clock className="w-4 h-4 text-yellow-600" />
+      case 'approved':
+        return <CheckCircle className="w-4 h-4 text-green-600" />
+      case 'processed':
+        return <Package className="w-4 h-4 text-blue-600" />
+      case 'rejected':
+        return <XCircle className="w-4 h-4 text-red-600" />
+      default:
+        return <Clock className="w-4 h-4 text-gray-600" />
+    }
+  }
+
+  const getTileStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'text-yellow-600'
+      case 'approved':
+        return 'text-green-600'
+      case 'processed':
+        return 'text-blue-600'
+      case 'rejected':
+        return 'text-red-600'
+      default:
+        return 'text-gray-600'
+    }
+  }
+
+  const getStatusGradient = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'from-yellow-500/10 to-yellow-600/20'
+      case 'approved':
+        return 'from-green-500/10 to-green-600/20'
+      case 'processed':
+        return 'from-blue-500/10 to-blue-600/20'
+      case 'rejected':
+        return 'from-red-500/10 to-red-600/20'
+      default:
+        return 'from-gray-500/10 to-gray-600/20'
+    }
+  }
+
+  const statusCounts = getReturnStatusCounts()
 
   return (
     <div className="space-y-6">
@@ -684,43 +821,122 @@ export default function SalesReturns() {
         </Dialog>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-blue-600">Total Returns</p>
-                <p className="text-3xl font-bold text-blue-900">{totalReturns}</p>
-              </div>
-              <RotateCcw className="h-8 w-8 text-blue-500" />
+      {/* Return Status Tiles */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <Card 
+          className={getTileClassName("all")}
+          onClick={() => handleReturnStatusTileClick("all")}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-violet-500/10 to-violet-600/20"></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">All Status</CardTitle>
+            <div className="p-2 rounded-lg bg-violet-500/20">
+              <RotateCcw className="w-4 h-4 text-violet-600" />
             </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold text-violet-600">{statusCounts.all}</div>
+            <p className="text-xs text-gray-600 mt-1">Total returns</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-green-600">Total Return Amount</p>
-                <p className="text-3xl font-bold text-green-900">₹{parseFloat(totalRefundAmount.toString()).toFixed(2)}</p>
-              </div>
-              <Package className="h-8 w-8 text-green-500" />
+        <Card 
+          className={getTileClassName("pending")}
+          onClick={() => handleReturnStatusTileClick("pending")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('pending')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Pending</CardTitle>
+            <div className="p-2 rounded-lg bg-yellow-500/20">
+              {getStatusIcon('pending')}
             </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getTileStatusColor('pending')}`}>{statusCounts.pending}</div>
+            <p className="text-xs text-gray-600 mt-1">Awaiting review</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-yellow-600">Pending Returns</p>
-                <p className="text-3xl font-bold text-yellow-900">{pendingReturns}</p>
-              </div>
-              <Clock className="h-8 w-8 text-yellow-500" />
+        <Card 
+          className={getTileClassName("approved")}
+          onClick={() => handleReturnStatusTileClick("approved")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('approved')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Approved</CardTitle>
+            <div className="p-2 rounded-lg bg-green-500/20">
+              {getStatusIcon('approved')}
             </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getTileStatusColor('approved')}`}>{statusCounts.approved}</div>
+            <p className="text-xs text-gray-600 mt-1">Approved for processing</p>
           </CardContent>
         </Card>
+
+        <Card 
+          className={getTileClassName("processed")}
+          onClick={() => handleReturnStatusTileClick("processed")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('processed')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Processed</CardTitle>
+            <div className="p-2 rounded-lg bg-blue-500/20">
+              {getStatusIcon('processed')}
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getTileStatusColor('processed')}`}>{statusCounts.processed}</div>
+            <p className="text-xs text-gray-600 mt-1">Being processed</p>
+          </CardContent>
+        </Card>
+
+        <Card 
+          className={getTileClassName("rejected")}
+          onClick={() => handleReturnStatusTileClick("rejected")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('rejected')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Rejected</CardTitle>
+            <div className="p-2 rounded-lg bg-red-500/20">
+              {getStatusIcon('rejected')}
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getTileStatusColor('rejected')}`}>{statusCounts.rejected}</div>
+            <p className="text-xs text-gray-600 mt-1">Return rejected</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Search and Filter Section */}
+      <div className="flex flex-col sm:flex-row gap-4 p-4 bg-white/40 backdrop-blur-3xl border border-white/80 rounded-xl shadow-lg ring-1 ring-white/60">
+        <div className="flex-1">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <Input
+              placeholder="Search returns by customer, invoice number, or return number..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 bg-white/70 border-white/30 focus:bg-white focus:border-violet-300"
+            />
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <Select value={customerFilter} onValueChange={handleCustomerFilterChange}>
+            <SelectTrigger className="w-48 bg-white/70 border-white/30 focus:bg-white focus:border-violet-300">
+              <SelectValue placeholder="Filter by customer" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Customers</SelectItem>
+              {customers.map((customer) => (
+                <SelectItem key={customer.id} value={customer.id.toString()}>
+                  {customer.company_name || `${customer.first_name} ${customer.last_name}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Sales Returns Table */}
@@ -731,15 +947,6 @@ export default function SalesReturns() {
               <RotateCcw className="w-5 h-5 text-violet-600" />
               Sales Returns ({totalReturns})
             </CardTitle>
-            <div className="flex items-center space-x-2 w-96">
-              <Search className="w-5 h-5 text-gray-400" />
-              <Input
-                placeholder="Search returns by customer, invoice number, or return number..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="bg-white/50 border-white/20"
-              />
-            </div>
           </div>
         </CardHeader>
         <CardContent>

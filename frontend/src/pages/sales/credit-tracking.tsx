@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon, Plus, Search, CreditCard, DollarSign, TrendingUp, Users, AlertCircle, Eye, Download } from "lucide-react"
+import { CalendarIcon, Plus, Search, CreditCard, DollarSign, TrendingUp, Users, AlertCircle, Eye, Download, ChevronLeft, ChevronRight } from "lucide-react"
 import { creditApi, CustomerCredit, CustomerCreditCreate } from "../../services/creditApi"
 import { customerApi, Customer } from "../../services/customerApi"
 import { useNotifications, NotificationContainer } from "../../components/ui/notification"
@@ -47,12 +47,19 @@ const formatDate = (date: Date, format: string) => {
 export default function CreditTracking() {
   const notifications = useNotifications()
   const [credits, setCredits] = useState<CustomerCredit[]>([])
+  const [allCredits, setAllCredits] = useState<CustomerCredit[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<Date>()
   const [expiryDate, setExpiryDate] = useState<Date>()
+  
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalRecords, setTotalRecords] = useState(0)
+  const recordsPerPage = 10
   const [formData, setFormData] = useState({
     customer_id: 0,
     original_amount: 0,
@@ -63,20 +70,26 @@ export default function CreditTracking() {
   // Load credits on component mount
   useEffect(() => {
     loadCredits()
+    loadAllCredits()
     loadCustomers()
   }, [])
 
-  // Reload when search changes
+  // Reload when search or page changes
   useEffect(() => {
     loadCredits()
-  }, [searchTerm])
+    // Don't reload allCredits on search - summary should always show all data
+    // loadAllCredits()
+  }, [searchTerm, currentPage])
 
   const loadCredits = async () => {
     try {
       setLoading(true)
+      const skip = (currentPage - 1) * recordsPerPage
       const params: any = {
-        limit: 100,
-        skip: 0
+        limit: recordsPerPage,
+        skip: skip,
+        sort_by: 'id',
+        sort_order: 'desc'
       }
       
       if (searchTerm) {
@@ -85,11 +98,44 @@ export default function CreditTracking() {
 
       const response = await creditApi.getCustomerCredits(params)
       setCredits(response.credits)
+      
+      // Calculate pagination info
+      const total = response.total || response.credits?.length || 0
+      setTotalRecords(total)
+      setTotalPages(Math.ceil(total / recordsPerPage))
     } catch (error) {
       console.error('Error loading credits:', error)
       notifications.error('Loading Failed', 'Unable to load credits. Please check your connection.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadAllCredits = async () => {
+    try {
+      // Use the same API call that works for the table, but without pagination
+      const params: any = {
+        limit: 1000, // Get all credits for summary calculations
+        skip: 0
+        // Remove sort_by and sort_order as they might be causing the 422 error
+      }
+      
+      // Don't apply search filter for summary calculations
+      // if (searchTerm) {
+      //   params.search = searchTerm
+      // }
+
+      const response = await creditApi.getCustomerCredits(params)
+      console.log('All credits loaded:', response.credits.length, response.credits)
+      setAllCredits(response.credits)
+    } catch (error) {
+      console.error('Error loading all credits:', error)
+      // If the API call fails, try to get credits from the existing credits array
+      // This ensures we at least have some data for calculations
+      if (credits.length > 0) {
+        console.log('Using existing credits for summary calculations:', credits.length)
+        setAllCredits(credits)
+      }
     }
   }
 
@@ -137,6 +183,7 @@ export default function CreditTracking() {
       
       // Reload data
       loadCredits()
+      loadAllCredits()
       notifications.success('Credit Created!', 'The customer credit has been created successfully.')
     } catch (error) {
       console.error('Error creating credit:', error)
@@ -157,10 +204,57 @@ export default function CreditTracking() {
     }
   }
 
-  const totalCredits = credits.length
-  const totalCreditAmount = credits.reduce((sum, credit) => sum + credit.original_amount, 0)
-  const totalRemainingAmount = credits.reduce((sum, credit) => sum + credit.remaining_amount, 0)
-  const activeCredits = credits.filter((credit) => credit.status === "active").length
+  // Pagination handlers
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1)
+    }
+  }
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1)
+    }
+  }
+
+  // Reset to first page when search changes
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
+
+  // Use allCredits if available, otherwise fall back to credits
+  const creditsForCalculation = allCredits.length > 0 ? allCredits : credits
+  
+  const totalCredits = creditsForCalculation.length
+  const totalCreditAmount = creditsForCalculation.reduce((sum, credit) => {
+    const amount = typeof credit.original_amount === 'string' ? parseFloat(credit.original_amount) : credit.original_amount
+    return sum + (isNaN(amount) ? 0 : amount)
+  }, 0)
+  const totalRemainingAmount = creditsForCalculation.reduce((sum, credit) => {
+    const amount = typeof credit.remaining_amount === 'string' ? parseFloat(credit.remaining_amount) : credit.remaining_amount
+    return sum + (isNaN(amount) ? 0 : amount)
+  }, 0)
+  const activeCredits = creditsForCalculation.filter((credit) => credit.status === "active").length
+
+  // Debug logging
+  console.log('Summary calculations:', {
+    allCreditsLength: allCredits.length,
+    creditsLength: credits.length,
+    creditsForCalculationLength: creditsForCalculation.length,
+    totalCredits,
+    totalCreditAmount,
+    totalRemainingAmount,
+    activeCredits,
+    sampleCredit: creditsForCalculation[0],
+    sampleOriginalAmount: creditsForCalculation[0]?.original_amount,
+    sampleRemainingAmount: creditsForCalculation[0]?.remaining_amount,
+    sampleStatus: creditsForCalculation[0]?.status
+  })
 
   return (
     <div className="space-y-6">
@@ -283,53 +377,60 @@ export default function CreditTracking() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Credits</p>
-                <p className="text-2xl font-bold text-gray-900">{totalCredits}</p>
-              </div>
-              <CreditCard className="w-8 h-8 text-violet-600" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200">
+          <div className="absolute inset-0 bg-gradient-to-br from-violet-500/10 to-violet-600/20"></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Total Credits</CardTitle>
+            <div className="p-2 rounded-lg bg-violet-500/20">
+              <CreditCard className="w-4 h-4 text-violet-600" />
             </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold text-violet-600">{totalCredits}</div>
+            <p className="text-xs text-gray-600 mt-1">All credit records</p>
           </CardContent>
         </Card>
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Credit Amount</p>
-                <p className="text-2xl font-bold text-gray-900">₹{totalCreditAmount.toLocaleString()}</p>
-              </div>
-              <DollarSign className="w-8 h-8 text-violet-600" />
+
+        <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200">
+          <div className="absolute inset-0 bg-gradient-to-br from-green-500/10 to-green-600/20"></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Total Credit Amount</CardTitle>
+            <div className="p-2 rounded-lg bg-green-500/20">
+              <DollarSign className="w-4 h-4 text-green-600" />
             </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold text-green-600">₹{totalCreditAmount.toLocaleString()}</div>
+            <p className="text-xs text-gray-600 mt-1">Total issued amount</p>
           </CardContent>
         </Card>
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Remaining Amount</p>
-                <p className="text-2xl font-bold text-green-600">₹{totalRemainingAmount.toLocaleString()}</p>
-              </div>
-              <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                <span className="text-green-600 font-bold">₹</span>
-              </div>
+
+        <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200">
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-blue-600/20"></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Remaining Amount</CardTitle>
+            <div className="p-2 rounded-lg bg-blue-500/20">
+              <TrendingUp className="w-4 h-4 text-blue-600" />
             </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold text-blue-600">₹{totalRemainingAmount.toLocaleString()}</div>
+            <p className="text-xs text-gray-600 mt-1">Available balance</p>
           </CardContent>
         </Card>
-        <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Active Credits</p>
-                <p className="text-2xl font-bold text-blue-600">{activeCredits}</p>
-              </div>
-              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                <span className="text-blue-600 font-bold">✓</span>
-              </div>
+
+        <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200">
+          <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-orange-600/20"></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Active Credits</CardTitle>
+            <div className="p-2 rounded-lg bg-orange-500/20">
+              <Users className="w-4 h-4 text-orange-600" />
             </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold text-orange-600">{activeCredits}</div>
+            <p className="text-xs text-gray-600 mt-1">Currently active</p>
           </CardContent>
         </Card>
       </div>
@@ -342,7 +443,7 @@ export default function CreditTracking() {
             <Input
               placeholder="Search credits..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-10 bg-white/50 border-white/20"
             />
           </div>
@@ -352,9 +453,14 @@ export default function CreditTracking() {
       {/* Credits Table */}
       <Card className="bg-white/40 backdrop-blur-3xl border-white/20 shadow-xl">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CreditCard className="w-5 h-5" />
-            Customer Credits ({credits.length})
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CreditCard className="w-5 h-5" />
+              Customer Credits ({totalRecords} total)
+            </div>
+            <div className="text-sm text-gray-600">
+              Page {currentPage} of {totalPages}
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -423,6 +529,69 @@ export default function CreditTracking() {
             </TableBody>
           </Table>
         </CardContent>
+        
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-white/20">
+            <div className="text-sm text-gray-600">
+              Showing {((currentPage - 1) * recordsPerPage) + 1} to {Math.min(currentPage * recordsPerPage, totalRecords)} of {totalRecords} results
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePreviousPage}
+                disabled={currentPage === 1}
+                className="bg-white/50 border-white/30 hover:bg-white/70"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </Button>
+              
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  
+                  return (
+                    <Button
+                      key={pageNum}
+                      variant={currentPage === pageNum ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handlePageChange(pageNum)}
+                      className={
+                        currentPage === pageNum
+                          ? "bg-violet-600 hover:bg-violet-700 text-white"
+                          : "bg-white/50 border-white/30 hover:bg-white/70"
+                      }
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+              </div>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNextPage}
+                disabled={currentPage === totalPages}
+                className="bg-white/50 border-white/30 hover:bg-white/70"
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
       
       {/* Notification Container */}

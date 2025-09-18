@@ -521,4 +521,85 @@ class CreditService:
             ]
         }
 
+    @staticmethod
+    def process_payment_against_credit_invoice(
+        db: Session,
+        customer_id: int,
+        payment_amount: Decimal,
+        user_id: int,
+        account_id: str,
+        invoice_id: Optional[int] = None,
+        reference_number: Optional[str] = None,
+        notes: Optional[str] = None
+    ) -> List[CreditTransaction]:
+        """Process a real payment against a credit invoice - reduce used amount."""
+        
+        # Verify customer exists
+        customer = db.query(Customer).filter(
+            Customer.id == customer_id,
+            Customer.account_id == account_id
+        ).first()
+        
+        if not customer:
+            raise ValueError(f"Customer with ID {customer_id} not found")
+        
+        # Get all active credits for this customer
+        active_credits = db.query(CustomerCredit).filter(
+            CustomerCredit.customer_id == customer_id,
+            CustomerCredit.account_id == account_id,
+            CustomerCredit.status == "active"
+        ).order_by(CustomerCredit.created_at.asc()).all()
+        
+        if not active_credits:
+            raise ValueError(f"No active credits found for customer {customer_id}")
+        
+        # Check if there's enough used amount to reduce
+        total_used_amount = sum(credit.used_amount for credit in active_credits)
+        if total_used_amount < payment_amount:
+            raise ValueError(f"Insufficient used credit amount. Available: {total_used_amount}, Required: {payment_amount}")
+        
+        transactions = []
+        remaining_payment = payment_amount
+        
+        # Process credits in FIFO order (oldest first)
+        for credit in active_credits:
+            if remaining_payment <= 0:
+                break
+                
+            if credit.used_amount <= 0:
+                continue
+            
+            # Calculate how much to reduce from this credit
+            reduction_amount = min(remaining_payment, credit.used_amount)
+            
+            # Update credit record
+            credit.used_amount -= reduction_amount
+            credit.remaining_amount = credit.original_amount - credit.used_amount
+            
+            # Update status to "complete" if used amount is 0 (fully paid back)
+            if credit.used_amount <= 0:
+                credit.status = "complete"
+                credit.remaining_amount = 0  # When fully paid back, remaining should be 0
+            
+            # Create transaction record
+            transaction = CreditTransaction(
+                account_id=account_id,
+                credit_id=credit.id,
+                transaction_type="payment_received",
+                transaction_date=datetime.now(),
+                amount=reduction_amount,
+                running_balance=credit.remaining_amount,
+                description=f"Payment received against credit invoice - {reference_number or 'N/A'}",
+                reference_number=reference_number,
+                invoice_id=invoice_id,
+                performed_by=user_id
+            )
+            
+            db.add(transaction)
+            transactions.append(transaction)
+            
+            remaining_payment -= reduction_amount
+        
+        return transactions
+
 

@@ -109,21 +109,65 @@ async def create_payment(
                 raise HTTPException(status_code=400, detail=f"Credit purchase failed: {str(e)}")
         
         elif payment.payment_direction == "incoming" and payment.customer_id and payment.payment_method != "credit" and payment.payment_status != "credit":
-            # Customer made a regular payment - adjust credit balance
-            try:
-                credit_transactions = CreditService.adjust_credit_for_payment(
-                    db=db,
-                    customer_id=payment.customer_id,
-                    payment_amount=payment.amount,
-                    user_id=current_user.id,
-                    account_id=current_user.account_id,
-                    payment_id=db_payment.id,
-                    payment_reference=payment_number
-                )
-                print(f"Adjusted customer credit for payment: {len(credit_transactions)} transactions created")
-            except Exception as e:
-                # Log warning but don't fail payment creation
-                print(f"Warning: Credit adjustment failed for payment {payment_number}: {str(e)}")
+            # Check if this invoice has credit payments
+            if payment.invoice_id:
+                # Check if there are any credit payments for this invoice
+                credit_payments = db.query(Payment).filter(
+                    Payment.invoice_id == payment.invoice_id,
+                    Payment.account_id == current_user.account_id,
+                    Payment.payment_status == "credit"
+                ).all()
+                
+                if credit_payments:
+                    # This is a payment against a credit invoice - reduce used amount
+                    try:
+                        credit_transactions = CreditService.process_payment_against_credit_invoice(
+                            db=db,
+                            customer_id=payment.customer_id,
+                            payment_amount=payment.amount,
+                            user_id=current_user.id,
+                            account_id=current_user.account_id,
+                            invoice_id=payment.invoice_id,
+                            reference_number=payment.reference_number,
+                            notes=payment.notes
+                        )
+                        db.commit()
+                        print(f"Processed payment against credit invoice: {len(credit_transactions)} transactions created")
+                    except Exception as e:
+                        db.rollback()
+                        raise HTTPException(status_code=400, detail=f"Credit invoice payment failed: {str(e)}")
+                else:
+                    # Regular payment - adjust credit balance
+                    try:
+                        credit_transactions = CreditService.adjust_credit_for_payment(
+                            db=db,
+                            customer_id=payment.customer_id,
+                            payment_amount=payment.amount,
+                            user_id=current_user.id,
+                            account_id=current_user.account_id,
+                            payment_id=db_payment.id,
+                            payment_reference=payment_number
+                        )
+                        print(f"Adjusted customer credit for payment: {len(credit_transactions)} transactions created")
+                    except Exception as e:
+                        # Log warning but don't fail payment creation
+                        print(f"Warning: Credit adjustment failed for payment {payment_number}: {str(e)}")
+            else:
+                # Regular payment without invoice - adjust credit balance
+                try:
+                    credit_transactions = CreditService.adjust_credit_for_payment(
+                        db=db,
+                        customer_id=payment.customer_id,
+                        payment_amount=payment.amount,
+                        user_id=current_user.id,
+                        account_id=current_user.account_id,
+                        payment_id=db_payment.id,
+                        payment_reference=payment_number
+                    )
+                    print(f"Adjusted customer credit for payment: {len(credit_transactions)} transactions created")
+                except Exception as e:
+                    # Log warning but don't fail payment creation
+                    print(f"Warning: Credit adjustment failed for payment {payment_number}: {str(e)}")
         
         # Delete any pending payments for the same invoice
         if payment.invoice_id:

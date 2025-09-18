@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Badge } from "@/components/ui/badge"
-import { CalendarIcon, Plus, Search, Truck, Package, Eye, Download } from "lucide-react"
+import { CalendarIcon, Plus, Search, Truck, Package, Eye, Download, ChevronLeft, ChevronRight } from "lucide-react"
 import { shipmentApi, DeliveryNote as ApiDeliveryNote, DeliveryNoteCreate, Shipment } from "../../services/shipmentApi"
 import { customerApi, Customer } from "../../services/customerApi"
 import { invoiceApi, Invoice } from "../../services/invoiceApi"
@@ -47,6 +47,7 @@ const formatDate = (date: Date, format: string) => {
 export default function DeliveryNote() {
   const notifications = useNotifications()
   const [deliveryNotes, setDeliveryNotes] = useState<ApiDeliveryNote[]>([])
+  const [allDeliveryNotes, setAllDeliveryNotes] = useState<ApiDeliveryNote[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [shipments, setShipments] = useState<Shipment[]>([])
@@ -54,8 +55,16 @@ export default function DeliveryNote() {
   const [organization, setOrganization] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
+  const [customerFilter, setCustomerFilter] = useState("all")
+  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState("all")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<Date>()
+  
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalRecords, setTotalRecords] = useState(0)
+  const recordsPerPage = 10
   
   // Search states for dropdowns
   const [invoiceSearch, setInvoiceSearch] = useState("")
@@ -84,30 +93,61 @@ export default function DeliveryNote() {
     loadAllData()
   }, [])
 
-  // Reload delivery notes when search changes
+  // Reload delivery notes when search, customer filter, or page changes
   useEffect(() => {
     loadDeliveryNotes()
-  }, [searchTerm])
+  }, [searchTerm, customerFilter, currentPage])
+
+  // Apply delivery status filter when it changes (client-side only)
+  useEffect(() => {
+    if (allDeliveryNotes.length > 0) {
+      applyDeliveryStatusFilter(deliveryStatusFilter)
+    }
+  }, [deliveryStatusFilter, allDeliveryNotes])
 
 
 
   const loadDeliveryNotes = async () => {
     try {
       setLoading(true)
+      const skip = (currentPage - 1) * recordsPerPage
       const params: any = {
-        limit: 100,
-        skip: 0
+        limit: recordsPerPage,
+        skip: skip,
+        sort_by: 'id',
+        sort_order: 'desc'
       }
       
       if (searchTerm) {
         params.search = searchTerm
+      }
+      
+      if (customerFilter && customerFilter !== "all") {
+        params.customer_id = parseInt(customerFilter)
       }
 
       const response = await shipmentApi.getDeliveryNotes(params)
       console.log('Delivery notes response:', response)
       console.log('Delivery notes loaded:', response.delivery_notes)
       console.log('Delivery notes count:', response.delivery_notes?.length || 0)
-      setDeliveryNotes(response.delivery_notes || [])
+      
+      // Store all delivery notes for counting
+      const allNotes = response.delivery_notes || []
+      setAllDeliveryNotes(allNotes)
+      
+      let filteredNotes = allNotes
+      
+      // Apply delivery status filter client-side
+      if (deliveryStatusFilter && deliveryStatusFilter !== "all") {
+        filteredNotes = filteredNotes.filter(note => note.delivery_status === deliveryStatusFilter)
+      }
+      
+      setDeliveryNotes(filteredNotes)
+      
+      // Calculate pagination info
+      const total = filteredNotes.length
+      setTotalRecords(total)
+      setTotalPages(Math.ceil(total / recordsPerPage))
     } catch (error: any) {
       console.error('Error loading delivery notes:', error)
       console.error('Error details:', {
@@ -182,6 +222,104 @@ export default function DeliveryNote() {
     }
     return 'Unknown Customer'
   }
+
+  // Calculate delivery status counts
+  const getDeliveryStatusCounts = () => {
+    const counts = {
+      all: allDeliveryNotes.length,
+      pending: 0,
+      'in-transit': 0,
+      delivered: 0,
+      failed: 0,
+      refused: 0
+    }
+    
+    allDeliveryNotes.forEach(note => {
+      const status = note.delivery_status.toLowerCase().replace(' ', '-')
+      switch (status) {
+        case 'pending':
+          counts.pending++
+          break
+        case 'in-transit':
+          counts['in-transit']++
+          break
+        case 'delivered':
+          counts.delivered++
+          break
+        case 'failed':
+          counts.failed++
+          break
+        case 'refused':
+          counts.refused++
+          break
+      }
+    })
+    
+    return counts
+  }
+
+  // Get tile styling based on status and active state
+  const getTileClassName = (status: string) => {
+    const isActive = deliveryStatusFilter === status
+    const baseClasses = "bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200"
+    const activeClasses = "ring-2 ring-violet-500 shadow-2xl scale-105"
+    
+    return `${baseClasses} ${isActive ? activeClasses : ''}`
+  }
+
+  // Get status-specific styling
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <Package className="w-4 h-4 text-yellow-600" />
+      case 'in-transit':
+        return <Truck className="w-4 h-4 text-blue-600" />
+      case 'delivered':
+        return <Package className="w-4 h-4 text-green-600" />
+      case 'failed':
+        return <Package className="w-4 h-4 text-red-600" />
+      case 'refused':
+        return <Package className="w-4 h-4 text-gray-600" />
+      default:
+        return <Package className="w-4 h-4 text-gray-600" />
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'text-yellow-600'
+      case 'in-transit':
+        return 'text-blue-600'
+      case 'delivered':
+        return 'text-green-600'
+      case 'failed':
+        return 'text-red-600'
+      case 'refused':
+        return 'text-gray-600'
+      default:
+        return 'text-gray-600'
+    }
+  }
+
+  const getStatusGradient = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'from-yellow-500/10 to-yellow-600/20'
+      case 'in-transit':
+        return 'from-blue-500/10 to-blue-600/20'
+      case 'delivered':
+        return 'from-green-500/10 to-green-600/20'
+      case 'failed':
+        return 'from-red-500/10 to-red-600/20'
+      case 'refused':
+        return 'from-gray-500/10 to-gray-600/20'
+      default:
+        return 'from-gray-500/10 to-gray-600/20'
+    }
+  }
+
+  const statusCounts = getDeliveryStatusCounts()
 
   const getInvoiceNumber = (invoiceId: number): string => {
     const invoice = invoices.find(i => i.id === invoiceId)
@@ -330,6 +468,54 @@ export default function DeliveryNote() {
     setShowInvoiceDropdown(false)
     setShowCustomerDropdown(false)
     setIsDialogOpen(false)
+  }
+
+  // Pagination handlers
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1)
+    }
+  }
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1)
+    }
+  }
+
+  // Reset to first page when search changes
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
+
+  // Reset to first page when customer filter changes
+  const handleCustomerFilterChange = (value: string) => {
+    setCustomerFilter(value)
+    setCurrentPage(1)
+  }
+
+  // Handle delivery status tile click
+  const handleDeliveryStatusTileClick = (status: string) => {
+    setDeliveryStatusFilter(status)
+    setCurrentPage(1)
+    
+    // Apply the filter immediately to the current data
+    applyDeliveryStatusFilter(status)
+  }
+
+  // Apply delivery status filter to current data
+  const applyDeliveryStatusFilter = (status: string) => {
+    if (status === "all") {
+      setDeliveryNotes(allDeliveryNotes)
+    } else {
+      const filtered = allDeliveryNotes.filter(note => note.delivery_status === status)
+      setDeliveryNotes(filtered)
+    }
   }
 
   const handleCreateDeliveryNote = async () => {
@@ -1226,17 +1412,139 @@ export default function DeliveryNote() {
         </div>
       </div>
 
-      {/* Search */}
+      {/* Delivery Status Tiles */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+        <Card 
+          className={getTileClassName("all")}
+          onClick={() => handleDeliveryStatusTileClick("all")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br from-violet-500/10 to-violet-600/20`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">All Status</CardTitle>
+            <div className="p-2 rounded-lg bg-violet-500/20">
+              <Package className="w-4 h-4 text-violet-600" />
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold text-violet-600">{statusCounts.all}</div>
+            <p className="text-xs text-gray-600 mt-1">Total delivery notes</p>
+          </CardContent>
+        </Card>
+
+        <Card 
+          className={getTileClassName("Pending")}
+          onClick={() => handleDeliveryStatusTileClick("Pending")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('pending')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Pending</CardTitle>
+            <div className="p-2 rounded-lg bg-yellow-500/20">
+              {getStatusIcon('pending')}
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getStatusColor('pending')}`}>{statusCounts.pending}</div>
+            <p className="text-xs text-gray-600 mt-1">Awaiting processing</p>
+          </CardContent>
+        </Card>
+
+        <Card 
+          className={getTileClassName("In Transit")}
+          onClick={() => handleDeliveryStatusTileClick("In Transit")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('in-transit')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">In Transit</CardTitle>
+            <div className="p-2 rounded-lg bg-blue-500/20">
+              {getStatusIcon('in-transit')}
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getStatusColor('in-transit')}`}>{statusCounts['in-transit']}</div>
+            <p className="text-xs text-gray-600 mt-1">On the way</p>
+          </CardContent>
+        </Card>
+
+        <Card 
+          className={getTileClassName("Delivered")}
+          onClick={() => handleDeliveryStatusTileClick("Delivered")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('delivered')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Delivered</CardTitle>
+            <div className="p-2 rounded-lg bg-green-500/20">
+              {getStatusIcon('delivered')}
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getStatusColor('delivered')}`}>{statusCounts.delivered}</div>
+            <p className="text-xs text-gray-600 mt-1">Successfully delivered</p>
+          </CardContent>
+        </Card>
+
+        <Card 
+          className={getTileClassName("Failed")}
+          onClick={() => handleDeliveryStatusTileClick("Failed")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('failed')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Failed</CardTitle>
+            <div className="p-2 rounded-lg bg-red-500/20">
+              {getStatusIcon('failed')}
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getStatusColor('failed')}`}>{statusCounts.failed}</div>
+            <p className="text-xs text-gray-600 mt-1">Delivery failed</p>
+          </CardContent>
+        </Card>
+
+        <Card 
+          className={getTileClassName("Refused")}
+          onClick={() => handleDeliveryStatusTileClick("Refused")}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br ${getStatusGradient('refused')}`}></div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-semibold text-gray-700">Refused</CardTitle>
+            <div className="p-2 rounded-lg bg-gray-500/20">
+              {getStatusIcon('refused')}
+            </div>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <div className={`text-2xl font-bold ${getStatusColor('refused')}`}>{statusCounts.refused}</div>
+            <p className="text-xs text-gray-600 mt-1">Delivery refused</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Search and Filters */}
       <Card className="bg-white/60 backdrop-blur-xl border-white/30 shadow-2xl hover:shadow-3xl transition-all duration-300">
         <CardContent className="p-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <Input
-              placeholder="Search delivery notes..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 bg-white/70 border-white/30 focus:bg-white focus:border-violet-300"
-            />
+          <div className="flex flex-wrap gap-4">
+            <div className="flex-1 min-w-64">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Input
+                  placeholder="Search delivery notes..."
+                  value={searchTerm}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="pl-10 bg-white/70 border-white/30 focus:bg-white focus:border-violet-300"
+                />
+              </div>
+            </div>
+            <Select value={customerFilter} onValueChange={handleCustomerFilterChange}>
+              <SelectTrigger className="w-48 bg-white/70 border-white/30 focus:bg-white focus:border-violet-300">
+                <SelectValue placeholder="Filter by customer" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Customers</SelectItem>
+                {customers.map((customer) => (
+                  <SelectItem key={customer.id} value={customer.id.toString()}>
+                    {customer.company_name || `${customer.first_name} ${customer.last_name}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -1244,9 +1552,14 @@ export default function DeliveryNote() {
       {/* Delivery Notes Table */}
       <Card className="bg-white/60 backdrop-blur-xl border-white/30 shadow-2xl hover:shadow-3xl transition-all duration-300">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Truck className="w-5 h-5" />
-            Delivery Notes ({deliveryNotes.length})
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Truck className="w-5 h-5" />
+              Delivery Notes ({totalRecords} total)
+            </div>
+            <div className="text-sm text-gray-600">
+              Page {currentPage} of {totalPages}
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -1365,6 +1678,69 @@ export default function DeliveryNote() {
             </TableBody>
           </Table>
         </CardContent>
+        
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-white/20">
+            <div className="text-sm text-gray-600">
+              Showing {((currentPage - 1) * recordsPerPage) + 1} to {Math.min(currentPage * recordsPerPage, totalRecords)} of {totalRecords} results
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePreviousPage}
+                disabled={currentPage === 1}
+                className="bg-white/50 border-white/30 hover:bg-white/70"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </Button>
+              
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  
+                  return (
+                    <Button
+                      key={pageNum}
+                      variant={currentPage === pageNum ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handlePageChange(pageNum)}
+                      className={
+                        currentPage === pageNum
+                          ? "bg-violet-600 hover:bg-violet-700 text-white"
+                          : "bg-white/50 border-white/30 hover:bg-white/70"
+                      }
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+              </div>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNextPage}
+                disabled={currentPage === totalPages}
+                className="bg-white/50 border-white/30 hover:bg-white/70"
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
       
       {/* Notification Container */}

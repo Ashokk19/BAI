@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon, Plus, Search, Receipt, Eye, Download, Edit, Trash2, ChevronDown, ChevronRight } from "lucide-react"
+import { CalendarIcon, Plus, Search, Receipt, Eye, Download, Edit, Trash2, ChevronDown, ChevronRight, ChevronLeft } from "lucide-react"
 import { paymentApi, Payment as ApiPayment, PaymentCreate } from "../../services/paymentApi"
 import { customerApi, Customer } from "../../services/customerApi"
 import { invoiceApi, Invoice } from "../../services/invoiceApi"
@@ -54,6 +54,12 @@ export default function PaymentLog() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<Date>()
   
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalRecords, setTotalRecords] = useState(0)
+  const recordsPerPage = 10
+  
   // Invoice search states
   const [invoiceSearch, setInvoiceSearch] = useState("")
   const [showInvoiceDropdown, setShowInvoiceDropdown] = useState(false)
@@ -84,22 +90,38 @@ export default function PaymentLog() {
 
 
 
-  // Reload when search changes
+  // Reload when search or page changes
   useEffect(() => {
     loadPayments()
-  }, [searchTerm])
+  }, [searchTerm, currentPage])
 
   const loadPayments = async () => {
     try {
       setLoading(true)
+      // Load all payments to group them properly
       const params: any = {
-        limit: 1000, // Increased limit to show more payments
+        limit: 1000, // Load all payments to group them
         skip: 0
       }
       
       // Note: Backend doesn't support search parameter, so we filter on frontend
       const response = await paymentApi.getPayments(params)
       setPayments(response.payments)
+      
+      // Group payments by invoice ID to count main rows
+      const groupedPayments = response.payments.reduce((groups: {[key: string]: typeof response.payments}, payment) => {
+        const invoiceId = payment.invoice_id ? payment.invoice_id.toString() : 'no-invoice'
+        if (!groups[invoiceId]) {
+          groups[invoiceId] = []
+        }
+        groups[invoiceId].push(payment)
+        return groups
+      }, {})
+      
+      // Count unique invoice groups (main rows)
+      const totalGroups = Object.keys(groupedPayments).length
+      setTotalRecords(totalGroups)
+      setTotalPages(Math.ceil(totalGroups / recordsPerPage))
     } catch (error) {
       console.error('Error loading payments:', error)
       notifications.error('Loading Failed', 'Unable to load payments. Please check your connection.')
@@ -202,20 +224,35 @@ export default function PaymentLog() {
     const invoiceAmount = getInvoiceAmount(invoiceId)
     const invoicePayments = payments.filter(payment => payment.invoice_id === invoiceId)
     
-    // Calculate only amounts from completed or partial payments
-    const paidAmount = invoicePayments
-      .filter(payment => payment.payment_status !== 'pending')
-      .reduce((sum, payment) => {
-        const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
-        return sum + amount
-      }, 0)
+    // Use the same logic as getTotalAmountPaidForInvoice
+    let totalPaid = 0
+    let hasCreditPayments = false
+    
+    invoicePayments.forEach(payment => {
+      const paymentAmount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
+      
+      // Check if this is a credit payment
+      if (payment.payment_status === 'credit' || payment.payment_method === 'credit') {
+        hasCreditPayments = true
+        // For credit payments, DON'T add to totalPaid - it's a loan, not actual payment
+      } else if (payment.payment_status !== 'pending') {
+        // Only add to totalPaid if it's NOT a credit payment and NOT pending
+        totalPaid += paymentAmount
+      }
+    })
     
     // Check if there are any pending payments
     const hasPendingPayments = invoicePayments.some(payment => payment.payment_status === 'pending')
     
-    if (paidAmount >= invoiceAmount) {
+    // If there are credit payments, show as "Credit" regardless of paid amount
+    if (hasCreditPayments) {
+      return 'Credit'
+    }
+    
+    // For non-credit payments, check if fully paid
+    if (totalPaid >= invoiceAmount) {
       return 'Completed'
-    } else if (paidAmount > 0) {
+    } else if (totalPaid > 0) {
       return 'Partial'
     } else if (hasPendingPayments) {
       return 'Pending'
@@ -304,11 +341,14 @@ export default function PaymentLog() {
     
     invoicePayments.forEach(payment => {
       const paymentAmount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
-      totalPaid += paymentAmount
       
       // Check if this is a credit payment
       if (payment.payment_status === 'credit' || payment.payment_method === 'credit') {
         hasCreditPayments = true
+        // For credit payments, DON'T add to totalPaid - it's a loan, not actual payment
+      } else {
+        // Only add to totalPaid if it's NOT a credit payment
+        totalPaid += paymentAmount
       }
     })
     
@@ -325,11 +365,13 @@ export default function PaymentLog() {
       // For existing payments in the table, calculate cumulative amount paid
       const { totalPaid, hasCreditPayments } = getTotalAmountPaidForInvoice(invoiceId)
       
+      // If there are credit payments, show as "Credit" regardless of paid amount
+      if (hasCreditPayments) {
+        return "Credit"
+      }
+      
+      // For non-credit payments, check if fully paid
       if (totalPaid >= invoice) {
-        // If the invoice is fully covered but has credit payments, show as "Credit"
-        if (hasCreditPayments) {
-          return "Credit"
-        }
         return "Completed"
       } else if (totalPaid > 0) {
         return "Partial"
@@ -498,18 +540,40 @@ export default function PaymentLog() {
     return groups
   }, {})
 
-  // Sort groups by invoice number (no-invoice group at the end)
+  // Sort groups by invoice ID in descending order (latest first, no-invoice group at the end)
   const sortedGroupKeys = Object.keys(groupedPayments).sort((a, b) => {
     if (a === 'no-invoice') return 1
     if (b === 'no-invoice') return -1
     
-    // Get invoice numbers for comparison
-    const invoiceA = getInvoiceNumber(parseInt(a))
-    const invoiceB = getInvoiceNumber(parseInt(b))
+    // Sort by invoice ID in descending order (latest first)
+    const invoiceIdA = parseInt(a)
+    const invoiceIdB = parseInt(b)
     
-    // Sort by invoice number ascending
-    return invoiceA.localeCompare(invoiceB)
+    return invoiceIdB - invoiceIdA
   })
+
+  // Pagination handlers
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1)
+    }
+  }
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1)
+    }
+  }
+
+  // Reset to first page when search changes
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
 
   const totalPayments = payments.length
   const totalAmount = payments.reduce((sum, payment) => {
@@ -999,7 +1063,7 @@ export default function PaymentLog() {
                 placeholder="Search payments by number, customer, or reference..."
                 className="pl-10 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 placeholder:text-gray-600 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
               />
             </div>
             <div className="relative">
@@ -1039,9 +1103,14 @@ export default function PaymentLog() {
       <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-white/20"></div>
         <CardHeader className="relative z-10">
-          <CardTitle className="flex items-center gap-2 text-gray-900">
-            <Receipt className="w-5 h-5" />
-            Payment Records ({filteredPayments.length})
+          <CardTitle className="flex items-center justify-between text-gray-900">
+            <div className="flex items-center gap-2">
+              <Receipt className="w-5 h-5" />
+              Payment Records ({totalRecords} total)
+            </div>
+            <div className="text-sm text-gray-600">
+              Page {currentPage} of {totalPages}
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent className="relative z-10">
@@ -1059,7 +1128,7 @@ export default function PaymentLog() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedGroupKeys.map((invoiceId) => {
+              {sortedGroupKeys.slice((currentPage - 1) * recordsPerPage, currentPage * recordsPerPage).map((invoiceId) => {
                 const groupPayments = groupedPayments[invoiceId]
                 const isNoInvoiceGroup = invoiceId === 'no-invoice'
                 const invoiceNumber = isNoInvoiceGroup ? 'No Invoice' : getInvoiceNumber(parseInt(invoiceId))
@@ -1071,7 +1140,18 @@ export default function PaymentLog() {
                 const invoiceIdNum = isNoInvoiceGroup ? 0 : parseInt(invoiceId)
                 const customerName = isNoInvoiceGroup ? 'N/A' : getCustomerName(groupPayments[0].customer_id)
                 const invoiceAmount = isNoInvoiceGroup ? 0 : getInvoiceAmount(invoiceIdNum)
-                const paidAmount = totalGroupAmount
+                
+                // Calculate paid amount excluding credit payments (same logic as getTotalAmountPaidForInvoice)
+                let paidAmount = 0
+                groupPayments.forEach(payment => {
+                  const paymentAmount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
+                  
+                  // Only add to paidAmount if it's NOT a credit payment
+                  if (payment.payment_status !== 'credit' && payment.payment_method !== 'credit') {
+                    paidAmount += paymentAmount
+                  }
+                })
+                
                 const balanceAmount = invoiceAmount - paidAmount
                 const paymentStatus = isNoInvoiceGroup ? 'N/A' : getPaymentStatus(invoiceIdNum)
                 const isExpanded = expandedGroups.has(invoiceId)
@@ -1183,7 +1263,7 @@ export default function PaymentLog() {
                   </React.Fragment>
                 )
               })}
-              {filteredPayments.length === 0 && (
+              {payments.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center py-8">
                     <div className="text-gray-500">No payments found</div>
@@ -1193,6 +1273,69 @@ export default function PaymentLog() {
             </TableBody>
           </Table>
         </CardContent>
+        
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-white/20">
+            <div className="text-sm text-gray-600">
+              Showing {((currentPage - 1) * recordsPerPage) + 1} to {Math.min(currentPage * recordsPerPage, totalRecords)} of {totalRecords} results
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePreviousPage}
+                disabled={currentPage === 1}
+                className="bg-white/50 border-white/30 hover:bg-white/70"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </Button>
+              
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  
+                  return (
+                    <Button
+                      key={pageNum}
+                      variant={currentPage === pageNum ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handlePageChange(pageNum)}
+                      className={
+                        currentPage === pageNum
+                          ? "bg-violet-600 hover:bg-violet-700 text-white"
+                          : "bg-white/50 border-white/30 hover:bg-white/70"
+                      }
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+              </div>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNextPage}
+                disabled={currentPage === totalPages}
+                className="bg-white/50 border-white/30 hover:bg-white/70"
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
       
       {/* Notification Container */}

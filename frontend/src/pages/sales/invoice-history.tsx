@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon, Search, FileText, Eye, Download, Send, TrendingUp, DollarSign, Clock, CheckCircle, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { CalendarIcon, Search, FileText, Eye, Download, Send, TrendingUp, DollarSign, Clock, CheckCircle, Plus, RefreshCw, Trash2, ChevronLeft, ChevronRight, Truck } from "lucide-react"
 import { toast } from "sonner"
 import { invoiceApi, Invoice, InvoiceFilters } from "../../services/invoiceApi"
 import { customerApi, Customer } from "../../services/customerApi"
@@ -141,8 +141,14 @@ export default function InvoiceHistory() {
   const [isLoadingPaymentStatuses, setIsLoadingPaymentStatuses] = useState(false)
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
+  const [customerFilter, setCustomerFilter] = useState("all")
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({})
+  
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalRecords, setTotalRecords] = useState(0)
+  const recordsPerPage = 10
 
   // Load invoices and customers on component mount
   useEffect(() => {
@@ -150,10 +156,10 @@ export default function InvoiceHistory() {
     loadCustomers()
   }, [])
 
-  // Reload invoices when filters change
+  // Reload invoices when filters or page change
   useEffect(() => {
     loadInvoices()
-  }, [searchTerm, statusFilter, dateRange])
+  }, [searchTerm, customerFilter, dateRange, currentPage])
 
   // Load payment statuses when invoices change (but only once)
   useEffect(() => {
@@ -166,17 +172,20 @@ export default function InvoiceHistory() {
   const loadInvoices = async () => {
     try {
       setLoading(true)
+      const skip = (currentPage - 1) * recordsPerPage
       const filters: InvoiceFilters = {
-        limit: 100,
-        skip: 0
+        limit: recordsPerPage,
+        skip: skip,
+        sort_by: 'id',
+        sort_order: 'desc'
       }
       
       if (searchTerm) {
         filters.search = searchTerm
       }
       
-      if (statusFilter !== "all") {
-        filters.status = statusFilter
+      if (customerFilter !== "all") {
+        filters.customer_id = parseInt(customerFilter)
       }
       
       if (dateRange.from) {
@@ -188,7 +197,12 @@ export default function InvoiceHistory() {
       }
 
       const response = await invoiceApi.getInvoices(filters)
-      setInvoices(response.invoices)
+      setInvoices(response.invoices || [])
+      
+      // Calculate pagination info
+      const total = response.total || response.invoices?.length || 0
+      setTotalRecords(total)
+      setTotalPages(Math.ceil(total / recordsPerPage))
       
       // Load delivery notes for all invoices
       if (response.invoices.length > 0) {
@@ -479,23 +493,24 @@ export default function InvoiceHistory() {
             
             payments.payments.forEach(payment => {
               const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
-              totalPaid += amount
               
               // Check if this is a credit payment
               if (payment.payment_status === 'credit' || payment.payment_method === 'credit') {
                 hasCreditPayments = true
+                // For credit payments, DON'T add to totalPaid - it's a loan, not actual payment
+              } else {
+                // Only add to totalPaid if it's NOT a credit payment
+                totalPaid += amount
               }
             })
             
             const invoiceAmount = typeof invoice.total_amount === 'string' ? parseFloat(invoice.total_amount) : invoice.total_amount
             
-            if (totalPaid >= invoiceAmount) {
-              // If the invoice is fully covered but has credit payments, show as "Credit"
-              if (hasCreditPayments) {
-                statuses[invoice.id] = 'Credit'
-              } else {
-                statuses[invoice.id] = 'Completed'
-              }
+            // If there are credit payments, show as "Credit" regardless of paid amount
+            if (hasCreditPayments) {
+              statuses[invoice.id] = 'Credit'
+            } else if (totalPaid >= invoiceAmount) {
+              statuses[invoice.id] = 'Completed'
             } else if (totalPaid > 0) {
               statuses[invoice.id] = 'Partial'
             } else {
@@ -1352,6 +1367,39 @@ export default function InvoiceHistory() {
     }
   }
 
+  // Pagination handlers
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1)
+    }
+  }
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1)
+    }
+  }
+
+  // Reset to first page when filters change
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
+
+  const handleCustomerFilterChange = (value: string) => {
+    setCustomerFilter(value)
+    setCurrentPage(1)
+  }
+
+  const handleDateRangeChange = (range: { from?: Date; to?: Date }) => {
+    setDateRange(range)
+    setCurrentPage(1)
+  }
+
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case "paid":
@@ -1391,89 +1439,76 @@ export default function InvoiceHistory() {
             </h1>
             <p className="text-gray-600 text-lg">Track and manage all your invoices efficiently</p>
           </div>
-          <div className="flex gap-3">
-            <Button 
-              variant="outline" 
-              onClick={handleCreateDeliveryNotesForInvoices}
-              className="bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 hover:bg-white/90"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Create Delivery Notes for Invoices
-            </Button>
-          </div>
         </div>
 
         {/* Enhanced Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Card className="bg-white/60 backdrop-blur-xl border-white/30 shadow-2xl hover:shadow-3xl transition-all duration-300 hover:scale-105">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600 mb-1">Total Invoices</p>
-                  <p className="text-3xl font-bold text-gray-900">{invoices.length}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {overdueInvoices > 0 && `${overdueInvoices} overdue`}
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-violet-100 rounded-2xl flex items-center justify-center">
-                  <FileText className="w-6 h-6 text-violet-600" />
-                </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200">
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-500/10 to-violet-600/20"></div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+              <CardTitle className="text-sm font-semibold text-gray-700">Total Invoices</CardTitle>
+              <div className="p-2 rounded-lg bg-violet-500/20">
+                <FileText className="w-4 h-4 text-violet-600" />
               </div>
+            </CardHeader>
+            <CardContent className="relative z-10">
+              <div className="text-2xl font-bold text-violet-600">{invoices.length}</div>
+              <p className="text-xs text-gray-600 mt-1">
+                {overdueInvoices > 0 ? `${overdueInvoices} overdue` : 'All invoices'}
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-white/60 backdrop-blur-xl border-white/30 shadow-2xl hover:shadow-3xl transition-all duration-300 hover:scale-105">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600 mb-1">Total Amount</p>
-                  <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalAmount)}</p>
-                  <p className="text-xs text-green-600 mt-1 flex items-center">
-                    <TrendingUp className="w-3 h-3 mr-1" />
-                    All time revenue
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center">
-                  <DollarSign className="w-6 h-6 text-blue-600" />
-                </div>
+          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200">
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-blue-600/20"></div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+              <CardTitle className="text-sm font-semibold text-gray-700">Total Amount</CardTitle>
+              <div className="p-2 rounded-lg bg-blue-500/20">
+                <DollarSign className="w-4 h-4 text-blue-600" />
               </div>
+            </CardHeader>
+            <CardContent className="relative z-10">
+              <div className="text-2xl font-bold text-blue-600">{formatCurrency(totalAmount)}</div>
+              <p className="text-xs text-gray-600 mt-1 flex items-center">
+                <TrendingUp className="w-3 h-3 mr-1" />
+                All time revenue
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-white/60 backdrop-blur-xl border-white/30 shadow-2xl hover:shadow-3xl transition-all duration-300 hover:scale-105">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600 mb-1">Paid Amount</p>
-                  <p className="text-2xl font-bold text-green-600">{formatCurrency(paidAmount)}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {totalAmount > 0 ? `${((paidAmount / totalAmount) * 100).toFixed(1)}% collected` : '0% collected'}
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-green-100 rounded-2xl flex items-center justify-center">
-                  <CheckCircle className="w-6 h-6 text-green-600" />
-                </div>
+          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200">
+            <div className="absolute inset-0 bg-gradient-to-br from-green-500/10 to-green-600/20"></div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+              <CardTitle className="text-sm font-semibold text-gray-700">Paid Amount</CardTitle>
+              <div className="p-2 rounded-lg bg-green-500/20">
+                <CheckCircle className="w-4 h-4 text-green-600" />
               </div>
+            </CardHeader>
+            <CardContent className="relative z-10">
+              <div className="text-2xl font-bold text-green-600">{formatCurrency(paidAmount)}</div>
+              <p className="text-xs text-gray-600 mt-1">
+                {totalAmount > 0 ? `${((paidAmount / totalAmount) * 100).toFixed(1)}% collected` : '0% collected'}
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-white/60 backdrop-blur-xl border-white/30 shadow-2xl hover:shadow-3xl transition-all duration-300 hover:scale-105">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600 mb-1">Pending Amount</p>
-                  <p className="text-2xl font-bold text-orange-600">{formatCurrency(pendingAmount)}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {invoices.filter(i => !i.is_paid).length} invoices pending
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-orange-100 rounded-2xl flex items-center justify-center">
-                  <Clock className="w-6 h-6 text-orange-600" />
-                </div>
+          <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden group cursor-pointer hover:scale-105 transition-all duration-200">
+            <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-orange-600/20"></div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+              <CardTitle className="text-sm font-semibold text-gray-700">Pending Amount</CardTitle>
+              <div className="p-2 rounded-lg bg-orange-500/20">
+                <Clock className="w-4 h-4 text-orange-600" />
               </div>
+            </CardHeader>
+            <CardContent className="relative z-10">
+              <div className="text-2xl font-bold text-orange-600">{formatCurrency(pendingAmount)}</div>
+              <p className="text-xs text-gray-600 mt-1">
+                {invoices.filter(i => !i.is_paid).length} invoices pending
+              </p>
             </CardContent>
           </Card>
         </div>
+
 
         {/* Enhanced Filters */}
         <Card className="bg-white/60 backdrop-blur-xl border-white/30 shadow-xl">
@@ -1485,21 +1520,22 @@ export default function InvoiceHistory() {
                   <Input
                     placeholder="Search by invoice number, customer..."
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => handleSearchChange(e.target.value)}
                     className="pl-10 bg-white/70 border-white/30 focus:bg-white focus:border-violet-300"
                   />
                 </div>
               </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <Select value={customerFilter} onValueChange={handleCustomerFilterChange}>
                 <SelectTrigger className="w-48 bg-white/70 border-white/30 focus:bg-white focus:border-violet-300">
-                  <SelectValue placeholder="Filter by status" />
+                  <SelectValue placeholder="Filter by customer" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="draft">Draft</SelectItem>
-                  <SelectItem value="sent">Sent</SelectItem>
-                  <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="overdue">Overdue</SelectItem>
+                  <SelectItem value="all">All Customers</SelectItem>
+                  {customers.map((customer) => (
+                    <SelectItem key={customer.id} value={customer.id.toString()}>
+                      {customer.company_name || `${customer.first_name} ${customer.last_name}`}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <Popover>
@@ -1514,35 +1550,6 @@ export default function InvoiceHistory() {
                 </PopoverContent>
               </Popover>
               
-              <Button 
-                variant="outline" 
-                onClick={handleRefreshDeliveryStatuses}
-                className="bg-white/70 border-white/30 hover:bg-white hover:border-violet-300"
-                title="Refresh delivery statuses"
-              >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Refresh Delivery Status
-              </Button>
-              
-              <Button 
-                variant="outline" 
-                onClick={handleRefreshPaymentStatuses}
-                className="bg-white/70 border-white/30 hover:bg-white hover:border-violet-300"
-                title="Refresh payment statuses"
-              >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Refresh Payment Status
-              </Button>
-              
-              <Button 
-                variant="outline" 
-                onClick={handleCreateDeliveryNotesForInvoices}
-                className="bg-white/70 border-white/30 hover:bg-white hover:border-violet-300"
-                title="Create delivery notes for existing invoices"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Create Delivery Notes
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -1550,11 +1557,16 @@ export default function InvoiceHistory() {
         {/* Enhanced Invoice Table */}
         <Card className="bg-white/60 backdrop-blur-xl border-white/30 shadow-xl">
           <CardHeader className="border-b border-white/20 bg-gray-50/30">
-            <CardTitle className="flex items-center gap-3 text-xl">
-              <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
-                <FileText className="w-5 h-5 text-violet-600" />
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-3 text-xl">
+                <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-violet-600" />
+                </div>
+                Invoices ({totalRecords} total)
               </div>
-              Invoices ({invoices.length})
+              <div className="text-sm text-gray-600">
+                Page {currentPage} of {totalPages}
+              </div>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -1567,7 +1579,6 @@ export default function InvoiceHistory() {
                     <TableHead className="font-semibold text-gray-700">Invoice Date</TableHead>
                     <TableHead className="font-semibold text-gray-700">Due Date</TableHead>
                     <TableHead className="font-semibold text-gray-700">Amount</TableHead>
-                    <TableHead className="font-semibold text-gray-700">Invoice Status</TableHead>
                     <TableHead className="font-semibold text-gray-700">Delivery Status</TableHead>
                     <TableHead className="font-semibold text-gray-700">Payment Status</TableHead>
                     <TableHead className="font-semibold text-gray-700 text-center">Actions</TableHead>
@@ -1576,7 +1587,7 @@ export default function InvoiceHistory() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-12">
+                      <TableCell colSpan={6} className="text-center py-12">
                         <div className="flex items-center justify-center">
                           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
                           <span className="ml-3 text-gray-600">Loading invoices...</span>
@@ -1585,7 +1596,7 @@ export default function InvoiceHistory() {
                     </TableRow>
                   ) : invoices.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-12">
+                      <TableCell colSpan={6} className="text-center py-12">
                         <div className="text-gray-500">
                           <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
                           <p className="text-lg font-medium">No invoices found</p>
@@ -1616,11 +1627,6 @@ export default function InvoiceHistory() {
                         </TableCell>
                         <TableCell>
                           <div className="font-semibold text-gray-900">{formatCurrency(invoice.total_amount)}</div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={`${getStatusColor(invoice.status)} font-medium`}>
-                            {invoice.status}
-                          </Badge>
                         </TableCell>
                         <TableCell>
                           <Badge className={`${getDeliveryStatusColor(getDeliveryStatus(invoice.id))} font-medium`}>
@@ -1663,6 +1669,69 @@ export default function InvoiceHistory() {
               </Table>
             </div>
           </CardContent>
+          
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-6 py-4 border-t border-white/20">
+              <div className="text-sm text-gray-600">
+                Showing {((currentPage - 1) * recordsPerPage) + 1} to {Math.min(currentPage * recordsPerPage, totalRecords)} of {totalRecords} results
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePreviousPage}
+                  disabled={currentPage === 1}
+                  className="bg-white/50 border-white/30 hover:bg-white/70"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Previous
+                </Button>
+                
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => handlePageChange(pageNum)}
+                        className={
+                          currentPage === pageNum
+                            ? "bg-violet-600 hover:bg-violet-700 text-white"
+                            : "bg-white/50 border-white/30 hover:bg-white/70"
+                        }
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleNextPage}
+                  disabled={currentPage === totalPages}
+                  className="bg-white/50 border-white/30 hover:bg-white/70"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
         </div>
       </div>

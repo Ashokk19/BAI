@@ -71,6 +71,8 @@ async def get_customer_credits(
     status: Optional[str] = Query(None, description="Filter by status"),
     customer_id: Optional[int] = Query(None, description="Filter by customer"),
     credit_type: Optional[str] = Query(None, description="Filter by credit type"),
+    sort_by: Optional[str] = Query("id", description="Sort by field"),
+    sort_order: Optional[str] = Query("desc", description="Sort order (asc/desc)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -105,6 +107,26 @@ async def get_customer_credits(
     
     # Get total count
     total = query.count()
+    
+    # Apply sorting
+    if sort_by == "id":
+        if sort_order == "desc":
+            query = query.order_by(CustomerCredit.id.desc())
+        else:
+            query = query.order_by(CustomerCredit.id.asc())
+    elif sort_by == "created_at":
+        if sort_order == "desc":
+            query = query.order_by(CustomerCredit.created_at.desc())
+        else:
+            query = query.order_by(CustomerCredit.created_at.asc())
+    elif sort_by == "credit_date":
+        if sort_order == "desc":
+            query = query.order_by(CustomerCredit.credit_date.desc())
+        else:
+            query = query.order_by(CustomerCredit.credit_date.asc())
+    else:
+        # Default to id desc
+        query = query.order_by(CustomerCredit.id.desc())
     
     # Apply pagination
     credits = query.offset(skip).limit(limit).all()

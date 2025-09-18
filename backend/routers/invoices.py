@@ -127,6 +127,8 @@ async def get_invoices(
     search: Optional[str] = Query(None, description="Search term"),
     status: Optional[str] = Query(None, description="Filter by status"),
     customer_id: Optional[int] = Query(None, description="Filter by customer"),
+    sort_by: Optional[str] = Query("id", description="Sort by field"),
+    sort_order: Optional[str] = Query("desc", description="Sort order (asc/desc)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -156,6 +158,26 @@ async def get_invoices(
     
     # Get total count
     total = query.count()
+    
+    # Apply sorting
+    if sort_by == "id":
+        if sort_order == "desc":
+            query = query.order_by(Invoice.id.desc())
+        else:
+            query = query.order_by(Invoice.id.asc())
+    elif sort_by == "created_at":
+        if sort_order == "desc":
+            query = query.order_by(Invoice.created_at.desc())
+        else:
+            query = query.order_by(Invoice.created_at.asc())
+    elif sort_by == "invoice_date":
+        if sort_order == "desc":
+            query = query.order_by(Invoice.invoice_date.desc())
+        else:
+            query = query.order_by(Invoice.invoice_date.asc())
+    else:
+        # Default to id desc
+        query = query.order_by(Invoice.id.desc())
     
     # Apply pagination
     invoices = query.offset(skip).limit(limit).all()

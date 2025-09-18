@@ -79,6 +79,8 @@ async def get_delivery_notes(
     search: Optional[str] = Query(None, description="Search term"),
     status: Optional[str] = Query(None, description="Filter by status"),
     customer_id: Optional[int] = Query(None, description="Filter by customer"),
+    sort_by: Optional[str] = Query("id", description="Sort by field"),
+    sort_order: Optional[str] = Query("desc", description="Sort order (asc/desc)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -109,6 +111,26 @@ async def get_delivery_notes(
     
     # Get total count
     total = query.count()
+    
+    # Apply sorting
+    if sort_by == "id":
+        if sort_order == "desc":
+            query = query.order_by(DeliveryNote.id.desc())
+        else:
+            query = query.order_by(DeliveryNote.id.asc())
+    elif sort_by == "created_at":
+        if sort_order == "desc":
+            query = query.order_by(DeliveryNote.created_at.desc())
+        else:
+            query = query.order_by(DeliveryNote.created_at.asc())
+    elif sort_by == "delivery_date":
+        if sort_order == "desc":
+            query = query.order_by(DeliveryNote.delivery_date.desc())
+        else:
+            query = query.order_by(DeliveryNote.delivery_date.asc())
+    else:
+        # Default to id desc
+        query = query.order_by(DeliveryNote.id.desc())
     
     # Apply pagination
     delivery_notes = query.offset(skip).limit(limit).all()
@@ -316,6 +338,8 @@ async def get_shipments(
     status: Optional[str] = Query(None, description="Filter by status"),
     customer_id: Optional[int] = Query(None, description="Filter by customer"),
     carrier: Optional[str] = Query(None, description="Filter by carrier"),
+    sort_by: Optional[str] = Query("id", description="Sort by field"),
+    sort_order: Optional[str] = Query("desc", description="Sort order (asc/desc)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -351,6 +375,26 @@ async def get_shipments(
     
     # Get total count
     total = query.count()
+    
+    # Apply sorting
+    if sort_by == "id":
+        if sort_order == "desc":
+            query = query.order_by(Shipment.id.desc())
+        else:
+            query = query.order_by(Shipment.id.asc())
+    elif sort_by == "created_at":
+        if sort_order == "desc":
+            query = query.order_by(Shipment.created_at.desc())
+        else:
+            query = query.order_by(Shipment.created_at.asc())
+    elif sort_by == "shipment_date":
+        if sort_order == "desc":
+            query = query.order_by(Shipment.shipment_date.desc())
+        else:
+            query = query.order_by(Shipment.shipment_date.asc())
+    else:
+        # Default to id desc
+        query = query.order_by(Shipment.id.desc())
     
     # Apply pagination
     shipments = query.offset(skip).limit(limit).all()
