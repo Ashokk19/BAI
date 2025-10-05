@@ -17,20 +17,18 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     HOST: str = "localhost"
     PORT: int = 8001
-    
     # Database Configuration
     DATABASE_TYPE: str = "sqlite"  # postgresql, mysql, sqlite
     DATABASE_HOST: str = "localhost"
     DATABASE_PORT: int = 5432
     DATABASE_NAME: str = "bai_db"
     DATABASE_USER: str = "postgres"
-    DATABASE_PASSWORD: str = "password"
+    DATABASE_PASSWORD: str = "postgres"
     DATABASE_URL: Optional[str] = None  # If provided, overrides other DB settings
     
     # For cloud deployment, you can set DATABASE_URL directly:
     # DATABASE_URL = "postgresql://user:password@cloud-host:5432/database"
     
-    # JWT Configuration
     SECRET_KEY: str = "your-secret-key-here-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30

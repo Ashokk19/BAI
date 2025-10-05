@@ -15,28 +15,11 @@ router = APIRouter()
 # Pydantic models for requests/responses (keeping these for API validation)
 from pydantic import BaseModel
 
-@router.get("/")
-async def get_inventory_summary(
-    current_user: dict = Depends(get_current_user)
-):
-    """Get inventory summary with key metrics using PostgreSQL."""
-    
-    # Get inventory summary using PostgreSQL service
-    summary = PostgresInventoryService.get_inventory_summary(current_user["account_id"])
-    
-    return {
-        "total_items": summary.get("total_items", 0),
-        "low_stock_items": summary.get("low_stock_items", 0),
-        "total_stock_value": summary.get("total_stock_value", 0.0),
-        "active_categories": summary.get("active_categories", 0),
-        "total_value_formatted": f"${summary.get('total_stock_value', 0.0):,.2f}"
-    }
-
 class ItemCreate(BaseModel):
     name: str
     sku: str
-    category_id: Optional[int] = None  # Made optional to match database
-    unit_price: Optional[float] = None  # Made optional
+    category_id: int
+    unit_price: float
     cost_price: Optional[float] = None
     selling_price: float
     current_stock: float = 0.0
@@ -49,9 +32,9 @@ class ItemCreate(BaseModel):
     shelf_life_days: Optional[int] = None
     expiry_date: Optional[datetime] = None
     is_active: bool = True
-    is_serialized: bool = False  # Frontend compatibility field
+    is_serialized: bool = False
     tax_rate: float = 0.0
-    tax_type: str = "inclusive"  # Frontend compatibility field
+    tax_type: str = "inclusive"
     description: Optional[str] = None
     barcode: Optional[str] = None
 

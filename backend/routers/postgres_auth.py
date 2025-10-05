@@ -21,21 +21,10 @@ class UserLogin(BaseModel):
 
 class UserCreate(BaseModel):
     username: str
-    email: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    full_name: Optional[str] = None
-    password: Optional[str] = "defaultpassword123"  # Temporary default
+    email: str
+    full_name: str
+    password: str
     account_id: str
-    
-    def model_post_init(self, __context) -> None:
-        # Combine first_name and last_name into full_name if not provided
-        if not self.full_name and (self.first_name or self.last_name):
-            self.full_name = f"{self.first_name or ''} {self.last_name or ''}".strip()
-        
-        # Use username as email if email not provided
-        if not self.email:
-            self.email = self.username
 
 class Token(BaseModel):
     access_token: str
@@ -80,9 +69,6 @@ async def login(user_credentials: UserLogin):
 @router.post("/register", response_model=UserResponse)
 async def register(user_data: UserCreate):
     """Register a new user."""
-    
-    # Debug: Print received data
-    print(f"🔍 Registration data received: {user_data.model_dump()}")
     
     # Check if user already exists
     existing_user = PostgresUserService.get_user_by_username(user_data.username)

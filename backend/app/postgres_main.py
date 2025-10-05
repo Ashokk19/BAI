@@ -1,7 +1,7 @@
 """
-BAI Backend Main Application
+BAI Backend Main Application - PostgreSQL Version (No SQLAlchemy)
 
-This module contains the main FastAPI application instance and configuration.
+This module contains the main FastAPI application instance using direct PostgreSQL.
 """
 
 from fastapi import FastAPI, Request
@@ -11,11 +11,12 @@ from fastapi import HTTPException
 import uvicorn
 import traceback
 
-from routers import auth, inventory, sales, purchases, dashboard, customers  # , organization, user_management
+# Import PostgreSQL routers instead of SQLAlchemy ones
+from routers import postgres_auth, postgres_inventory, sales, purchases, dashboard, customers, organization, user_management
 from database.postgres_db import postgres_db
 from config.settings import settings
 
-# Initialize PostgreSQL connection
+# Initialize PostgreSQL connection (no SQLAlchemy)
 print("🐘 Initializing PostgreSQL connection...")
 
 # Create FastAPI app instance
@@ -38,16 +39,29 @@ app.add_middleware(
     max_age=3600,
 )
 
-# Include routers (PostgreSQL versions)
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
+# Include PostgreSQL routers
+app.include_router(postgres_auth.router, prefix="/api/auth", tags=["Authentication (PostgreSQL)"])
+app.include_router(postgres_inventory.router, prefix="/api/inventory", tags=["Inventory (PostgreSQL)"])
+
+# Keep existing routers for other modules (will migrate these later)
 app.include_router(customers.router, prefix="/api/customers", tags=["Customers"])
 app.include_router(sales.router, prefix="/api/sales", tags=["Sales"])
 app.include_router(purchases.router, prefix="/api/purchases", tags=["Purchases"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
-# TODO: Migrate these routers to PostgreSQL
-# app.include_router(organization.router, prefix="/api/organization", tags=["Organization"])
-# app.include_router(user_management.router, prefix="/api/user-management", tags=["User Management"])
+app.include_router(organization.router, prefix="/api/organization", tags=["Organization"])
+app.include_router(user_management.router, prefix="/api/user-management", tags=["User Management"])
+
+@app.on_event("startup")
+async def startup_event():
+    """Application startup event."""
+    print("🚀 BAI PostgreSQL API starting up...")
+    print(f"📊 Database: {settings.DATABASE_NAME}")
+    print(f"🌐 Host: {settings.DATABASE_HOST}:{settings.DATABASE_PORT}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Application shutdown event."""
+    print("🛑 BAI PostgreSQL API shutting down...")
 
 @app.options("/{path:path}")
 async def options_handler(path: str):
@@ -58,16 +72,28 @@ async def options_handler(path: str):
 async def root():
     """Root endpoint that returns API information."""
     return {
-        "message": "BAI - Billing and Inventory Management API",
-        "version": "1.0.0",
+        "message": "BAI - Billing and Inventory Management API (PostgreSQL)",
+        "version": "2.0.0",
+        "database": "PostgreSQL (Direct Connection)",
         "docs": "/docs",
         "redoc": "/redoc"
     }
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy"}
+    """Health check endpoint with database connectivity test."""
+    try:
+        # Test database connection
+        result = postgres_db.execute_single("SELECT 1 as test")
+        db_status = "connected" if result else "disconnected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    
+    return {
+        "status": "healthy",
+        "database": db_status,
+        "version": "2.0.0"
+    }
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
@@ -108,8 +134,8 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 if __name__ == "__main__":
     uvicorn.run(
-        "app.main:app",
+        "app.postgres_main:app",
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG
-    ) 
+    )
