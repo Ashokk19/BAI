@@ -105,6 +105,102 @@ class PostgresInventoryService:
         except Exception as e:
             print(f"Error getting items list: {e}")
             return []
+
+    @staticmethod
+    def get_inventory_logs(account_id: str, limit: int = 50, offset: int = 0, item_id: Optional[int] = None, transaction_type: Optional[str] = None) -> List[Dict]:
+        """Fetch inventory logs with optional filters and join item info."""
+        base = """
+        SELECT il.id, il.item_id, il.item_account_id, il.action, il.notes, il.recorded_by, il.created_at,
+               i.name AS item_name, i.item_code AS item_sku
+        FROM inventory_logs il
+        LEFT JOIN items i ON i.id = il.item_id AND i.account_id = il.item_account_id
+        WHERE il.item_account_id = %s
+        """
+        params: list = [account_id]
+        if item_id is not None:
+            base += " AND il.item_id = %s"
+            params.append(item_id)
+        if transaction_type:
+            base += " AND il.action = %s"
+            params.append(transaction_type)
+        base += " ORDER BY il.created_at DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        try:
+            rows = postgres_db.execute_query(base, tuple(params))
+            # Normalize field names to match frontend expectations
+            logs: List[Dict[str, Any]] = []
+            for r in rows:
+                logs.append({
+                    "id": r.get("id"),
+                    "item_id": r.get("item_id"),
+                    "item_name": r.get("item_name"),
+                    "item_sku": r.get("item_sku"),
+                    "action": r.get("action"),
+                    "user_id": r.get("recorded_by"),
+                    "quantity_before": None,
+                    "quantity_after": None,
+                    "notes": r.get("notes"),
+                    "created_at": r.get("created_at"),
+                })
+            return logs
+        except Exception as e:
+            print(f"Error getting inventory logs: {e}")
+            return []
+
+    @staticmethod
+    def get_expiry_tracking(account_id: str) -> List[Dict]:
+        """Return items with expiry information where available."""
+        query = """
+        SELECT id, name, item_code AS sku, category_id, current_stock, has_expiry, shelf_life_days, created_at, expiry_date
+        FROM items
+        WHERE account_id = %s AND COALESCE(has_expiry, FALSE) = TRUE
+        ORDER BY created_at DESC
+        """
+        try:
+            items = postgres_db.execute_query(query, (account_id,))
+            results: List[Dict[str, Any]] = []
+            now = datetime.now()
+            for it in items:
+                expiry_date = it.get("expiry_date")
+                shelf = it.get("shelf_life_days")
+                computed_expiry = None
+                if expiry_date:
+                    try:
+                        # psycopg returns datetime, leave as-is
+                        computed_expiry = expiry_date
+                    except Exception:
+                        computed_expiry = None
+                elif shelf:
+                    try:
+                        computed_expiry = it.get("created_at") + timedelta(days=int(shelf))
+                    except Exception:
+                        computed_expiry = None
+                days_until = None
+                status = "unknown"
+                if computed_expiry:
+                    try:
+                        delta = computed_expiry - now
+                        days_until = delta.days
+                        status = "expired" if days_until < 0 else ("expiring_soon" if days_until <= 30 else "ok")
+                    except Exception:
+                        pass
+                results.append({
+                    "id": it.get("id"),
+                    "name": it.get("name"),
+                    "sku": it.get("sku"),
+                    "category_id": it.get("category_id"),
+                    "current_stock": float(it.get("current_stock")) if it.get("current_stock") is not None else 0,
+                    "has_expiry": True,
+                    "shelf_life_days": it.get("shelf_life_days"),
+                    "created_at": it.get("created_at"),
+                    "days_until_expiry": days_until if days_until is not None else 0,
+                    "expiry_date": computed_expiry.isoformat() if computed_expiry else None,
+                    "status": status,
+                })
+            return results
+        except Exception as e:
+            print(f"Error getting expiry tracking: {e}")
+            return []
     
     @staticmethod
     def update_item(item_id: int, item_data: Dict, account_id: str) -> Optional[Dict]:
@@ -178,6 +274,7 @@ class PostgresInventoryService:
         
         try:
             result = postgres_db.execute_single(query, (sku, account_id))
+            return result is not None
         except Exception as e:
             print(f"Error checking item existence: {e}")
             return False
@@ -261,3 +358,110 @@ class PostgresInventoryService:
         except Exception as e:
             print(f"Error logging inventory action: {e}")
             return False
+
+    @staticmethod
+    def get_categories(account_id: str) -> List[Dict]:
+        """Return distinct categories derived from items table.
+
+        Since the schema uses a simple category text on items, we synthesize a category list.
+        """
+        query = """
+        SELECT 
+            COALESCE(MIN(category_id), 0) AS id,
+            category AS name,
+            MAX(created_at) AS created_at
+        FROM items
+        WHERE account_id = %s AND category IS NOT NULL
+        GROUP BY category
+        ORDER BY name
+        """
+        try:
+            rows = postgres_db.execute_query(query, (account_id,))
+            # Normalize shape expected by frontend
+            categories = []
+            for r in rows:
+                categories.append({
+                    "id": r.get("id", 0) or 0,
+                    "name": r.get("name", "General") or "General",
+                    "description": "",
+                    "is_active": True,
+                    "created_at": r.get("created_at"),
+                })
+            # Ensure at least a default category exists
+            if not categories:
+                categories = [{
+                    "id": 1,
+                    "name": "General",
+                    "description": "",
+                    "is_active": True,
+                    "created_at": datetime.now().isoformat(),
+                }]
+            return categories
+        except Exception as e:
+            print(f"Error getting categories: {e}")
+            return [{
+                "id": 1,
+                "name": "General",
+                "description": "",
+                "is_active": True,
+                "created_at": datetime.now().isoformat(),
+            }]
+
+    @staticmethod
+    def get_categories_with_stats(account_id: str) -> List[Dict]:
+        """Return synthesized categories with aggregated stats from items."""
+        query = """
+        SELECT 
+            COALESCE(MIN(category_id), 0) AS id,
+            category AS name,
+            COUNT(*) AS total_items,
+            SUM(CASE WHEN COALESCE(is_active, TRUE) THEN 1 ELSE 0 END) AS active_items,
+            COALESCE(SUM(COALESCE(current_stock,0) * COALESCE(cost_price,0)), 0) AS total_stock_value,
+            COALESCE(SUM(COALESCE(current_stock,0)), 0) AS total_current_stock,
+            SUM(CASE WHEN COALESCE(current_stock,0) <= COALESCE(minimum_stock,0) THEN 1 ELSE 0 END) AS low_stock_items,
+            SUM(CASE WHEN COALESCE(current_stock,0) = 0 THEN 1 ELSE 0 END) AS out_of_stock_items,
+            SUM(CASE WHEN COALESCE(has_expiry, FALSE) THEN 1 ELSE 0 END) AS expiry_items,
+            MAX(created_at) AS created_at
+        FROM items
+        WHERE account_id = %s AND category IS NOT NULL
+        GROUP BY category
+        ORDER BY name
+        """
+        try:
+            rows = postgres_db.execute_query(query, (account_id,))
+            result = []
+            for r in rows:
+                result.append({
+                    "id": r.get("id", 0) or 0,
+                    "name": r.get("name", "General") or "General",
+                    "description": "",
+                    "is_active": True,
+                    "created_at": r.get("created_at"),
+                    "total_items": int(r.get("total_items", 0) or 0),
+                    "active_items": int(r.get("active_items", 0) or 0),
+                    "total_stock_value": float(r.get("total_stock_value", 0) or 0),
+                    "total_current_stock": float(r.get("total_current_stock", 0) or 0),
+                    "low_stock_items": int(r.get("low_stock_items", 0) or 0),
+                    "out_of_stock_items": int(r.get("out_of_stock_items", 0) or 0),
+                    "expiry_items": int(r.get("expiry_items", 0) or 0),
+                })
+            if not result:
+                # Provide a sensible default bucket
+                result = [{
+                    "id": 1,
+                    "name": "General",
+                    "description": "",
+                    "is_active": True,
+                    "created_at": datetime.now().isoformat(),
+                    "total_items": 0,
+                    "active_items": 0,
+                    "total_stock_value": 0.0,
+                    "total_current_stock": 0.0,
+                    "low_stock_items": 0,
+                    "out_of_stock_items": 0,
+                    "expiry_items": 0,
+                }]
+            return result
+        except Exception as e:
+            print(f"Error getting categories with stats: {e}")
+            return []

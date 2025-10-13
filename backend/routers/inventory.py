@@ -32,6 +32,44 @@ async def get_inventory_summary(
         "total_value_formatted": f"${summary.get('total_stock_value', 0.0):,.2f}"
     }
 
+@router.get("/categories")
+async def get_categories(
+    current_user: dict = Depends(get_current_user)
+):
+    """Return synthesized item categories derived from items table."""
+    return PostgresInventoryService.get_categories(current_user["account_id"])
+
+@router.get("/categories/with-stats")
+async def get_categories_with_stats(
+    current_user: dict = Depends(get_current_user)
+):
+    """Return categories with aggregated statistics."""
+    return PostgresInventoryService.get_categories_with_stats(current_user["account_id"])
+
+@router.get("/logs")
+async def get_inventory_logs(
+    current_user: dict = Depends(get_current_user),
+    limit: int = 50,
+    offset: int = 0,
+    item_id: Optional[int] = None,
+    transaction_type: Optional[str] = None,
+):
+    """Return inventory logs with optional filters."""
+    return PostgresInventoryService.get_inventory_logs(
+        account_id=current_user["account_id"],
+        limit=limit,
+        offset=offset,
+        item_id=item_id,
+        transaction_type=transaction_type,
+    )
+
+@router.get("/expiry-tracking")
+async def get_expiry_tracking(
+    current_user: dict = Depends(get_current_user)
+):
+    """Return items with expiry date or shelf life info."""
+    return PostgresInventoryService.get_expiry_tracking(current_user["account_id"])
+
 class ItemCreate(BaseModel):
     name: str
     sku: str

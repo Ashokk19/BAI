@@ -4,11 +4,12 @@ export interface User {
   username: string;
   first_name: string;
   last_name: string;
+  account_id: string;
   phone?: string;
   address?: string;
   is_active: boolean;
   is_admin: boolean;
-  is_verified: boolean;
+  is_verified?: boolean;
   created_at: string;
   last_login?: string;
 }
@@ -16,6 +17,7 @@ export interface User {
 export interface LoginRequest {
   identifier: string;  // Can be either email or username
   password: string;
+  account_id: string;
 }
 
 export interface RegisterRequest {

@@ -137,7 +137,6 @@ export interface ExpiryItem {
   shelf_life_days?: number;
   created_at: string;
   days_until_expiry: number;
-  expiry_date: string;
   status: string;
 }
 
@@ -156,7 +155,11 @@ class InventoryApiService {
     if (params?.category_id) queryParams.append('category_id', params.category_id.toString());
     
     const url = `/api/inventory/items${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    return apiService.get<Item[]>(url);
+    const resp = await apiService.get<any>(url);
+    // Backend may return either an array or an object { items, total }
+    if (Array.isArray(resp)) return resp as Item[];
+    if (resp && Array.isArray(resp.items)) return resp.items as Item[];
+    return [];
   }
 
   async getItem(id: number): Promise<Item> {

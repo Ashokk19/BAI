@@ -83,12 +83,16 @@ export default function ItemList() {
   const fetchItems = async () => {
     try {
       setIsLoading(true)
-      const [itemsData, categoriesData] = await Promise.all([
+      const [itemsDataRaw, categoriesData] = await Promise.all([
         inventoryApi.getItems(),
         inventoryApi.getCategories()
       ])
       
-      setItems(itemsData)
+      const itemsData = Array.isArray(itemsDataRaw)
+        ? itemsDataRaw
+        : ((itemsDataRaw as any)?.items ?? [])
+      
+      setItems(itemsData as Item[])
       setCategories(categoriesData)
       setError(null)
     } catch (err) {

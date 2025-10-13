@@ -106,14 +106,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         localStorage.removeItem('remember_me');
         localStorage.removeItem('user_identifier');
       }
-
       // Set axios default authorization header
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
 
       setUser(userData);
     } catch (error: any) {
       console.error('Login error:', error);
-      throw new Error(error.response?.data?.detail || 'Login failed');
+      const detail = error?.response?.data?.detail;
+      let message = 'Login failed';
+      if (typeof detail === 'string') {
+        message = detail;
+      } else if (Array.isArray(detail)) {
+        // Pydantic 422 validation errors array
+        message = detail.map((d: any) => d?.msg || JSON.stringify(d)).join('; ');
+      } else if (detail && typeof detail === 'object') {
+        message = detail.message || JSON.stringify(detail);
+      } else if (error?.message) {
+        message = error.message;
+      }
+      throw new Error(message);
     }
   };
 

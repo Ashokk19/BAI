@@ -36,21 +36,40 @@ class CustomerResponse(BaseModel):
     created_at: str
     updated_at: Optional[str] = None
 
-@router.get("/", response_model=List[CustomerResponse])
+@router.get("/")
 async def get_customers(
     current_user: dict = Depends(get_current_user),
+    skip: int = 0,
     limit: int = 50,
-    offset: int = 0
+    search: Optional[str] = None,
+    status: Optional[str] = None,
+    state: Optional[str] = None,
 ):
-    """Get list of customers using PostgreSQL."""
+    """Get paginated customers list in the shape expected by frontend."""
     
     customers = PostgresCustomerService.get_customers_list(
         account_id=current_user["account_id"],
         limit=limit,
-        offset=offset
+        offset=skip,
+        search=search,
+        status=status,
+        state=state,
     )
-    
-    return customers
+    total = PostgresCustomerService.count_customers(
+        account_id=current_user["account_id"],
+        search=search,
+        status=status,
+        state=state,
+    )
+    total_pages = (total + limit - 1) // limit if limit else 1
+    page = (skip // limit) + 1 if limit else 1
+    return {
+        "customers": customers,
+        "total": total,
+        "page": page,
+        "per_page": limit,
+        "total_pages": total_pages,
+    }
 
 @router.get("/{customer_id}", response_model=CustomerResponse)
 async def get_customer(
@@ -138,3 +157,29 @@ async def delete_customer(
         )
     
     return {"message": f"Customer '{existing_customer['name']}' deleted successfully"}
+
+@router.get("/summary")
+async def get_customer_summary(
+    current_user: dict = Depends(get_current_user)
+):
+    """Return summary counts for customers."""
+    return PostgresCustomerService.get_customer_summary(current_user["account_id"])
+
+@router.get("/{customer_id}/credit-info")
+async def get_customer_credit_info(
+    customer_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """Return placeholder credit info for customer to unblock UI."""
+    return PostgresCustomerService.get_customer_credit_info(customer_id, current_user["account_id"])
+
+@router.patch("/{customer_id}/toggle-status", response_model=CustomerResponse)
+async def toggle_customer_status(
+    customer_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """Toggle customer's active status and return updated customer."""
+    updated = PostgresCustomerService.toggle_customer_status(customer_id, current_user["account_id"])
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+    return updated

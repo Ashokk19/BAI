@@ -21,16 +21,16 @@ def test_auth_flow():
         "email": "test@example.com",
         "full_name": "Test User",
         "password": "testpassword123",
-        "account_id": "test_account_001"
+        "account_id": "TestAccount"
     }
     
     try:
         response = requests.post(f"{BASE_URL}/api/auth/register", json=register_data)
         print(f"   Status: {response.status_code}")
-        if response.status_code == 201:
+        if response.status_code in (200, 201):
             print("   ✅ User registered successfully!")
             user_data = response.json()
-            print(f"   User ID: {user_data.get('user', {}).get('id')}")
+            print(f"   User ID: {user_data.get('id')}")
         elif response.status_code == 400:
             print(f"   ⚠️  User might already exist: {response.json()}")
         else:
@@ -41,8 +41,9 @@ def test_auth_flow():
     # Test 2: Login with credentials
     print("\n2. Testing User Login...")
     login_data = {
-        "username": "testuser",
-        "password": "testpassword123"
+        "identifier": "testuser",
+        "password": "testpassword123",
+        "account_id": "TestAccount",
     }
     
     access_token = None

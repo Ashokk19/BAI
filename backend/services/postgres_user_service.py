@@ -45,6 +45,23 @@ class PostgresUserService:
             return None
     
     @staticmethod
+    def get_user_by_username_and_account(username: str, account_id: str) -> Optional[Dict]:
+        """Get user by username and account_id using direct PostgreSQL."""
+        
+        query = """
+        SELECT id, account_id, username, email, full_name, 
+               hashed_password, is_active, is_admin, created_at, updated_at
+        FROM users 
+        WHERE username = %s AND account_id = %s
+        """
+        
+        try:
+            return postgres_db.execute_single(query, (username, account_id))
+        except Exception as e:
+            print(f"Error getting user by username and account: {e}")
+            return None
+    
+    @staticmethod
     def get_user_by_email(email: str) -> Optional[Dict]:
         """Get user by email using direct PostgreSQL."""
         
@@ -117,10 +134,22 @@ class PostgresUserService:
             return False
     
     @staticmethod
-    def authenticate_user(username: str, password: str) -> Optional[Dict]:
-        """Authenticate user with username and password."""
+    def authenticate_user(identifier: str, password: str, account_id: str) -> Optional[Dict]:
+        """Authenticate user with identifier (username/email), password, and account_id."""
         
-        user = PostgresUserService.get_user_by_username(username)
+        query = """
+        SELECT id, account_id, username, email, full_name,
+               hashed_password, is_active, is_admin, created_at, updated_at
+        FROM users
+        WHERE account_id = %s AND (username = %s OR email = %s)
+        LIMIT 1
+        """
+        try:
+            user = postgres_db.execute_single(query, (account_id, identifier, identifier))
+        except Exception as e:
+            print(f"Error authenticating user: {e}")
+            user = None
+        
         if not user:
             return None
         

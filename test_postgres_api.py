@@ -74,8 +74,9 @@ def test_postgres_api():
     # Test 4: User Login
     print("\n4. Testing User Login...")
     login_data = {
-        "username": "testuser_pg",
-        "password": "testpassword123"
+        "identifier": "testuser_pg",
+        "password": "testpassword123",
+        "account_id": "TestAccount",
     }
     
     access_token = None
@@ -88,8 +89,8 @@ def test_postgres_api():
         print(f"   Status: {response.status_code}")
         if response.status_code == 200:
             token_data = response.json()
-            access_token = token_data['access_token']
-            print(f"   ✅ Login successful: {token_data['token_type']} token received")
+            access_token = token_data.get('access_token')
+            print(f"   ✅ Login successful: {token_data.get('token_type','bearer')} token received")
         else:
             print(f"   ❌ Login failed: {response.text}")
     except Exception as e:

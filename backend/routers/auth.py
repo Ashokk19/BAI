@@ -16,8 +16,9 @@ router = APIRouter()
 security = HTTPBearer()
 
 class UserLogin(BaseModel):
-    username: str
+    identifier: str  # username or email
     password: str
+    account_id: str
 
 class UserCreate(BaseModel):
     username: str
@@ -50,13 +51,14 @@ class UserResponse(BaseModel):
     is_active: bool
     is_admin: bool
 
-@router.post("/login", response_model=Token)
+@router.post("/login")
 async def login(user_credentials: UserLogin):
     """Authenticate user and return JWT token."""
     
     user = PostgresUserService.authenticate_user(
-        username=user_credentials.username,
-        password=user_credentials.password
+        identifier=user_credentials.identifier,
+        password=user_credentials.password,
+        account_id=user_credentials.account_id,
     )
     
     if not user:
@@ -68,13 +70,31 @@ async def login(user_credentials: UserLogin):
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user["username"]}, 
+        data={"sub": user["username"], "acc": user["account_id"]}, 
         expires_delta=access_token_expires
     )
     
+    # Build sanitized user object and include in response
+    full_name = user.get("full_name") or ""
+    first_name = full_name.split(" ")[0] if full_name else ""
+    last_name = " ".join(full_name.split(" ")[1:]) if full_name and len(full_name.split(" ")) > 1 else ""
+    user_response = {
+        "id": user["id"],
+        "account_id": user["account_id"],
+        "username": user["username"],
+        "email": user.get("email", ""),
+        "full_name": full_name,
+        "first_name": first_name,
+        "last_name": last_name,
+        "is_active": user.get("is_active", True),
+        "is_admin": user.get("is_admin", False),
+        "created_at": user.get("created_at"),
+        "updated_at": user.get("updated_at"),
+    }
     return {
-        "access_token": access_token, 
-        "token_type": "bearer"
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user_response,
     }
 
 @router.post("/register", response_model=UserResponse)

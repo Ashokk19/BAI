@@ -16,8 +16,9 @@ router = APIRouter()
 security = HTTPBearer()
 
 class UserLogin(BaseModel):
-    username: str
+    identifier: str  # username or email
     password: str
+    account_id: str
 
 class UserCreate(BaseModel):
     username: str
@@ -36,16 +37,20 @@ class UserResponse(BaseModel):
     username: str
     email: str
     full_name: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     is_active: bool
     is_admin: bool
+    created_at: Optional[str] = None
 
-@router.post("/login", response_model=Token)
+@router.post("/login")
 async def login(user_credentials: UserLogin):
     """Authenticate user and return JWT token."""
     
     user = PostgresUserService.authenticate_user(
-        username=user_credentials.username,
-        password=user_credentials.password
+        identifier=user_credentials.identifier,
+        password=user_credentials.password,
+        account_id=user_credentials.account_id,
     )
     
     if not user:
@@ -57,13 +62,31 @@ async def login(user_credentials: UserLogin):
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user["username"]}, 
+        data={"sub": user["username"], "acc": user["account_id"]}, 
         expires_delta=access_token_expires
     )
     
+    # Build sanitized user object for frontend compatibility
+    full_name = user.get("full_name") or ""
+    first_name = full_name.split(" ")[0] if full_name else ""
+    last_name = " ".join(full_name.split(" ")[1:]) if full_name and len(full_name.split(" ")) > 1 else ""
+    user_response = {
+        "id": user["id"],
+        "account_id": user["account_id"],
+        "username": user["username"],
+        "email": user.get("email", ""),
+        "full_name": full_name,
+        "first_name": first_name,
+        "last_name": last_name,
+        "is_active": user.get("is_active", True),
+        "is_admin": user.get("is_admin", False),
+        "created_at": user.get("created_at"),
+        "updated_at": user.get("updated_at"),
+    }
     return {
-        "access_token": access_token, 
-        "token_type": "bearer"
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user_response,
     }
 
 @router.post("/register", response_model=UserResponse)
@@ -100,7 +123,22 @@ async def register(user_data: UserCreate):
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current user information."""
-    return current_user
+    full_name = current_user.get("full_name") or ""
+    first_name = full_name.split(" ")[0] if full_name else ""
+    last_name = " ".join(full_name.split(" ")[1:]) if full_name and len(full_name.split(" ")) > 1 else ""
+    return {
+        "id": current_user["id"],
+        "account_id": current_user["account_id"],
+        "username": current_user["username"],
+        "email": current_user.get("email", ""),
+        "full_name": full_name,
+        "first_name": first_name,
+        "last_name": last_name,
+        "is_active": current_user.get("is_active", True),
+        "is_admin": current_user.get("is_admin", False),
+        "created_at": current_user.get("created_at"),
+        "updated_at": current_user.get("updated_at"),
+    }
 
 @router.get("/users/{user_id}", response_model=UserResponse)
 async def get_user(
@@ -122,5 +160,19 @@ async def get_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
-    return user
+    full_name = user.get("full_name") or ""
+    first_name = full_name.split(" ")[0] if full_name else ""
+    last_name = " ".join(full_name.split(" ")[1:]) if full_name and len(full_name.split(" ")) > 1 else ""
+    return {
+        "id": user["id"],
+        "account_id": user["account_id"],
+        "username": user["username"],
+        "email": user.get("email", ""),
+        "full_name": full_name,
+        "first_name": first_name,
+        "last_name": last_name,
+        "is_active": user.get("is_active", True),
+        "is_admin": user.get("is_admin", False),
+        "created_at": user.get("created_at"),
+        "updated_at": user.get("updated_at"),
+    }

@@ -26,13 +26,17 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 def verify_token(token: str) -> Optional[dict]:
-    """Verify JWT token and return payload."""
+    """Verify JWT token and return payload with username and account_id (if present)."""
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         username: str = payload.get("sub")
+        account_id: Optional[str] = payload.get("acc")
         if username is None:
             return None
-        return {"username": username}
+        data = {"username": username}
+        if account_id:
+            data["account_id"] = account_id
+        return data
     except JWTError:
         return None
 
@@ -49,7 +53,14 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     if token_data is None:
         raise credentials_exception
     
-    user = PostgresUserService.get_user_by_username(token_data["username"])
+    # Prefer username + account_id lookup when available to enforce tenant scoping
+    if token_data.get("account_id"):
+        user = PostgresUserService.get_user_by_username_and_account(
+            token_data["username"], token_data["account_id"]
+        )
+    else:
+        user = PostgresUserService.get_user_by_username(token_data["username"])
+    
     if user is None:
         raise credentials_exception
     
