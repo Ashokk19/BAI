@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { DatePopover } from "@/components/ui/date-popover"
 import { CalendarIcon, Plus, Search, CreditCard, DollarSign, TrendingUp, Users, AlertCircle, Eye, Download, ChevronLeft, ChevronRight } from "lucide-react"
 import { creditApi, CustomerCredit, CustomerCreditCreate } from "../../services/creditApi"
 import { customerApi, Customer } from "../../services/customerApi"
@@ -21,6 +22,13 @@ import { useNotifications, NotificationContainer } from "../../components/ui/not
 const formatDate = (date: Date, format: string) => {
   if (format === "yyyy-MM-dd") {
     return date.toISOString().split('T')[0]
+  }
+  
+  if (format === "dd/mm/yyyy") {
+    const day = String(date.getDate()).padStart(2, '0')
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const year = date.getFullYear()
+    return `${day}/${month}/${year}`
   }
   
   if (format === "PPP") {
@@ -311,31 +319,21 @@ export default function CreditTracking() {
               </div>
               <div>
                 <Label>Credit Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start bg-white/50 border-white/20">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {selectedDate ? formatDate(selectedDate, "PPP") : "Pick a date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} initialFocus />
-                  </PopoverContent>
-                </Popover>
+                <input
+                  type="date"
+                  value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+                  onChange={(e) => setSelectedDate(e.target.value ? new Date(e.target.value) : undefined)}
+                  className="w-full p-2 border border-white/20 rounded-md bg-white/50"
+                />
               </div>
               <div>
                 <Label>Expiry Date (Optional)</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start bg-white/50 border-white/20">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {expiryDate ? formatDate(expiryDate, "PPP") : "Pick expiry date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={expiryDate} onSelect={setExpiryDate} initialFocus />
-                  </PopoverContent>
-                </Popover>
+                <input
+                  type="date"
+                  value={expiryDate ? expiryDate.toISOString().split('T')[0] : ''}
+                  onChange={(e) => setExpiryDate(e.target.value ? new Date(e.target.value) : undefined)}
+                  className="w-full p-2 border border-white/20 rounded-md bg-white/50"
+                />
               </div>
               <div>
                 <Label htmlFor="type">Credit Type</Label>

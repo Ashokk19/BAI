@@ -44,7 +44,7 @@ export default function InventoryLog() {
     const matchesSearch =
       entry.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       entry.item_sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      entry.user_name.toLowerCase().includes(searchTerm.toLowerCase())
+      (entry.user_name || "").toLowerCase().includes(searchTerm.toLowerCase())
 
     const matchesAction = actionFilter === "all" || entry.action === actionFilter
 
@@ -331,10 +331,10 @@ export default function InventoryLog() {
                         <div className="flex items-center space-x-3">
                           <Avatar className="w-8 h-8">
                             <AvatarFallback>
-                              {entry.user_name
-                                .split(" ")
+                              {((entry.user_name || "Unknown").split(" ")
+                                .filter(Boolean)
                                 .map((n) => n[0])
-                                .join("")}
+                                .join("")) || "U"}
                             </AvatarFallback>
                           </Avatar>
                           <div>

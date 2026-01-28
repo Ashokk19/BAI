@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,79 +17,187 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus, Edit, Eye, Package, CheckCircle, Clock, AlertCircle } from "lucide-react"
+import { Search, Plus, Edit, Eye, Package, CheckCircle, Clock, AlertCircle, Filter } from "lucide-react"
+import { toast } from "sonner"
+import { useNavigate } from "react-router-dom"
 
-interface PurchaseReceived {
-  id: string
-  purchaseOrderId: string
+import { purchaseReceiptApi, PurchaseReceiptDetail, PurchaseReceiptListItem, PurchaseReceiptCreatePayload } from "@/services/purchaseReceiptApi"
+import { getPurchaseOrders, getPurchaseOrder, PurchaseOrder, PurchaseOrderDetail } from "@/services/purchaseOrderApi"
+import { billExistsForPurchaseOrder } from "@/services/billsApi"
+
+type ReceiptStatusUi = "Fully Received" | "Partially Received" | "Pending"
+
+type PurchaseReceivedRow = {
+  id: number
+  receiptNumber: string
+  purchaseOrderId: number | null
+  purchaseOrderNumber: string | null
   vendorName: string
   receivedDate: string
-  status: "Partially Received" | "Fully Received" | "Pending"
+  status: ReceiptStatusUi
   totalItems: number
   receivedItems: number
   totalAmount: number
   receivedAmount: number
-  items: Array<{
-    name: string
-    ordered: number
-    received: number
-    rate: number
-    amount: number
-  }>
   notes: string
   receivedBy: string
 }
 
-const mockReceived: PurchaseReceived[] = [
-  {
-    id: "PR001",
-    purchaseOrderId: "PO001",
-    vendorName: "ABC Suppliers",
-    receivedDate: "2024-01-20",
-    status: "Fully Received",
-    totalItems: 15,
-    receivedItems: 15,
-    totalAmount: 25000,
-    receivedAmount: 25000,
-    items: [
-      { name: "Office Chairs", ordered: 10, received: 10, rate: 2000, amount: 20000 },
-      { name: "Desk Lamps", ordered: 5, received: 5, rate: 1000, amount: 5000 },
-    ],
-    notes: "All items received in good condition",
-    receivedBy: "John Doe",
-  },
-  {
-    id: "PR002",
-    purchaseOrderId: "PO002",
-    vendorName: "XYZ Trading Co.",
-    receivedDate: "2024-01-22",
-    status: "Partially Received",
-    totalItems: 2,
-    receivedItems: 1,
-    totalAmount: 15000,
-    receivedAmount: 7500,
-    items: [{ name: "Laptops", ordered: 2, received: 1, rate: 7500, amount: 7500 }],
-    notes: "One laptop pending delivery",
-    receivedBy: "Jane Smith",
-  },
-]
+type ReceiptFormLine = {
+  po_item_id: number
+  item_id: number
+  item_name: string
+  ordered_qty: number
+  already_received: number
+  remaining_qty: number
+  unit_price: number
+  quantity_received: number
+  quantity_accepted: number
+  quantity_rejected: number
+}
+
+const today = () => new Date().toISOString().slice(0, 10)
 
 export default function PurchaseReceived() {
-  const [received, setReceived] = useState<PurchaseReceived[]>(mockReceived)
+  const navigate = useNavigate()
+
+  const [received, setReceived] = useState<PurchaseReceivedRow[]>([])
+  const [receiptDetails, setReceiptDetails] = useState<PurchaseReceiptDetail | null>(null)
+
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
+  const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null)
+  const [selectedPoId, setSelectedPoId] = useState<number | null>(null)
+  const [selectedPoDetail, setSelectedPoDetail] = useState<PurchaseOrderDetail | null>(null)
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+  const [createForm, setCreateForm] = useState<{ receipt_date: string; received_by: string; notes: string; lines: ReceiptFormLine[] }>({
+    receipt_date: today(),
+    received_by: "",
+    notes: "",
+    lines: [],
+  })
+
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [selectedOrder, setSelectedOrder] = useState<PurchaseReceived | null>(null)
+  const [selectedOrder, setSelectedOrder] = useState<PurchaseReceivedRow | null>(null)
 
-  const filteredReceived = received.filter((item) => {
-    const matchesSearch =
-      item.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.purchaseOrderId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.vendorName.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus =
-      statusFilter === "all" || item.status.toLowerCase().replace(" ", "").includes(statusFilter.toLowerCase())
-    return matchesSearch && matchesStatus
-  })
+  const filteredReceived = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase()
+    return received.filter((item) => {
+      const matchesSearch =
+        !term ||
+        String(item.id).includes(term) ||
+        (item.receiptNumber || "").toLowerCase().includes(term) ||
+        String(item.purchaseOrderId ?? "").includes(term) ||
+        (item.purchaseOrderNumber || "").toLowerCase().includes(term) ||
+        (item.vendorName || "").toLowerCase().includes(term)
+      const matchesStatus =
+        statusFilter === "all" || item.status.toLowerCase().replace(/\s/g, "").includes(statusFilter.toLowerCase())
+      return matchesSearch && matchesStatus
+    })
+  }, [received, searchTerm, statusFilter])
+
+  const toBackendStatusFilter = (value: string): string | undefined => {
+    switch ((value || "").toLowerCase()) {
+      case "fullyreceived":
+        return "received"
+      case "partiallyreceived":
+        return "partially_received"
+      default:
+        return undefined
+    }
+  }
+
+  const mapStatus = (poStatus?: string | null): ReceiptStatusUi => {
+    const s = (poStatus || "").toLowerCase()
+    if (s === "received") return "Fully Received"
+    if (s === "partially_received") return "Partially Received"
+    return "Pending"
+  }
+
+  const loadReceipts = async () => {
+    try {
+      const res = await purchaseReceiptApi.getReceipts({
+        limit: 200,
+        search: searchTerm || undefined,
+        status: toBackendStatusFilter(statusFilter),
+      })
+
+      const rows: PurchaseReceivedRow[] = (res.receipts || []).map((r: PurchaseReceiptListItem) => {
+        const totalItems = Number(r.total_items ?? 0)
+        const receivedItems = Number(r.received_items ?? 0)
+        return {
+          id: Number(r.id),
+          receiptNumber: r.receipt_number,
+          purchaseOrderId: r.po_id ?? null,
+          purchaseOrderNumber: r.po_number ?? null,
+          vendorName: (r.vendor_name || "").toString(),
+          receivedDate: (r.receipt_date || "").toString().slice(0, 10),
+          status: mapStatus(r.po_status),
+          totalItems,
+          receivedItems,
+          totalAmount: Number(r.total_amount ?? 0),
+          receivedAmount: Number(r.received_amount ?? 0),
+          notes: (r.notes || "").toString(),
+          receivedBy: (r.received_by || "").toString(),
+        }
+      })
+
+      setReceived(rows)
+    } catch (error) {
+      console.error("Failed to fetch purchase receipts", error)
+      toast.error("Failed to fetch purchase receipts")
+    }
+  }
+
+  const loadPurchaseOrders = async () => {
+    try {
+      const res = await getPurchaseOrders()
+      setPurchaseOrders(res.purchase_orders || [])
+    } catch (error) {
+      console.error("Failed to fetch purchase orders", error)
+    }
+  }
+
+  useEffect(() => {
+    loadPurchaseOrders()
+    // initial list load
+    purchaseReceiptApi
+      .getReceipts({ limit: 200 })
+      .then((res) => {
+        const rows: PurchaseReceivedRow[] = (res.receipts || []).map((r) => {
+          const totalItems = Number(r.total_items ?? 0)
+          const receivedItems = Number(r.received_items ?? 0)
+          return {
+            id: Number(r.id),
+            receiptNumber: r.receipt_number,
+            purchaseOrderId: r.po_id ?? null,
+            purchaseOrderNumber: r.po_number ?? null,
+            vendorName: (r.vendor_name || "").toString(),
+            receivedDate: (r.receipt_date || "").toString().slice(0, 10),
+            status: mapStatus(r.po_status),
+            totalItems,
+            receivedItems,
+            totalAmount: Number(r.total_amount ?? 0),
+            receivedAmount: Number(r.received_amount ?? 0),
+            notes: (r.notes || "").toString(),
+            receivedBy: (r.received_by || "").toString(),
+          }
+        })
+        setReceived(rows)
+      })
+      .catch((error) => {
+        console.error("Failed to fetch purchase receipts", error)
+      })
+  }, [])
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      loadReceipts()
+    }, 250)
+    return () => clearTimeout(handle)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm, statusFilter])
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -108,114 +216,349 @@ export default function PurchaseReceived() {
     return total > 0 ? (received / total) * 100 : 0
   }
 
-  const handleViewDetails = (item: PurchaseReceived) => {
-    setSelectedOrder(item)
-    setIsDialogOpen(true)
+  const handleViewDetails = async (item: PurchaseReceivedRow) => {
+    try {
+      const detail = await purchaseReceiptApi.getReceipt(item.id)
+      setReceiptDetails(detail)
+      setSelectedOrder(item)
+      setIsDialogOpen(true)
+    } catch (error) {
+      console.error("Failed to load receipt details", error)
+      toast.error("Failed to load receipt details")
+    }
   }
 
+  const openCreateDialog = async () => {
+    setIsCreateDialogOpen(true)
+    setSelectedVendorId(null)
+    setSelectedPoId(null)
+    setSelectedPoDetail(null)
+    setCreateForm({ receipt_date: today(), received_by: "", notes: "", lines: [] })
+    // ensure POs are fresh
+    loadPurchaseOrders()
+  }
+
+  const vendorOptions = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const po of purchaseOrders) {
+      if (po.vendor_id && !map.has(po.vendor_id)) {
+        map.set(po.vendor_id, (po.vendor_name || `Vendor #${po.vendor_id}`).toString())
+      }
+    }
+    return Array.from(map.entries())
+      .map(([vendor_id, vendor_name]) => ({ vendor_id, vendor_name }))
+      .sort((a, b) => a.vendor_name.localeCompare(b.vendor_name))
+  }, [purchaseOrders])
+
+  const filteredPoOptions = useMemo(() => {
+    return purchaseOrders
+      .filter((po) => {
+        if (!selectedVendorId) return false
+        // Do not show fully received POs
+        if ((po.status || "").toLowerCase() === "received") return false
+        return po.vendor_id === selectedVendorId
+      })
+      .sort((a, b) => {
+        // newest first
+        const aId = Number(a.id) || 0
+        const bId = Number(b.id) || 0
+        return bId - aId
+      })
+  }, [purchaseOrders, selectedVendorId])
+
+  const onSelectPo = async (value: string) => {
+    const poId = Number(value)
+    if (!Number.isFinite(poId) || poId <= 0) return
+    setSelectedPoId(poId)
+    try {
+      const detail = await getPurchaseOrder(poId)
+      setSelectedPoDetail(detail)
+      const lines: ReceiptFormLine[] = (detail.items || []).map((it: any) => {
+        const ordered = Number(it.quantity ?? 0)
+        const already = Number(it.received_quantity ?? 0)
+        const remaining = Math.max(0, ordered - already)
+        const unitPrice = Number(it.unit_price ?? 0)
+        return {
+          po_item_id: Number(it.id),
+          item_id: Number(it.item_id),
+          item_name: String(it.item_name ?? ""),
+          ordered_qty: ordered,
+          already_received: already,
+          remaining_qty: remaining,
+          unit_price: unitPrice,
+          quantity_received: remaining,
+          quantity_accepted: remaining,
+          quantity_rejected: 0,
+        }
+      })
+      setCreateForm((prev) => ({ ...prev, lines }))
+    } catch (error) {
+      console.error("Failed to load PO details", error)
+      toast.error("Failed to load purchase order")
+    }
+  }
+
+  const updateLine = (index: number, patch: Partial<ReceiptFormLine>) => {
+    setCreateForm((prev) => {
+      const next = [...prev.lines]
+      const existing = next[index]
+      const merged = { ...existing, ...patch }
+      // auto keep rejected = received - accepted (min 0)
+      const receivedQty = Number(merged.quantity_received ?? 0)
+      const acceptedQty = Number(merged.quantity_accepted ?? 0)
+      const rejectedQty = Math.max(0, receivedQty - acceptedQty)
+      merged.quantity_rejected = rejectedQty
+      next[index] = merged
+      return { ...prev, lines: next }
+    })
+  }
+
+  const handleCreateReceipt = async () => {
+    if (!selectedPoDetail || !selectedPoId) {
+      toast.error("Please select a purchase order")
+      return
+    }
+
+    const vendorId = Number((selectedPoDetail as any).vendor_id)
+    if (!vendorId) {
+      toast.error("Selected PO has no vendor")
+      return
+    }
+
+    const items = createForm.lines
+      .filter((l) => Number(l.quantity_received) > 0)
+      .map((l) => {
+        const receivedQty = Math.min(Number(l.quantity_received) || 0, l.remaining_qty)
+        const acceptedQty = Math.min(Number(l.quantity_accepted) || 0, receivedQty)
+        const rejectedQty = Math.max(0, receivedQty - acceptedQty)
+        return {
+          po_item_id: l.po_item_id,
+          item_id: l.item_id,
+          item_name: l.item_name,
+          quantity_received: receivedQty,
+          quantity_accepted: acceptedQty,
+          quantity_rejected: rejectedQty,
+          unit_price: Number(l.unit_price) || 0,
+          notes: "",
+        }
+      })
+
+    if (!items.length) {
+      toast.error("Please enter received quantities")
+      return
+    }
+
+    const payload: PurchaseReceiptCreatePayload = {
+      po_id: selectedPoId,
+      vendor_id: vendorId,
+      receipt_date: createForm.receipt_date,
+      notes: createForm.notes,
+      received_by: createForm.received_by,
+      items,
+    }
+
+    try {
+      await purchaseReceiptApi.createReceipt(payload)
+      toast.success("Purchase receipt recorded")
+      setIsCreateDialogOpen(false)
+      await loadReceipts()
+      await loadPurchaseOrders()
+
+      try {
+        const exists = await billExistsForPurchaseOrder(selectedPoId)
+        if (!exists) {
+          const ok = window.confirm("Receipt recorded. Create a bill for this purchase order now?")
+          if (ok) {
+            navigate(`/purchases/bills?po_id=${selectedPoId}`)
+          }
+        }
+      } catch {
+        // Non-blocking; receipt creation already succeeded.
+      }
+    } catch (error: any) {
+      console.error("Failed to create receipt", error)
+      const msg = error?.message || "Failed to record receipt"
+      toast.error(msg)
+    }
+  }
+
+  const totalValue = received.reduce((sum, r) => sum + (Number(r.receivedAmount) || 0), 0)
+
   return (
-    <div className="flex-1 p-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-violet-600 to-purple-700 bg-clip-text text-transparent mb-2">
-          Purchase Received
-        </h1>
-        <p className="text-gray-600">Track and manage received purchase orders</p>
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-purple-25 to-indigo-50 relative overflow-hidden">
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 w-96 h-96 bg-gradient-to-r from-violet-100 to-purple-100 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse"></div>
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-gradient-to-r from-purple-50 to-indigo-100 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse delay-1000"></div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-gradient-to-r from-indigo-50 to-violet-100 rounded-full mix-blend-multiply filter blur-3xl opacity-25 animate-pulse delay-500"></div>
       </div>
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(0,0,0,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.02)_1px,transparent_1px)] bg-[size:40px_40px]"></div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <Card className="bg-white/60 backdrop-blur-sm border-white/20 shadow-xl">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Received</CardTitle>
-            <Package className="h-4 w-4 text-violet-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-violet-700">{received.length}</div>
-            <p className="text-xs text-gray-500">Purchase receipts</p>
-          </CardContent>
-        </Card>
+      <div className="relative z-10 p-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Purchase Received</h1>
+          <p className="text-gray-600 font-medium mt-1">Track and manage received purchase orders • {received.length} receipts total</p>
+        </div>
 
-        <Card className="bg-white/60 backdrop-blur-sm border-white/20 shadow-xl">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Fully Received</CardTitle>
-            <CheckCircle className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-700">
-              {received.filter((r) => r.status === "Fully Received").length}
-            </div>
-            <p className="text-xs text-gray-500">Complete orders</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white/60 backdrop-blur-sm border-white/20 shadow-xl">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Partial Received</CardTitle>
-            <Clock className="h-4 w-4 text-yellow-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-yellow-700">
-              {received.filter((r) => r.status === "Partially Received").length}
-            </div>
-            <p className="text-xs text-gray-500">Pending items</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white/60 backdrop-blur-sm border-white/20 shadow-xl">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Value</CardTitle>
-            <AlertCircle className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-700">
-              ₹{received.reduce((sum, r) => sum + r.receivedAmount, 0).toLocaleString()}
-            </div>
-            <p className="text-xs text-gray-500">Received value</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filters */}
-      <Card className="bg-white/60 backdrop-blur-sm border-white/20 shadow-xl mb-6">
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-            <div className="flex flex-col sm:flex-row gap-4 flex-1">
-              <div className="relative flex-1 max-w-sm">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                <Input
-                  placeholder="Search received orders..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 bg-white/50 border-white/20"
-                />
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <Card
+            role="button"
+            tabIndex={0}
+            onClick={() => setStatusFilter("all")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                setStatusFilter("all")
+              }
+            }}
+            className={`bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden cursor-pointer select-none outline-none ${
+              statusFilter === "all" ? "ring-2 ring-violet-500 shadow-2xl" : ""
+            }`}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-500/10 to-violet-600/20"></div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+              <CardTitle className="text-sm font-semibold text-gray-700">Total Received</CardTitle>
+              <div className="p-2 rounded-lg bg-violet-500/20">
+                <Package className="h-4 w-4 text-violet-600" />
               </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[180px] bg-white/50 border-white/20">
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="fullyreceived">Fully Received</SelectItem>
-                  <SelectItem value="partiallyreceived">Partially Received</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <Button className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white shadow-lg">
-              <Plus className="w-4 h-4 mr-2" />
-              Record Receipt
-            </Button>
-          </div>
-        </CardHeader>
-      </Card>
+            </CardHeader>
+            <CardContent className="relative z-10">
+              <div className="text-2xl font-bold text-gray-900 mb-1">{received.length}</div>
+              <p className="text-xs text-gray-600 mt-2 font-medium">Purchase receipts</p>
+            </CardContent>
+          </Card>
 
-      {/* Received Orders Table */}
-      <Card className="bg-white/60 backdrop-blur-sm border-white/20 shadow-xl">
-        <CardHeader>
-          <CardTitle>Purchase Receipts ({filteredReceived.length})</CardTitle>
-          <CardDescription>Track received items and delivery status</CardDescription>
-        </CardHeader>
-        <CardContent>
+          <Card
+            role="button"
+            tabIndex={0}
+            onClick={() => setStatusFilter("fullyreceived")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                setStatusFilter("fullyreceived")
+              }
+            }}
+            className={`bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden cursor-pointer select-none outline-none ${
+              statusFilter === "fullyreceived" ? "ring-2 ring-violet-500 shadow-2xl" : ""
+            }`}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-green-500/10 to-green-600/20"></div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+              <CardTitle className="text-sm font-semibold text-gray-700">Fully Received</CardTitle>
+              <div className="p-2 rounded-lg bg-green-500/20">
+                <CheckCircle className="h-4 w-4 text-green-600" />
+              </div>
+            </CardHeader>
+            <CardContent className="relative z-10">
+              <div className="text-2xl font-bold text-gray-900 mb-1">{received.filter((r) => r.status === "Fully Received").length}</div>
+              <p className="text-xs text-gray-600 mt-2 font-medium">Complete orders</p>
+            </CardContent>
+          </Card>
+
+          <Card
+            role="button"
+            tabIndex={0}
+            onClick={() => setStatusFilter("partiallyreceived")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                setStatusFilter("partiallyreceived")
+              }
+            }}
+            className={`bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden cursor-pointer select-none outline-none ${
+              statusFilter === "partiallyreceived" ? "ring-2 ring-violet-500 shadow-2xl" : ""
+            }`}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/10 to-yellow-600/20"></div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+              <CardTitle className="text-sm font-semibold text-gray-700">Partial Received</CardTitle>
+              <div className="p-2 rounded-lg bg-yellow-500/20">
+                <Clock className="h-4 w-4 text-yellow-600" />
+              </div>
+            </CardHeader>
+            <CardContent className="relative z-10">
+              <div className="text-2xl font-bold text-gray-900 mb-1">{received.filter((r) => r.status === "Partially Received").length}</div>
+              <p className="text-xs text-gray-600 mt-2 font-medium">Pending items</p>
+            </CardContent>
+          </Card>
+
+          <Card
+            role="button"
+            tabIndex={0}
+            onClick={() => setStatusFilter("all")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                setStatusFilter("all")
+              }
+            }}
+            className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden cursor-pointer select-none outline-none"
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-blue-600/20"></div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+              <CardTitle className="text-sm font-semibold text-gray-700">Total Value</CardTitle>
+              <div className="p-2 rounded-lg bg-blue-500/20">
+                <AlertCircle className="h-4 w-4 text-blue-600" />
+              </div>
+            </CardHeader>
+            <CardContent className="relative z-10">
+              <div className="text-2xl font-bold text-gray-900 mb-1">₹{totalValue.toLocaleString()}</div>
+              <p className="text-xs text-gray-600 mt-2 font-medium">Received value</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Filters */}
+        <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden mb-6">
+          <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-white/20"></div>
+          <CardContent className="p-6 relative z-10">
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+              <div className="flex flex-col sm:flex-row gap-4 flex-1">
+                <div className="relative flex-1 max-w-sm">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
+                  <Input
+                    placeholder="Search received orders..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 placeholder:text-gray-600 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold"
+                  />
+                </div>
+
+                <div className="relative">
+                  <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-[220px] pl-10 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 shadow-lg ring-1 ring-white/50 font-semibold">
+                      <SelectValue placeholder="Filter by status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="fullyreceived">Fully Received</SelectItem>
+                      <SelectItem value="partiallyreceived">Partially Received</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <Button
+                className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white shadow-lg h-12"
+                onClick={openCreateDialog}
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Record Receipt
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Received Orders Table */}
+        <Card className="bg-white/40 backdrop-blur-3xl border border-white/80 shadow-xl ring-1 ring-white/60 relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-white/20"></div>
+          <CardHeader className="relative z-10">
+            <CardTitle>Purchase Receipts ({filteredReceived.length})</CardTitle>
+            <CardDescription>Track received items and delivery status</CardDescription>
+          </CardHeader>
+          <CardContent className="relative z-10">
           <Table>
             <TableHeader>
               <TableRow>
@@ -233,13 +576,16 @@ export default function PurchaseReceived() {
                 <TableRow key={item.id}>
                   <TableCell>
                     <div>
-                      <div className="font-medium">{item.id}</div>
+                      <div className="font-medium">{item.receiptNumber}</div>
                       <div className="text-sm text-gray-500">Received: {item.receivedDate}</div>
                       <div className="text-xs text-gray-400">By: {item.receivedBy}</div>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="font-medium text-blue-700">{item.purchaseOrderId}</div>
+                    <div className="font-medium text-blue-700">
+                      {item.purchaseOrderNumber ? item.purchaseOrderNumber : item.purchaseOrderId ? `PO #${item.purchaseOrderId}` : "-"}
+                    </div>
+                    {item.purchaseOrderId ? <div className="text-xs text-gray-500">ID: {item.purchaseOrderId}</div> : null}
                   </TableCell>
                   <TableCell>
                     <div className="font-medium">{item.vendorName}</div>
@@ -278,15 +624,184 @@ export default function PurchaseReceived() {
               ))}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+
+      {/* Record Receipt Dialog */}
+      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <DialogContent className="sm:max-w-[820px]">
+          <DialogHeader>
+            <DialogTitle>Record Purchase Receipt</DialogTitle>
+            <DialogDescription>Select a Purchase Order and record received quantities</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Vendor</Label>
+              <Select
+                value={selectedVendorId ? String(selectedVendorId) : ""}
+                onValueChange={(value) => {
+                  const id = Number(value)
+                  setSelectedVendorId(Number.isFinite(id) && id > 0 ? id : null)
+                  setSelectedPoId(null)
+                  setSelectedPoDetail(null)
+                  setCreateForm((p) => ({ ...p, lines: [] }))
+                }}
+              >
+                <SelectTrigger className="bg-white/50 border-white/20">
+                  <SelectValue placeholder="Select Vendor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {vendorOptions.map((v) => (
+                    <SelectItem key={v.vendor_id} value={String(v.vendor_id)}>
+                      {v.vendor_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Receipt Date</Label>
+              <Input
+                type="date"
+                value={createForm.receipt_date}
+                onChange={(e) => setCreateForm((p) => ({ ...p, receipt_date: e.target.value }))}
+                className="bg-white/50 border-white/20"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Received By</Label>
+              <Input
+                placeholder="Receiver name"
+                value={createForm.received_by}
+                onChange={(e) => setCreateForm((p) => ({ ...p, received_by: e.target.value }))}
+                className="bg-white/50 border-white/20"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2 md:col-span-3">
+              <Label>Purchase Order (by Vendor)</Label>
+              <Select
+                value={selectedPoId ? String(selectedPoId) : ""}
+                onValueChange={onSelectPo}
+                disabled={!selectedVendorId}
+              >
+                <SelectTrigger className="bg-white/50 border-white/20">
+                  <SelectValue placeholder={selectedVendorId ? "Select Purchase Order" : "Select Vendor first"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {filteredPoOptions.map((po) => (
+                    <SelectItem key={po.id} value={String(po.id)}>
+                      {`PO ID: ${po.id} (${po.po_number})`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedVendorId && filteredPoOptions.length === 0 ? (
+                <div className="text-xs text-gray-500">No pending/partial POs available for this vendor.</div>
+              ) : null}
+            </div>
+          </div>
+
+          {selectedPoDetail ? (
+            <div className="space-y-2">
+              <div className="text-sm text-gray-600">
+                {selectedPoDetail.po_number} — {(selectedPoDetail as any).vendor_name || ""}
+              </div>
+
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Item</TableHead>
+                    <TableHead>Ordered</TableHead>
+                    <TableHead>Already Received</TableHead>
+                    <TableHead>Remaining</TableHead>
+                    <TableHead>Received Now</TableHead>
+                    <TableHead>Accepted</TableHead>
+                    <TableHead>Rejected</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {createForm.lines.map((line, idx) => (
+                    <TableRow key={line.po_item_id}>
+                      <TableCell>
+                        <div className="font-medium">{line.item_name}</div>
+                        <div className="text-xs text-gray-500">Item ID: {line.item_id}</div>
+                      </TableCell>
+                      <TableCell>{line.ordered_qty}</TableCell>
+                      <TableCell>{line.already_received}</TableCell>
+                      <TableCell>{line.remaining_qty}</TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={line.remaining_qty}
+                          step={0.001}
+                          value={line.quantity_received}
+                          onChange={(e) => {
+                            const next = Math.min(Number(e.target.value || 0), line.remaining_qty)
+                            updateLine(idx, { quantity_received: next, quantity_accepted: Math.min(line.quantity_accepted, next) })
+                          }}
+                          className="w-28 bg-white/50 border-white/20"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={line.quantity_received}
+                          step={0.001}
+                          value={line.quantity_accepted}
+                          onChange={(e) => {
+                            const next = Math.min(Number(e.target.value || 0), Number(line.quantity_received || 0))
+                            updateLine(idx, { quantity_accepted: next })
+                          }}
+                          className="w-28 bg-white/50 border-white/20"
+                        />
+                      </TableCell>
+                      <TableCell>{line.quantity_rejected}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <Input
+                  placeholder="Notes (optional)"
+                  value={createForm.notes}
+                  onChange={(e) => setCreateForm((p) => ({ ...p, notes: e.target.value }))}
+                  className="bg-white/50 border-white/20"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500">Select a Purchase Order to load items.</div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateReceipt} className="bg-violet-600 hover:bg-violet-700 text-white">
+              Save Receipt
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* View Details Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle>Receipt Details - {selectedOrder?.id}</DialogTitle>
-            <DialogDescription>Purchase Order: {selectedOrder?.purchaseOrderId}</DialogDescription>
+            <DialogTitle>Receipt Details - {selectedOrder?.receiptNumber}</DialogTitle>
+            <DialogDescription>
+              Purchase Order: {selectedOrder?.purchaseOrderNumber ? selectedOrder.purchaseOrderNumber : selectedOrder?.purchaseOrderId ? `PO #${selectedOrder.purchaseOrderId}` : "-"}
+            </DialogDescription>
           </DialogHeader>
           {selectedOrder && (
             <div className="space-y-4">
@@ -315,20 +830,22 @@ export default function PurchaseReceived() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Item</TableHead>
-                      <TableHead>Ordered</TableHead>
                       <TableHead>Received</TableHead>
+                      <TableHead>Accepted</TableHead>
+                      <TableHead>Rejected</TableHead>
                       <TableHead>Rate</TableHead>
-                      <TableHead>Amount</TableHead>
+                      <TableHead>Notes</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {selectedOrder.items.map((item, index) => (
-                      <TableRow key={index}>
-                        <TableCell>{item.name}</TableCell>
-                        <TableCell>{item.ordered}</TableCell>
-                        <TableCell>{item.received}</TableCell>
-                        <TableCell>₹{item.rate}</TableCell>
-                        <TableCell>₹{item.amount.toLocaleString()}</TableCell>
+                    {(receiptDetails?.items || []).map((it) => (
+                      <TableRow key={it.id}>
+                        <TableCell>{it.item_name}</TableCell>
+                        <TableCell>{Number(it.quantity_received)}</TableCell>
+                        <TableCell>{Number(it.quantity_accepted)}</TableCell>
+                        <TableCell>{Number(it.quantity_rejected)}</TableCell>
+                        <TableCell>₹{Number(it.unit_price ?? 0).toLocaleString()}</TableCell>
+                        <TableCell>{it.notes || ""}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -350,6 +867,7 @@ export default function PurchaseReceived() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   )
 }

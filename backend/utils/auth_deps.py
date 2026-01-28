@@ -1,123 +1,94 @@
 """
-BAI Backend Authentication Dependencies
-
-This module contains FastAPI dependencies for authentication and authorization.
+PostgreSQL Authentication Dependencies - No SQLAlchemy.
 """
 
-from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
-from database.database import get_db
-from services.auth_service import auth_service
-from models.user import User
+from jose import JWTError, jwt
+from typing import Optional
+from datetime import datetime, timedelta
 
-# Initialize HTTP Bearer security scheme
-security = HTTPBearer(auto_error=False)
+from config.settings import settings
+from services.postgres_user_service import PostgresUserService
 
-def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db: Session = Depends(get_db)
-) -> User:
-    """
-    Get current authenticated user from JWT token.
+security = HTTPBearer()
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    """Create JWT access token."""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
-    Args:
-        credentials: HTTP Authorization credentials
-        db: Database session
-        
-    Returns:
-        Current user object
-        
-    Raises:
-        HTTPException: If token is invalid or user not found
-    """
-    if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication credentials required",
-            headers={"WWW-Authenticate": "Bearer"},
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return encoded_jwt
+
+def verify_token(token: str) -> Optional[dict]:
+    """Verify JWT token and return payload with username and optional account_id."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        username: str = payload.get("sub")
+        account_id: Optional[str] = payload.get("acc")
+        if username is None:
+            return None
+        data = {"username": username}
+        if account_id:
+            data["account_id"] = account_id
+        return data
+    except JWTError:
+        return None
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Get current authenticated user using PostgreSQL."""
+    
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    token_data = verify_token(credentials.credentials)
+    if token_data is None:
+        raise credentials_exception
+    
+    if token_data.get("account_id"):
+        user = PostgresUserService.get_user_by_username_and_account(
+            token_data["username"], token_data["account_id"]
         )
-    
-    token = credentials.credentials
-    user = auth_service.get_current_user(db, token)
-    
+    else:
+        user = PostgresUserService.get_user_by_username(token_data["username"])
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise credentials_exception
     
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Inactive user",
-        )
-    
-    return user
-
-def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
-    """
-    Get current active user.
-    
-    Args:
-        current_user: Current authenticated user
-        
-    Returns:
-        Current active user
-        
-    Raises:
-        HTTPException: If user is not active
-    """
-    if not current_user.is_active:
+    if not user.get("is_active", False):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inactive user"
         )
-    return current_user
-
-def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
-    """
-    Get current admin user.
     
-    Args:
-        current_user: Current authenticated user
-        
-    Returns:
-        Current admin user
-        
-    Raises:
-        HTTPException: If user is not admin
-    """
-    if not current_user.is_admin:
+    return user
+
+def get_current_active_user(current_user: dict = Depends(get_current_user)):
+    """Get current active user."""
+    if not current_user.get("is_active", False):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Inactive user"
         )
     return current_user
 
-def get_optional_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db: Session = Depends(get_db)
-) -> Optional[User]:
-    """
-    Get optional user from JWT token (for endpoints that work with or without authentication).
-    
-    Args:
-        credentials: HTTP Authorization credentials (optional)
-        db: Database session
-        
-    Returns:
-        User object if authenticated, None otherwise
-    """
-    if credentials is None:
-        return None
-    
-    token = credentials.credentials
-    user = auth_service.get_current_user(db, token)
-    
-    if user and user.is_active:
-        return user
-    
-    return None 
+def get_current_admin_user(current_user: dict = Depends(get_current_user)):
+    """Get current admin user."""
+    if not current_user.get("is_active", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Inactive user"
+        )
+    if not current_user.get("is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    return current_user

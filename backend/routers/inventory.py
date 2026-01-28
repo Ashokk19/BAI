@@ -1,664 +1,141 @@
 """
-BAI Backend Inventory Router
-
-This module contains the inventory routes for items, categories, and inventory management.
+PostgreSQL Inventory Router - Direct database operations without SQLAlchemy.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Response
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-from typing import List, Optional
-from database.database import get_db
-from utils.auth_deps import get_current_user
-from models.user import User
-from models.item import Item, ItemCategory
-from models.inventory import InventoryLog
-from services.inventory_service import InventoryService
-from pydantic import BaseModel
-import csv
-import io
-import pandas as pd
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException, status, Depends
+from typing import List, Optional, Union
 from datetime import datetime
 from decimal import Decimal
-import re
+
+from services.postgres_inventory_service import PostgresInventoryService
+from utils.postgres_auth_deps import get_current_user
 
 router = APIRouter()
 
-# Pydantic schemas for API responses
-class ItemCategoryResponse(BaseModel):
-    id: int
-    name: str
-    description: Optional[str]
-    is_active: bool
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-class ItemCategoryWithStatsResponse(BaseModel):
-    id: int
-    name: str
-    description: Optional[str]
-    is_active: bool
-    created_at: datetime
-    # Statistics from items table
-    total_items: int
-    active_items: int
-    total_stock_value: float
-    total_current_stock: int
-    low_stock_items: int
-    out_of_stock_items: int
-    expiry_items: int
-    
-    class Config:
-        from_attributes = True
-
-class ItemResponse(BaseModel):
-    id: int
-    name: str
-    description: Optional[str]
-    sku: str
-    barcode: Optional[str]
-    category_id: int
-    unit_price: float
-    cost_price: Optional[float]
-    selling_price: float
-    current_stock: int
-    minimum_stock: int
-    maximum_stock: Optional[int]
-    unit_of_measure: str
-    weight: Optional[float]
-    dimensions: Optional[str]
-    has_expiry: bool
-    shelf_life_days: Optional[int]
-    expiry_date: Optional[datetime]
-    is_active: bool
-    is_serialized: bool
-    tax_rate: float
-    tax_type: str
-    account_id: str
-    created_at: datetime
-    is_low_stock: bool
-    stock_value: float
-    
-    class Config:
-        from_attributes = True
-
-class InventoryLogResponse(BaseModel):
-    id: int
-    item_id: int
-    item_name: str
-    item_sku: str
-    action: str
-    user_id: int
-    user_name: str
-    quantity_before: Optional[float] = None
-    quantity_after: Optional[float] = None
-    notes: Optional[str] = None
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
+# Pydantic models for requests/responses (keeping these for API validation)
+from pydantic import BaseModel
 
 @router.get("/")
 async def get_inventory_summary(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Get inventory summary with key metrics."""
+    """Get inventory summary with key metrics using PostgreSQL."""
     
-    # Filter items by account_id to ensure data isolation
-    # Get total items count
-    total_items = db.query(Item).filter(Item.account_id == current_user.account_id).count()
-    
-    # Get low stock items
-    low_stock_items = db.query(Item).filter(
-        Item.current_stock <= Item.minimum_stock,
-        Item.account_id == current_user.account_id
-    ).count()
-    
-    # Get total stock value
-    items = db.query(Item).filter(Item.account_id == current_user.account_id).all()
-    total_stock_value = sum(item.stock_value for item in items)
-    
-    # Get active categories for this account
-    active_categories = db.query(ItemCategory).filter(
-        ItemCategory.is_active == True,
-        ItemCategory.account_id == current_user.account_id
-    ).count()
+    # Get inventory summary using PostgreSQL service
+    summary = PostgresInventoryService.get_inventory_summary(current_user["account_id"])
     
     return {
-        "total_items": total_items,
-        "low_stock_items": low_stock_items,
-        "total_stock_value": float(total_stock_value),
-        "active_categories": active_categories,
-        "total_value_formatted": f"${total_stock_value:,.2f}"
+        "total_items": summary.get("total_items", 0),
+        "low_stock_items": summary.get("low_stock_items", 0),
+        "total_stock_value": summary.get("total_stock_value", 0.0),
+        "active_categories": summary.get("active_categories", 0),
+        "total_value_formatted": f"${summary.get('total_stock_value', 0.0):,.2f}"
     }
 
-@router.get("/items/export")
-async def export_items(
-    format: str = "csv",
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+@router.get("/categories")
+async def get_categories(
+    current_user: dict = Depends(get_current_user)
 ):
-    """Export items to CSV format."""
-    
-    # Get items for this customer with category names
-    items = db.query(Item).join(ItemCategory).filter(
-        Item.account_id == current_user.account_id
-    ).all()
-    
-    # Create CSV content
-    output = io.StringIO()
-    writer = csv.writer(output)
-    
-    # Write headers
-    headers = [
-        'ID', 'Name', 'SKU', 'Description', 'Category', 'Unit Price', 'Cost Price', 
-        'Selling Price', 'Current Stock', 'Minimum Stock', 'Maximum Stock', 
-        'Unit of Measure', 'Weight', 'Dimensions', 'Has Expiry', 'Shelf Life Days',
-        'Is Active', 'Is Serialized', 'Tax Rate', 'Tax Type', 'Barcode', 'Created At'
-    ]
-    writer.writerow(headers)
-    
-    # Write data rows
-    for item in items:
-        category_name = item.category.name if item.category else 'N/A'
-        row = [
-            item.id,
-            item.name,
-            item.sku,
-            item.description or '',
-            category_name,
-            float(item.unit_price) if item.unit_price else 0,
-            float(item.cost_price) if item.cost_price else 0,
-            float(item.selling_price) if item.selling_price else 0,
-            item.current_stock,
-            item.minimum_stock,
-            item.maximum_stock or '',
-            item.unit_of_measure,
-            item.weight or '',
-            item.dimensions or '',
-            item.has_expiry,
-            item.shelf_life_days or '',
-            item.is_active,
-            item.is_serialized,
-            float(item.tax_rate) if item.tax_rate else 0,
-            item.tax_type,
-            item.barcode or '',
-            item.created_at.isoformat() if item.created_at else ''
-        ]
-        writer.writerow(row)
-    
-    # Create response
-    output.seek(0)
-    content = output.getvalue()
-    output.close()
-    
-    # Note: No inventory log needed for exports since no inventory quantities change
-    
-    # Return as Response with proper headers to work with CORS
-    return Response(
-        content=content.encode('utf-8'),
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": "attachment; filename=items_export.csv"
-        }
-    )
+    """Return synthesized item categories derived from items table."""
+    return PostgresInventoryService.get_categories(current_user["account_id"])
 
-@router.post("/items/import")
-async def import_items(
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+@router.post("/categories")
+async def create_category(
+    category: CategoryCreate,
+    current_user: dict = Depends(get_current_user)
 ):
-    """Import items from CSV file."""
-    
-    # Validate file type
-    if not file.filename.endswith(('.csv', '.xlsx')):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only CSV and Excel files are supported"
-        )
-    
-    try:
-        # Read file content
-        content = await file.read()
-        
-        # Parse based on file type
-        if file.filename.endswith('.csv'):
-            df = pd.read_csv(io.StringIO(content.decode('utf-8')))
-        else:  # xlsx
-            df = pd.read_excel(io.BytesIO(content))
-        
-        # Validate required columns
-        required_columns = ['Name', 'SKU', 'Category', 'Unit Price', 'Selling Price']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Missing required columns: {', '.join(missing_columns)}"
-            )
-        
-        imported_count = 0
-        errors = []
-        
-        # Get category mapping
-        categories = db.query(ItemCategory).all()
-        category_map = {cat.name: cat.id for cat in categories}
-        
-        # Process each row
-        for index, row in df.iterrows():
-            try:
-                # Validate required fields
-                if pd.isna(row['Name']) or pd.isna(row['SKU']):
-                    errors.append(f"Row {index + 2}: Name and SKU are required")
-                    continue
-                
-                # Check if SKU already exists
-                existing_item = db.query(Item).filter(Item.sku == row['SKU']).first()
-                if existing_item:
-                    errors.append(f"Row {index + 2}: SKU '{row['SKU']}' already exists")
-                    continue
-                
-                # Get category ID
-                category_name = row['Category']
-                category_id = category_map.get(category_name)
-                if not category_id:
-                    errors.append(f"Row {index + 2}: Category '{category_name}' not found")
-                    continue
-                
-                # Create item
-                item = Item(
-                    name=row['Name'],
-                    sku=row['SKU'],
-                    description=row.get('Description', ''),
-                    category_id=category_id,
-                    unit_price=Decimal(str(row['Unit Price'])),
-                    cost_price=Decimal(str(row.get('Cost Price', 0))) if pd.notna(row.get('Cost Price')) else None,
-                    selling_price=Decimal(str(row['Selling Price'])),
-                    current_stock=int(row.get('Current Stock', 0)) if pd.notna(row.get('Current Stock')) else 0,
-                    minimum_stock=int(row.get('Minimum Stock', 0)) if pd.notna(row.get('Minimum Stock')) else 0,
-                    maximum_stock=int(row.get('Maximum Stock')) if pd.notna(row.get('Maximum Stock')) else None,
-                    unit_of_measure=row.get('Unit of Measure', 'pcs'),
-                    weight=float(row.get('Weight')) if pd.notna(row.get('Weight')) else None,
-                    dimensions=row.get('Dimensions', ''),
-                    has_expiry=bool(row.get('Has Expiry', False)),
-                    shelf_life_days=int(row.get('Shelf Life Days')) if pd.notna(row.get('Shelf Life Days')) else None,
-                    is_active=bool(row.get('Is Active', True)),
-                    is_serialized=bool(row.get('Is Serialized', False)),
-                    tax_rate=Decimal(str(row.get('Tax Rate', 0))),
-                    tax_type=row.get('Tax Type', 'inclusive'),
-                    barcode=row.get('Barcode', ''),
-                    account_id=current_user.account_id
-                )
-                
-                db.add(item)
-                db.flush()  # Get the ID without committing
-                
-                # Create inventory log
-                log_entry = InventoryLog(
-                    item_id=item.id,
-                    account_id=current_user.account_id,
-                    transaction_type="initial_stock",
-                    quantity_before=0,
-                    quantity_change=item.current_stock,
-                    quantity_after=item.current_stock,
-                    unit_cost=item.cost_price,
-                    transaction_date=func.now(),
-                    recorded_by=current_user.id,
-                    notes=f"Item imported from {file.filename}"
-                )
-                db.add(log_entry)
-                
-                imported_count += 1
-                
-            except Exception as e:
-                errors.append(f"Row {index + 2}: {str(e)}")
-                continue
-        
-        # Commit all changes
-        db.commit()
-        
-        # Log the import operation for successfully imported items
-        if imported_count > 0:
-            # Create a summary log entry for the import operation
-            InventoryService.create_inventory_log(
-                db=db,
-                item_id=1,  # Using first item as reference for bulk operations
-                transaction_type="bulk_import",
-                quantity_before=0,
-                quantity_after=imported_count,
-                user_id=current_user.id,
-                account_id=current_user.account_id,
-                notes=f"Bulk import completed: {imported_count} items imported from file '{file.filename}', {len(errors)} errors",
-                transaction_reference=file.filename
-            )
-            db.commit()
-        
-        # Prepare response
-        response_data = {
-            "success": True,
-            "message": f"Successfully imported {imported_count} items",
-            "imported_count": imported_count,
-            "total_rows": len(df),
-            "errors": errors
-        }
-        
-        if errors:
-            response_data["message"] += f" with {len(errors)} errors"
-        
-        return response_data
-        
-    except pd.errors.EmptyDataError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The uploaded file is empty"
-        )
-    except pd.errors.ParserError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error parsing file: {str(e)}"
-        )
-    except Exception as e:
-        db.rollback()
+    created = PostgresInventoryService.create_category(category.model_dump(), current_user["account_id"])
+    if not created:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Import failed: {str(e)}"
+            detail="Failed to create category"
         )
+    return created
 
-@router.get("/items", response_model=List[ItemResponse])
-async def get_items(
-    skip: int = 0,
-    limit: int = 100,
-    search: Optional[str] = None,
-    category_id: Optional[int] = None,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+@router.put("/categories/{category_id}")
+async def update_category(
+    category_id: int,
+    category: CategoryUpdate,
+    current_user: dict = Depends(get_current_user)
 ):
-    """Get items list with optional filtering."""
-    
-    # Filter by account_id from current user
-    query = db.query(Item).filter(Item.account_id == current_user.account_id)
-    
-    if search:
-        query = query.filter(Item.name.contains(search) | Item.sku.contains(search))
-    
-    if category_id:
-        query = query.filter(Item.category_id == category_id)
-    
-    items = query.offset(skip).limit(limit).all()
-    return items
+    if category_id == 0:
+        payload = category.model_dump(exclude_unset=True)
+        name = payload.get("name")
+        if not name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name is required to create category")
+        created = PostgresInventoryService.create_category({
+            "name": name,
+            "description": payload.get("description"),
+            "is_active": payload.get("is_active", True)
+        }, current_user["account_id"])
+        if not created:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create category")
+        return created
 
-@router.get("/items/{item_id}", response_model=ItemResponse)
-async def get_item(
-    item_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    existing = PostgresInventoryService.get_category_by_id(category_id, current_user["account_id"])
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    updated = PostgresInventoryService.update_category(category_id, category.model_dump(exclude_unset=True), current_user["account_id"])
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update category")
+    return updated
+
+@router.delete("/categories/{category_id}")
+async def delete_category(
+    category_id: int,
+    current_user: dict = Depends(get_current_user)
 ):
-    """Get specific item by ID."""
-    
-    item = db.query(Item).filter(
-        Item.id == item_id,
-        Item.account_id == current_user.account_id
-    ).first()
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Item not found"
-        )
-    return item
+    existing = PostgresInventoryService.get_category_by_id(category_id, current_user["account_id"])
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    success = PostgresInventoryService.delete_category(category_id, current_user["account_id"])
+    if not success:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete category")
+    return {"message": "Category deleted successfully"}
 
-@router.get("/categories", response_model=List[ItemCategoryResponse])
-async def get_categories(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get item categories."""
-    
-    categories = db.query(ItemCategory).filter(
-        ItemCategory.is_active == True,
-        ItemCategory.account_id == current_user.account_id
-    ).all()
-    return categories
-
-@router.get("/categories/with-stats", response_model=List[ItemCategoryWithStatsResponse])
+@router.get("/categories/with-stats")
 async def get_categories_with_stats(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Get item categories with statistics from items table."""
-    
-    categories = db.query(ItemCategory).filter(
-        ItemCategory.is_active == True,
-        ItemCategory.account_id == current_user.account_id
-    ).all()
-    categories_with_stats = []
-    
-    for category in categories:
-        # Get all items in this category for this customer
-        items_query = db.query(Item).filter(
-            Item.category_id == category.id,
-            Item.account_id == current_user.account_id
-        )
-        all_items = items_query.all()
-        
-        # Calculate statistics
-        total_items = len(all_items)
-        active_items = len([item for item in all_items if item.is_active])
-        
-        # Stock and value calculations
-        total_stock_value = sum(item.current_stock * item.unit_price for item in all_items if item.unit_price)
-        total_current_stock = sum(item.current_stock for item in all_items)
-        
-        # Low stock and out of stock items
-        low_stock_items = len([item for item in all_items if item.current_stock <= item.minimum_stock and item.current_stock > 0])
-        out_of_stock_items = len([item for item in all_items if item.current_stock == 0])
-        
-        # Expiry items count
-        expiry_items = len([item for item in all_items if item.has_expiry])
-        
-        # Create response object
-        category_stats = ItemCategoryWithStatsResponse(
-            id=category.id,
-            name=category.name,
-            description=category.description,
-            is_active=category.is_active,
-            created_at=category.created_at,
-            total_items=total_items,
-            active_items=active_items,
-            total_stock_value=float(total_stock_value),
-            total_current_stock=total_current_stock,
-            low_stock_items=low_stock_items,
-            out_of_stock_items=out_of_stock_items,
-            expiry_items=expiry_items
-        )
-        
-        categories_with_stats.append(category_stats)
-    
-    return categories_with_stats
-
-@router.get("/expiry-tracking")
-async def get_expiry_tracking(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get items with expiry tracking."""
-    
-    from datetime import datetime, timedelta
-    
-    # Filter items by account_id to ensure data isolation
-    expiry_items = db.query(Item).filter(
-        Item.has_expiry == True,
-        Item.account_id == current_user.account_id
-    ).all()
-    
-    # Calculate expiry status for items
-    expiry_data = []
-    for item in expiry_items:
-        expiry_date = None
-        
-        # Use expiry_date if set, otherwise calculate from shelf_life_days
-        if item.expiry_date:
-            expiry_date = item.expiry_date
-        elif item.shelf_life_days:
-            # Calculate expiry date based on creation date + shelf life
-            expiry_date = item.created_at + timedelta(days=item.shelf_life_days)
-        
-        if expiry_date:
-            days_until_expiry = (expiry_date - datetime.now()).days
-            
-            # Determine status based on days until expiry
-            if days_until_expiry < 0:
-                status = "expired"
-            elif days_until_expiry <= 7:
-                status = "expiring-soon"
-            elif days_until_expiry <= 30:
-                status = "warning"
-            else:
-                status = "good"
-            
-            expiry_data.append({
-                "id": item.id,
-                "name": item.name,
-                "sku": item.sku,
-                "category_id": item.category_id,
-                "current_stock": item.current_stock,
-                "has_expiry": item.has_expiry,
-                "shelf_life_days": item.shelf_life_days,
-                "created_at": item.created_at.isoformat(),
-                "days_until_expiry": days_until_expiry,
-                "expiry_date": expiry_date.isoformat(),
-                "status": status
-            })
-    
-    return expiry_data
+    """Return categories with aggregated statistics."""
+    return PostgresInventoryService.get_categories_with_stats(current_user["account_id"])
 
 @router.get("/logs")
 async def get_inventory_logs(
-    skip: int = 0,
+    current_user: dict = Depends(get_current_user),
     limit: int = 50,
+    offset: int = 0,
     item_id: Optional[int] = None,
     transaction_type: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
 ):
-    """Get inventory logs with formatted data for frontend."""
-    
-    # Use left join to include logs even when items are deleted
-    # Filter by account_id from current user
-    query = db.query(InventoryLog).filter(
-        InventoryLog.account_id == current_user.account_id
-    ).join(User, InventoryLog.recorded_by == User.id)
-    
-    if item_id:
-        query = query.filter(InventoryLog.item_id == item_id)
-    
-    if transaction_type:
-        query = query.filter(InventoryLog.transaction_type == transaction_type)
-    
-    logs = query.order_by(InventoryLog.created_at.desc()).offset(skip).limit(limit).all()
-    
-    # Format logs for frontend
-    formatted_logs = []
-    for log in logs:
-        # Get item details (may be None if item was deleted)
-        item = db.query(Item).filter(Item.id == log.item_id).first()
-        user = db.query(User).filter(User.id == log.recorded_by).first()
-        
-        # Map transaction_type to action
-        action_mapping = {
-            "purchase": "stock_in",
-            "sale": "stock_out", 
-            "adjustment": "updated",
-            "initial_stock": "added",
-            "item_created": "added",
-            "item_updated": "updated",
-            "item_deleted": "removed",
-            "bulk_import": "added",
-            "bulk_export": "updated",
-            "transfer": "updated",
-            "return": "stock_in",
-            "damage": "stock_out",
-            "expired": "removed"
-        }
-        
-        # For deleted items, extract info from notes if available
-        item_name = "Unknown Item"
-        item_sku = "Unknown"
-        
-        if item:
-            item_name = item.name
-            item_sku = item.sku
-        elif log.transaction_type == "item_deleted" and log.notes:
-            # Try to extract item name from deletion notes
-            # Notes format: "Item 'ItemName' (SKU: SKUValue) deleted"
-            name_match = re.search(r"Item '([^']+)'", log.notes)
-            sku_match = re.search(r"SKU: ([^)]+)", log.notes)
-            if name_match:
-                item_name = name_match.group(1)
-            if sku_match:
-                item_sku = sku_match.group(1)
-        
-        formatted_logs.append({
-            "id": log.id,
-            "item_id": log.item_id,
-            "item_name": item_name,
-            "item_sku": item_sku,
-            "action": action_mapping.get(log.transaction_type, "updated"),
-            "user_id": log.recorded_by,
-            "user_name": f"{user.first_name} {user.last_name}" if user else "Unknown User",
-            "quantity_before": float(log.quantity_before) if log.quantity_before else None,
-            "quantity_after": float(log.quantity_after) if log.quantity_after else None,
-            "notes": log.notes,
-            "created_at": log.created_at.isoformat()
-        })
-    
-    return formatted_logs
+    """Return inventory logs with optional filters."""
+    return PostgresInventoryService.get_inventory_logs(
+        account_id=current_user["account_id"],
+        limit=limit,
+        offset=offset,
+        item_id=item_id,
+        transaction_type=transaction_type,
+    )
 
-@router.get("/low-stock")
-async def get_low_stock_items(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+@router.get("/expiry-tracking")
+async def get_expiry_tracking(
+    current_user: dict = Depends(get_current_user)
 ):
-    """Get items that are low in stock."""
-    
-    # Filter items by account_id to ensure data isolation
-    low_stock_items = db.query(Item).filter(
-        Item.current_stock <= Item.minimum_stock,
-        Item.account_id == current_user.account_id
-    ).all()
-    
-    items_data = []
-    for item in low_stock_items:
-        items_data.append({
-            "id": item.id,
-            "name": item.name,
-            "sku": item.sku,
-            "current_stock": item.current_stock,
-            "minimum_stock": item.minimum_stock,
-            "stock_deficit": item.minimum_stock - item.current_stock
-        })
-    
-    return {
-        "low_stock_count": len(items_data),
-        "items": items_data
-    }
+    """Return items with expiry date or shelf life info."""
+    return PostgresInventoryService.get_expiry_tracking(current_user["account_id"])
 
-# Request schemas
 class ItemCreate(BaseModel):
     name: str
-    description: Optional[str] = None
     sku: str
-    barcode: Optional[str] = None
-    category_id: int
-    unit_price: float
+    category_id: Optional[int] = None  # Made optional to match database
+    unit_price: Optional[float] = None  # Made optional
     cost_price: Optional[float] = None
     selling_price: float
-    current_stock: int = 0
-    minimum_stock: int = 0
-    maximum_stock: Optional[int] = None
+    current_stock: float = 0.0
+    minimum_stock: float = 0.0
+    maximum_stock: Optional[float] = None
     unit_of_measure: str = "pcs"
     weight: Optional[float] = None
     dimensions: Optional[str] = None
@@ -666,9 +143,11 @@ class ItemCreate(BaseModel):
     shelf_life_days: Optional[int] = None
     expiry_date: Optional[datetime] = None
     is_active: bool = True
-    is_serialized: bool = False
+    is_serialized: bool = False  # Frontend compatibility field
     tax_rate: float = 0.0
-    tax_type: str = "inclusive"
+    tax_type: str = "inclusive"  # Frontend compatibility field
+    description: Optional[str] = None
+    barcode: Optional[str] = None
 
 class ItemUpdate(BaseModel):
     name: Optional[str] = None
@@ -679,19 +158,17 @@ class ItemUpdate(BaseModel):
     unit_price: Optional[float] = None
     cost_price: Optional[float] = None
     selling_price: Optional[float] = None
-    current_stock: Optional[int] = None
-    minimum_stock: Optional[int] = None
-    maximum_stock: Optional[int] = None
+    current_stock: Optional[float] = None
+    minimum_stock: Optional[float] = None
+    maximum_stock: Optional[float] = None
     unit_of_measure: Optional[str] = None
     weight: Optional[float] = None
     dimensions: Optional[str] = None
     has_expiry: Optional[bool] = None
     shelf_life_days: Optional[int] = None
-    expiry_date: Optional[datetime] = None
+    expiry_date: Optional[Union[datetime, str]] = None
     is_active: Optional[bool] = None
-    is_serialized: Optional[bool] = None
     tax_rate: Optional[float] = None
-    tax_type: Optional[str] = None
 
 class CategoryCreate(BaseModel):
     name: str
@@ -703,253 +180,216 @@ class CategoryUpdate(BaseModel):
     description: Optional[str] = None
     is_active: Optional[bool] = None
 
-# CRUD endpoints for items
-@router.post("/items", response_model=ItemResponse)
+@router.post("/items")
 async def create_item(
     item_data: ItemCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Create a new item."""
+    """Create a new inventory item using PostgreSQL."""
     
-    # Check if item with same SKU already exists for this customer
-    existing_item = db.query(Item).filter(
-        Item.sku == item_data.sku,
-        Item.account_id == current_user.account_id
-    ).first()
-    
-    if existing_item:
+    # Check if item with same SKU exists
+    if PostgresInventoryService.check_item_exists(item_data.sku, current_user["account_id"]):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Item with SKU '{item_data.sku}' already exists"
         )
     
-    # Create item with account_id
-    item = Item(
-        **item_data.model_dump(),
-        account_id=current_user.account_id
-    )
+    # Convert Pydantic model to dict and map fields for PostgreSQL
+    item_dict = item_data.model_dump()
     
-    db.add(item)
-    db.commit()
-    db.refresh(item)
+    # Map frontend fields to PostgreSQL database fields
+    mapped_data = {
+        'item_code': item_dict.get('sku'),
+        'name': item_dict.get('name'),
+        'selling_price': item_dict.get('selling_price'),
+        'description': item_dict.get('description', ''),
+        'category': 'General',  # Default category
+        'unit': item_dict.get('unit_of_measure', 'pcs'),
+        'purchase_price': item_dict.get('cost_price') or item_dict.get('unit_price'),
+        'tax_rate': item_dict.get('tax_rate', 18.0),
+        'stock_quantity': item_dict.get('current_stock', 0.0),
+        'reorder_level': item_dict.get('minimum_stock', 0.0),
+        'is_active': item_dict.get('is_active', True),
+        'current_stock': item_dict.get('current_stock', 0.0),
+        'cost_price': item_dict.get('cost_price') or item_dict.get('unit_price'),
+        'minimum_stock': item_dict.get('minimum_stock', 0.0),
+        'maximum_stock': item_dict.get('maximum_stock'),
+        'sku': item_dict.get('sku'),
+        'barcode': item_dict.get('barcode'),
+        'category_account_id': current_user["account_id"] if item_dict.get('category_id') else None,
+        'category_id': item_dict.get('category_id'),
+        'mrp': item_dict.get('selling_price'),
+        'weight': item_dict.get('weight'),
+        'dimensions': item_dict.get('dimensions'),
+        'is_service': False,
+        'track_inventory': True,
+        'has_expiry': item_dict.get('has_expiry', False),
+        'shelf_life_days': item_dict.get('shelf_life_days'),
+        'expiry_date': item_dict.get('expiry_date')
+    }
+    
+    # Validate required fields
+    if not mapped_data['item_code']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="SKU is required"
+        )
+    
+    if not mapped_data['name']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Name is required"
+        )
+    
+    if not mapped_data['selling_price']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Selling price is required"
+        )
+    
+    # Create the item
+    created_item = PostgresInventoryService.create_item(mapped_data, current_user["account_id"])
+    
+    if not created_item:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create item"
+        )
     
     # Log the creation
-    InventoryService.log_item_creation(
-        db=db,
-        item=item,
-        user_id=current_user.id
+    PostgresInventoryService.log_inventory_action(
+        item_id=created_item['id'],
+        account_id=current_user["account_id"],
+        action="added",
+        notes=f"Item '{created_item['name']}' created",
+        user_id=current_user["id"]
     )
-    db.commit()
     
-    return item
+    return created_item
 
-@router.put("/items/{item_id}", response_model=ItemResponse)
-async def update_item(
-    item_id: int,
-    item_data: ItemUpdate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+@router.get("/items")
+async def get_items(
+    current_user: dict = Depends(get_current_user),
+    limit: int = 50,
+    offset: int = 0
 ):
-    """Update an existing item."""
+    """Get list of inventory items using PostgreSQL."""
     
-    item = db.query(Item).filter(Item.id == item_id).first()
+    items = PostgresInventoryService.get_items_list(
+        account_id=current_user["account_id"],
+        limit=limit,
+        offset=offset
+    )
+    
+    return {"items": items, "total": len(items)}
+
+@router.get("/items/{item_id}")
+async def get_item(
+    item_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get a specific inventory item using PostgreSQL."""
+    
+    item = PostgresInventoryService.get_item_by_id(item_id, current_user["account_id"])
+    
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Item not found"
         )
     
-    # Check if SKU already exists (if being updated)
-    if item_data.sku and item_data.sku != item.sku:
-        existing_item = db.query(Item).filter(Item.sku == item_data.sku).first()
-        if existing_item:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Item with SKU '{item_data.sku}' already exists"
-            )
-    
-    # Verify category exists (if being updated)
-    if item_data.category_id:
-        category = db.query(ItemCategory).filter(ItemCategory.id == item_data.category_id).first()
-        if not category:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Category not found"
-            )
-    
-    # Track changes for logging
-    old_stock = item.current_stock
-    changes = []
-    
-    # Fields to exclude from automatic change logging
-    excluded_fields = ['weight', 'dimensions']
-    
-    # Update item fields and track changes
-    update_data = item_data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        # Skip logging for excluded fields
-        if field in excluded_fields:
-            setattr(item, field, value)
-            continue
-            
-        old_value = getattr(item, field)
-        if field in ['unit_price', 'cost_price', 'selling_price', 'tax_rate'] and value is not None:
-            new_value = Decimal(str(value))
-            setattr(item, field, new_value)
-            if old_value != new_value:
-                changes.append(f"{field}: {old_value} → {new_value}")
-        else:
-            setattr(item, field, value)
-            if old_value != value:
-                changes.append(f"{field}: {old_value} → {value}")
-    
-    db.commit()
-    db.refresh(item)
-    
-    # Log the update if any changes were made
-    if changes:
-        InventoryService.log_item_update(
-            db=db,
-            item=item,
-            old_stock=old_stock,
-            user_id=current_user.id,
-            changes=changes
-        )
-        db.commit()
-    
     return item
+
+@router.put("/items/{item_id}")
+async def update_item(
+    item_id: int,
+    item_data: ItemUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update an inventory item using PostgreSQL."""
+    
+    # Check if item exists
+    existing_item = PostgresInventoryService.get_item_by_id(item_id, current_user["account_id"])
+    if not existing_item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item not found"
+        )
+    
+    # Convert update data and map fields
+    update_dict = item_data.model_dump(exclude_unset=True)
+    
+    mapped_update_data = {}
+    for field, value in update_dict.items():
+        if field == 'sku':
+            mapped_update_data['item_code'] = value
+            mapped_update_data['sku'] = value
+        elif field == 'unit_of_measure':
+            mapped_update_data['unit'] = value
+        elif field == 'unit_price':
+            mapped_update_data['purchase_price'] = value
+            if 'cost_price' not in update_dict:
+                mapped_update_data['cost_price'] = value
+        elif field == 'cost_price':
+            mapped_update_data['cost_price'] = value
+            if 'purchase_price' not in mapped_update_data:
+                mapped_update_data['purchase_price'] = value
+        elif field == 'expiry_date':
+            if value in (None, ""):
+                continue
+            mapped_update_data['expiry_date'] = value
+        elif field in ['tax_type', 'is_serialized']:
+            # Skip frontend-only fields
+            continue
+        else:
+            mapped_update_data[field] = value
+    
+    # Update the item
+    updated_item = PostgresInventoryService.update_item(
+        item_id=item_id,
+        item_data=mapped_update_data,
+        account_id=current_user["account_id"]
+    )
+    
+    if not updated_item:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update item"
+        )
+    
+    # Log the update
+    PostgresInventoryService.log_inventory_action(
+        item_id=item_id,
+        account_id=current_user["account_id"],
+        action="updated",
+        notes=f"Item '{updated_item['name']}' updated",
+        user_id=current_user["id"]
+    )
+    
+    return updated_item
 
 @router.delete("/items/{item_id}")
 async def delete_item(
     item_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Delete an item."""
+    """Delete an inventory item using PostgreSQL."""
     
-    item = db.query(Item).filter(Item.id == item_id).first()
-    if not item:
+    # Check if item exists
+    existing_item = PostgresInventoryService.get_item_by_id(item_id, current_user["account_id"])
+    if not existing_item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Item not found"
         )
     
-    # Store item details for logging before deletion
-    item_name = item.name
-    item_sku = item.sku
-    final_stock = item.current_stock
+    # Delete the item (this will also delete related logs in transaction)
+    success = PostgresInventoryService.delete_item(item_id, current_user["account_id"])
     
-    # Log the deletion before actually deleting
-    InventoryService.log_item_deletion(
-        db=db,
-        item_id=item.id,
-        item_name=item_name,
-        item_sku=item_sku,
-        final_stock=final_stock,
-        user_id=current_user.id,
-        account_id=current_user.account_id
-    )
-    
-    # Commit the log entry
-    db.commit()
-    
-    db.delete(item)
-    db.commit()
-    
-    return {"message": "Item deleted successfully"}
-
-# CRUD endpoints for categories
-@router.post("/categories", response_model=ItemCategoryResponse)
-async def create_category(
-    category_data: CategoryCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Create a new category."""
-    
-    # Check if category name already exists for this customer
-    existing_category = db.query(ItemCategory).filter(
-        ItemCategory.name == category_data.name,
-        ItemCategory.account_id == current_user.account_id
-    ).first()
-    
-    if existing_category:
+    if not success:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Category with name '{category_data.name}' already exists"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete item"
         )
     
-    category = ItemCategory(
-        **category_data.dict(),
-        account_id=current_user.account_id
-    )
-    
-    db.add(category)
-    db.commit()
-    db.refresh(category)
-    
-    return category
-
-@router.put("/categories/{category_id}", response_model=ItemCategoryResponse)
-async def update_category(
-    category_id: int,
-    category_data: CategoryUpdate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Update an existing category."""
-    
-    category = db.query(ItemCategory).filter(ItemCategory.id == category_id).first()
-    if not category:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Category not found"
-        )
-    
-    # Check if category name already exists (if being updated)
-    if category_data.name and category_data.name != category.name:
-        existing_category = db.query(ItemCategory).filter(ItemCategory.name == category_data.name).first()
-        if existing_category:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Category with name '{category_data.name}' already exists"
-            )
-    
-    # Update category fields
-    update_data = category_data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(category, field, value)
-    
-    db.commit()
-    db.refresh(category)
-    
-    return category
-
-@router.delete("/categories/{category_id}")
-async def delete_category(
-    category_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Delete a category."""
-    
-    category = db.query(ItemCategory).filter(ItemCategory.id == category_id).first()
-    if not category:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Category not found"
-        )
-    
-    # Check if category has items
-    items_count = db.query(Item).filter(Item.category_id == category_id).count()
-    if items_count > 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot delete category. It has {items_count} items associated with it."
-        )
-    
-    db.delete(category)
-    db.commit()
-    
-    return {"message": "Category deleted successfully"} 
+    return {"message": f"Item '{existing_item['name']}' deleted successfully"}

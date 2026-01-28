@@ -83,12 +83,16 @@ export default function ItemList() {
   const fetchItems = async () => {
     try {
       setIsLoading(true)
-      const [itemsData, categoriesData] = await Promise.all([
+      const [itemsDataRaw, categoriesData] = await Promise.all([
         inventoryApi.getItems(),
         inventoryApi.getCategories()
       ])
       
-      setItems(itemsData)
+      const itemsData = Array.isArray(itemsDataRaw)
+        ? itemsDataRaw
+        : ((itemsDataRaw as any)?.items ?? [])
+      
+      setItems(itemsData as Item[])
       setCategories(categoriesData)
       setError(null)
     } catch (err) {
@@ -115,8 +119,10 @@ export default function ItemList() {
   }, [items])
 
   const getItemStatus = (item: Item) => {
-    if (item.current_stock === 0) return 'out_of_stock';
-    if (item.current_stock <= item.minimum_stock) return 'low_stock';
+    const currentStock = item.current_stock || 0;
+    const minimumStock = item.minimum_stock || 0;
+    if (currentStock === 0) return 'out_of_stock';
+    if (currentStock <= minimumStock) return 'low_stock';
     return 'in_stock';
   };
 
@@ -140,7 +146,7 @@ export default function ItemList() {
 
   const filteredItems = items.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.sku.toLowerCase().includes(searchTerm.toLowerCase());
+                         (item.sku || '').toLowerCase().includes(searchTerm.toLowerCase());
     const status = getItemStatus(item);
     const matchesFilter = filterStatus === 'all' || status === filterStatus;
     
@@ -792,7 +798,7 @@ export default function ItemList() {
                 <tbody className="divide-y divide-white/20">
                   {filteredItems.map((item) => {
                     const status = getItemStatus(item);
-                    const stockValue = item.current_stock * item.unit_price;
+                    const stockValue = (item.current_stock || 0) * (item.unit_price || 0);
                     return (
                       <tr key={item.id} className="hover:bg-white/20 transition-all duration-200">
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -803,16 +809,16 @@ export default function ItemList() {
                             <div>
                               <div className="text-sm font-bold text-gray-900">{item.name}</div>
                               <div className="text-sm text-gray-600 font-medium">
-                                {item.unit_of_measure} • Created: {new Date(item.created_at).toLocaleDateString()}
+                                {item.unit_of_measure || 'pcs'} • Created: {new Date(item.created_at).toLocaleDateString()}
                               </div>
                             </div>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {item.sku}
+                          {item.sku || 'N/A'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                          ₹{item.unit_price.toFixed(2)}
+                          ₹{(item.unit_price || 0).toFixed(2)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           <div className="flex items-center gap-2">

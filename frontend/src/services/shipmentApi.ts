@@ -185,6 +185,48 @@ export const shipmentApi = {
     return await apiService.delete<{ message: string }>(`/api/sales/shipments/${shipmentId}`);
   },
 
+  /**
+   * Download shipment document
+   */
+  async downloadShipment(shipmentId: number): Promise<void> {
+    const token = localStorage.getItem('access_token');
+    const url = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'}/api/sales/shipments/${shipmentId}/download`;
+    
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to download shipment document: ${errorText}`);
+      }
+      
+      const html = await response.text();
+      
+      // Create a new window and write the HTML content
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(html);
+        printWindow.document.close();
+      } else {
+        // Fallback: create blob URL if popup was blocked
+        const blob = new Blob([html], { type: 'text/html' });
+        const blobUrl = URL.createObjectURL(blob);
+        window.open(blobUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('Error downloading shipment:', error);
+      throw error;
+    }
+  },
+
   // Delivery Note Functions
   /**
    * Get all delivery notes with optional filtering
@@ -202,7 +244,7 @@ export const shipmentApi = {
     if (params?.customer_id) queryParams.append('customer_id', params.customer_id.toString());
 
     const queryString = queryParams.toString();
-    const url = `/api/sales/shipments/delivery-notes${queryString ? `?${queryString}` : ''}`;
+    const url = `/api/sales/shipments/delivery-notes/${queryString ? `?${queryString}` : ''}`;
     
     return await apiService.get<DeliveryNoteListResponse>(url);
   },

@@ -9,8 +9,6 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Calendar } from "@/components/ui/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CalendarIcon, Plus, Search, Ship, Eye, Download, Truck, Package, ChevronLeft, ChevronRight } from "lucide-react"
 import { format } from "date-fns"
 import { shipmentApi, Shipment as ApiShipment, ShipmentCreate } from "../../services/shipmentApi"
@@ -281,6 +279,16 @@ export default function ShipmentRecords() {
     } catch (error) {
       console.error('Error updating status:', error)
       notifications.error('Update Failed', 'Unable to update shipment status. Please try again.')
+    }
+  }
+
+  const handleDownloadShipment = async (shipmentId: number) => {
+    try {
+      await shipmentApi.downloadShipment(shipmentId)
+      notifications.success('Download Started', 'Shipment document opened in new window.')
+    } catch (error) {
+      console.error('Error downloading shipment:', error)
+      notifications.error('Download Failed', 'Unable to download shipment document. Please try again.')
     }
   }
 
@@ -573,36 +581,21 @@ export default function ShipmentRecords() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label>Shipment Date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start bg-white/50 border-white/20">
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {selectedDate ? selectedDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : "Pick a date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
-                      <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} initialFocus />
-                    </PopoverContent>
-                  </Popover>
+                  <input
+                    type="date"
+                    value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+                    onChange={(e) => setSelectedDate(e.target.value ? new Date(e.target.value) : undefined)}
+                    className="w-full p-2 border border-white/20 rounded-md bg-white/50"
+                  />
                 </div>
                 <div>
                   <Label>Expected Delivery</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start bg-white/50 border-white/20">
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {expectedDate ? expectedDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : "Pick a date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
-                      <Calendar
-                        mode="single"
-                        selected={expectedDate}
-                        onSelect={setExpectedDate}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+                  <input
+                    type="date"
+                    value={expectedDate ? expectedDate.toISOString().split('T')[0] : ''}
+                    onChange={(e) => setExpectedDate(e.target.value ? new Date(e.target.value) : undefined)}
+                    className="w-full p-2 border border-white/20 rounded-md bg-white/50"
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -917,10 +910,15 @@ export default function ShipmentRecords() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline">
+                      <Button size="sm" variant="outline" title="View Details">
                         <Eye className="w-3 h-3" />
                       </Button>
-                      <Button size="sm" variant="outline">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        title="Download Shipment Document"
+                        onClick={() => handleDownloadShipment(shipment.id)}
+                      >
                         <Download className="w-3 h-3" />
                       </Button>
                     </div>

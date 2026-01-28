@@ -36,6 +36,7 @@ export interface OrganizationProfile {
   description?: string;
   logo_url?: string;
   is_verified: boolean;
+  terms_and_conditions?: string;
   created_at: string;
   updated_at?: string;
 }
@@ -73,6 +74,7 @@ export interface OrganizationCreate {
   description?: string;
   logo_url?: string;
   is_verified?: boolean;
+  terms_and_conditions?: string;
 }
 
 export interface OrganizationUpdate {
@@ -108,6 +110,7 @@ export interface OrganizationUpdate {
   description?: string;
   logo_url?: string;
   is_verified?: boolean;
+  terms_and_conditions?: string;
 }
 
 class OrganizationService {

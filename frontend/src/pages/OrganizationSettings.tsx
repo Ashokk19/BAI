@@ -339,6 +339,7 @@ const OrganizationSettings: React.FC = () => {
         description: profile.description,
         logo_url: profile.logo_url,
         is_verified: profile.is_verified,
+        terms_and_conditions: (profile as any).terms_and_conditions,
       });
     }
     setIsEditing(true);
@@ -385,6 +386,7 @@ const OrganizationSettings: React.FC = () => {
         description: tempProfile.description,
         logo_url: tempProfile.logo_url,
         is_verified: tempProfile.is_verified,
+        terms_and_conditions: (tempProfile as any).terms_and_conditions,
       };
       const newProfile = await organizationService.createOrganizationProfile(createData);
       setProfile(newProfile);
@@ -451,6 +453,7 @@ const OrganizationSettings: React.FC = () => {
           description: tempProfile.description,
           logo_url: tempProfile.logo_url,
           is_verified: tempProfile.is_verified,
+          terms_and_conditions: (tempProfile as any).terms_and_conditions,
         };
         const newProfile = await organizationService.createOrganizationProfile(createData);
         setProfile(newProfile);
@@ -702,9 +705,7 @@ const OrganizationSettings: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
                     <Select value={tempProfile.timezone || 'Asia/Kolkata'} onValueChange={(value) => handleInputChange('timezone', value)}>
                       <SelectTrigger className="w-full p-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-lg">
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         {timezones.map((tz) => (
@@ -960,11 +961,11 @@ const OrganizationSettings: React.FC = () => {
                           className="flex items-center gap-3 p-3 bg-white/60 backdrop-blur-lg border border-white/80 rounded-lg hover:bg-white/70 transition-all duration-200 shadow-sm ring-1 ring-white/50"
                         >
                           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white font-semibold text-xs">
-                            {user.first_name.charAt(0)}{user.last_name.charAt(0)}
+                            {(user.first_name?.charAt(0) || user.username?.charAt(0) || '').toUpperCase()}{(user.last_name?.charAt(0) || '').toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1">
-                              <h5 className="font-medium text-gray-900 text-sm truncate">{user.first_name} {user.last_name}</h5>
+                              <h5 className="font-medium text-gray-900 text-sm truncate">{(user.first_name || user.last_name) ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : user.username}</h5>
                               {authUser?.id === user.id && (
                                 <span className="px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded text-xs font-medium">
                                   You
@@ -1528,6 +1529,26 @@ const OrganizationSettings: React.FC = () => {
                         <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile?.bank_swift_code || 'Not specified'}</p>
                       )}
                     </div>
+                  </div>
+                </div>
+
+                {/* Terms & Conditions Section */}
+                <div className="mt-8 space-y-4">
+                  <h4 className="font-medium text-gray-900 border-b border-gray-200 pb-2 flex items-center gap-2">
+                    Terms & Conditions
+                  </h4>
+                  <div>
+                    {isEditing ? (
+                      <Textarea
+                        value={(tempProfile as any).terms_and_conditions || (profile as any)?.terms_and_conditions || ''}
+                        onChange={(e) => handleInputChange('terms_and_conditions' as any, e.target.value)}
+                        rows={5}
+                        placeholder="Enter terms and conditions that will appear on invoices..."
+                        className="w-full p-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-lg"
+                      />
+                    ) : (
+                      <p className="p-3 bg-gray-50 rounded-lg text-gray-900 whitespace-pre-wrap">{(profile as any)?.terms_and_conditions || 'Not specified'}</p>
+                    )}
                   </div>
                 </div>
 
