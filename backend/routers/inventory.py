@@ -2,8 +2,10 @@
 PostgreSQL Inventory Router - Direct database operations without SQLAlchemy.
 """
 
+from __future__ import annotations
+
 from fastapi import APIRouter, HTTPException, status, Depends
-from typing import List, Optional
+from typing import List, Optional, Union
 from datetime import datetime
 from decimal import Decimal
 
@@ -38,6 +40,60 @@ async def get_categories(
 ):
     """Return synthesized item categories derived from items table."""
     return PostgresInventoryService.get_categories(current_user["account_id"])
+
+@router.post("/categories")
+async def create_category(
+    category: CategoryCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    created = PostgresInventoryService.create_category(category.model_dump(), current_user["account_id"])
+    if not created:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create category"
+        )
+    return created
+
+@router.put("/categories/{category_id}")
+async def update_category(
+    category_id: int,
+    category: CategoryUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    if category_id == 0:
+        payload = category.model_dump(exclude_unset=True)
+        name = payload.get("name")
+        if not name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name is required to create category")
+        created = PostgresInventoryService.create_category({
+            "name": name,
+            "description": payload.get("description"),
+            "is_active": payload.get("is_active", True)
+        }, current_user["account_id"])
+        if not created:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create category")
+        return created
+
+    existing = PostgresInventoryService.get_category_by_id(category_id, current_user["account_id"])
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    updated = PostgresInventoryService.update_category(category_id, category.model_dump(exclude_unset=True), current_user["account_id"])
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update category")
+    return updated
+
+@router.delete("/categories/{category_id}")
+async def delete_category(
+    category_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    existing = PostgresInventoryService.get_category_by_id(category_id, current_user["account_id"])
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    success = PostgresInventoryService.delete_category(category_id, current_user["account_id"])
+    if not success:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete category")
+    return {"message": "Category deleted successfully"}
 
 @router.get("/categories/with-stats")
 async def get_categories_with_stats(
@@ -110,9 +166,19 @@ class ItemUpdate(BaseModel):
     dimensions: Optional[str] = None
     has_expiry: Optional[bool] = None
     shelf_life_days: Optional[int] = None
-    expiry_date: Optional[datetime] = None
+    expiry_date: Optional[Union[datetime, str]] = None
     is_active: Optional[bool] = None
     tax_rate: Optional[float] = None
+
+class CategoryCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    is_active: bool = True
+
+class CategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
 
 @router.post("/items")
 async def create_item(
@@ -158,7 +224,8 @@ async def create_item(
         'is_service': False,
         'track_inventory': True,
         'has_expiry': item_dict.get('has_expiry', False),
-        'shelf_life_days': item_dict.get('shelf_life_days')
+        'shelf_life_days': item_dict.get('shelf_life_days'),
+        'expiry_date': item_dict.get('expiry_date')
     }
     
     # Validate required fields
@@ -193,7 +260,7 @@ async def create_item(
     PostgresInventoryService.log_inventory_action(
         item_id=created_item['id'],
         account_id=current_user["account_id"],
-        action="item_created",
+        action="added",
         notes=f"Item '{created_item['name']}' created",
         user_id=current_user["id"]
     )
@@ -267,6 +334,10 @@ async def update_item(
             mapped_update_data['cost_price'] = value
             if 'purchase_price' not in mapped_update_data:
                 mapped_update_data['purchase_price'] = value
+        elif field == 'expiry_date':
+            if value in (None, ""):
+                continue
+            mapped_update_data['expiry_date'] = value
         elif field in ['tax_type', 'is_serialized']:
             # Skip frontend-only fields
             continue
@@ -290,7 +361,7 @@ async def update_item(
     PostgresInventoryService.log_inventory_action(
         item_id=item_id,
         account_id=current_user["account_id"],
-        action="item_updated",
+        action="updated",
         notes=f"Item '{updated_item['name']}' updated",
         user_id=current_user["id"]
     )

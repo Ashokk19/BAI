@@ -18,13 +18,14 @@ class Settings(BaseSettings):
     HOST: str = "localhost"
     PORT: int = 8001
     # Database Configuration
-    DATABASE_TYPE: str = "sqlite"  # postgresql, mysql, sqlite
-    DATABASE_HOST: str = "localhost"
+    DATABASE_TYPE: str = "postgresql"  # postgresql, mysql, sqlite
+    DATABASE_HOST: str = "aws-1-ap-south-1.pooler.supabase.com"
     DATABASE_PORT: int = 5432
-    DATABASE_NAME: str = "bai_db"
-    DATABASE_USER: str = "postgres"
+    DATABASE_NAME: str = "postgres"
+    DATABASE_USER: str = "postgres.jcuupuwxfmdhpfwjemou"
     DATABASE_PASSWORD: str = "postgres"
     DATABASE_URL: Optional[str] = None  # If provided, overrides other DB settings
+    DATABASE_SSLMODE: str = "require"
     
     # For cloud deployment, you can set DATABASE_URL directly:
     # DATABASE_URL = "postgresql://user:password@cloud-host:5432/database"
@@ -69,7 +70,10 @@ class Settings(BaseSettings):
             return self.DATABASE_URL
         
         if self.DATABASE_TYPE == "postgresql":
-            return f"postgresql://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
+            base = f"postgresql://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
+            if getattr(self, "DATABASE_SSLMODE", None):
+                return f"{base}?sslmode={self.DATABASE_SSLMODE}"
+            return base
         elif self.DATABASE_TYPE == "mysql":
             return f"mysql://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
         elif self.DATABASE_TYPE == "sqlite":

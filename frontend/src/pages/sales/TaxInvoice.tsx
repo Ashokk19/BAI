@@ -762,7 +762,7 @@ const TaxInvoice: React.FC = () => {
     }
   };
 
-    const handleDownloadInvoice = () => {
+    const handleDownloadInvoice = async () => {
     if (!generatedInvoice) {
       notifications.warning(
         'Invoice Not Generated',
@@ -774,6 +774,19 @@ const TaxInvoice: React.FC = () => {
       );
       return;
     }
+
+    // Ensure organization is loaded (for terms and signature block)
+    let orgForPdf = organization as OrganizationProfile | null;
+    if (!organization) {
+      try {
+        const orgData = await organizationService.getOrganizationProfile();
+        setOrganization(orgData);
+        orgForPdf = orgData;
+      } catch (e) {
+        // If org fetch fails, continue with empty terms/company
+      }
+    }
+    orgForPdf = orgForPdf || organization || null;
 
     const totals = calculateTotals();
     const customerName = selectedCustomer ? getCustomerDisplayName(selectedCustomer) : getAdhocCustomerDisplayName();
@@ -817,6 +830,23 @@ const TaxInvoice: React.FC = () => {
     const totalIGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.igstAmount, 0);
     const totalTax = totalCGST + totalSGST + totalIGST;
     const totalAmount = subtotal + totalTax;
+
+    // Signature preferences from current user
+    const signatureName = ((user as any)?.signature_name || `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || user?.username || '').toString();
+    const signatureStyle = ((user as any)?.signature_style || 'handwritten') as string;
+    const signatureStyleCss = (() => {
+      switch (signatureStyle) {
+        case 'cursive':
+          return "font-family: cursive; font-size: 18px;";
+        case 'print':
+          return "font-family: 'Times New Roman', Times, serif; font-size: 16px; font-weight: 600;";
+        case 'mono':
+          return "font-family: 'Courier New', monospace; font-size: 16px; font-weight: 600;";
+        case 'handwritten':
+        default:
+          return "font-family: 'Brush Script MT', 'Segoe Script', 'Lucida Handwriting', cursive; font-size: 20px; font-weight: 500;";
+      }
+    })();
     
     const invoiceContent = `
       <!DOCTYPE html>
@@ -1411,7 +1441,24 @@ const TaxInvoice: React.FC = () => {
               </div>` : ''}
             </div>
             ` : ''}
-            
+
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-top: 10px;">
+              <div style="border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px;">
+                <div style="font-weight: 700; color: #4c1d95; margin-bottom: 6px;">Terms and Conditions :</div>
+                <div style="font-style: italic; color: #555; white-space: pre-wrap; line-height: 1.35; font-size: 12px; text-align: left;">
+                  ${orgForPdf?.terms_and_conditions || ''}
+                </div>
+              </div>
+              <div style="border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="text-align: right; font-size: 12px; color: #444;">For <strong>${orgForPdf?.company_name || ''}</strong></div>
+                <div style="height: 46px;"></div>
+                <div style="text-align: right;">
+                  <div style="${signatureStyleCss}">${signatureName}</div>
+                  <div style="font-size: 11px; color: #666;">Authorized Signatory</div>
+                </div>
+              </div>
+            </div>
+
             <!-- Footer -->
             <div class="footer-info">
               <div>
@@ -1889,7 +1936,7 @@ const TaxInvoice: React.FC = () => {
               </label>
               <input
                 type="date"
-                value={invoice.invoice_date}
+                value={invoice.invoice_date || ''}
                 onChange={(e) => setInvoice(prev => ({ ...prev, invoice_date: e.target.value }))}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               />
@@ -2273,7 +2320,7 @@ const TaxInvoice: React.FC = () => {
                 </label>
                 <input
                   type="date"
-                  value={paymentFormData.payment_date}
+                  value={paymentFormData.payment_date || ''}
                   onChange={(e) => setPaymentFormData(prev => ({ ...prev, payment_date: e.target.value }))}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />

@@ -48,6 +48,12 @@ class ApiService {
           url: response.config.url,
           status: response.status
         });
+        
+        // Log invoice response data
+        if (response.config.url?.includes('/api/sales/invoices/?')) {
+          console.log('📊 RAW Invoice API Response Data:', response.data);
+        }
+        
         return response;
       },
       (error) => {

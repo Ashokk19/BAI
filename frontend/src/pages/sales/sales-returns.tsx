@@ -178,11 +178,11 @@ export default function SalesReturns() {
       console.log('Loading invoices for customer:', customerId)
       const response = await invoiceApi.getInvoices({ 
         customer_id: customerId,
-        limit: 100,
-        status: 'sent' // Only load sent/completed invoices
+        limit: 100
       })
-      console.log('Customer invoices loaded:', response.invoices)
-      setCustomerInvoices(response.invoices)
+      const filtered = (response.invoices || []).filter(inv => Number(inv.customer_id) === Number(customerId))
+      console.log('Customer invoices loaded (filtered):', filtered)
+      setCustomerInvoices(filtered)
     } catch (error) {
       console.error('Error loading customer invoices:', error)
       notifications.error('Loading Failed', 'Unable to load customer invoices.')
@@ -725,25 +725,13 @@ export default function SalesReturns() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="return_date">Return Date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start text-left font-normal bg-white/50 border-white/20"
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={selectedDate}
-                        onSelect={setSelectedDate}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+                  <input
+                    id="return_date"
+                    type="date"
+                    value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+                    onChange={(e) => setSelectedDate(e.target.value ? new Date(e.target.value) : undefined)}
+                    className="w-full p-2 border border-white/20 rounded-md bg-white/50"
+                  />
                 </div>
                 <div>
                   <Label htmlFor="items_condition">Overall Items Condition</Label>
@@ -971,19 +959,19 @@ export default function SalesReturns() {
               <TableBody>
                 {returns.map((returnItem) => (
                   <TableRow key={returnItem.id}>
-                    <TableCell className="font-medium">{returnItem.return_number}</TableCell>
-                    <TableCell>{returnItem.customer_name}</TableCell>
-                    <TableCell>{returnItem.invoice_number}</TableCell>
-                    <TableCell>{format(new Date(returnItem.return_date), 'MMM dd, yyyy')}</TableCell>
-                    <TableCell>₹{parseFloat(returnItem.total_return_amount.toString()).toFixed(2)}</TableCell>
+                    <TableCell className="font-medium">{returnItem.return_number || '-'}</TableCell>
+                    <TableCell>{returnItem.customer_name || '-'}</TableCell>
+                    <TableCell>{returnItem.invoice_number || '-'}</TableCell>
+                    <TableCell>{returnItem.return_date ? format(new Date(returnItem.return_date), 'MMM dd, yyyy') : '-'}</TableCell>
+                    <TableCell>₹{returnItem.total_return_amount ? parseFloat(returnItem.total_return_amount.toString()).toFixed(2) : '0.00'}</TableCell>
                     <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(returnItem.status)}`}>
-                        {returnItem.status}
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(returnItem.status || 'pending')}`}>
+                        {returnItem.status || 'pending'}
                       </span>
                     </TableCell>
                     <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(returnItem.refund_status)}`}>
-                        {returnItem.refund_status}
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(returnItem.refund_status || 'pending')}`}>
+                        {returnItem.refund_status || 'pending'}
                       </span>
                     </TableCell>
                     <TableCell>

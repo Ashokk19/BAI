@@ -20,15 +20,22 @@ class PostgresDB:
     def _init_connection_pool(self):
         """Initialize connection pool using BAI settings."""
         try:
-            self.connection_pool = SimpleConnectionPool(
-                1, 20,  # min and max connections
-                host=settings.DATABASE_HOST,
-                database=settings.DATABASE_NAME,
-                user=settings.DATABASE_USER,
-                password=settings.DATABASE_PASSWORD,
-                port=settings.DATABASE_PORT
-            )
-            print(f"✅ PostgreSQL connection pool initialized for {settings.DATABASE_NAME}")
+            # Prefer DSN to include sslmode for Supabase
+            dsn = settings.database_url
+            # Fallback to params (with sslmode) if DSN unavailable
+            if not dsn:
+                self.connection_pool = SimpleConnectionPool(
+                    1, 20,
+                    host=settings.DATABASE_HOST,
+                    database=settings.DATABASE_NAME,
+                    user=settings.DATABASE_USER,
+                    password=settings.DATABASE_PASSWORD,
+                    port=settings.DATABASE_PORT,
+                    sslmode=getattr(settings, "DATABASE_SSLMODE", "require"),
+                )
+            else:
+                self.connection_pool = SimpleConnectionPool(1, 20, dsn=dsn)
+            print(f"✅ PostgreSQL connection pool initialized for {settings.DATABASE_NAME} at {settings.DATABASE_HOST}")
         except Exception as e:
             print(f"❌ Failed to initialize PostgreSQL connection pool: {e}")
             raise

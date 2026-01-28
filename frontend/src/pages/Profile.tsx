@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Mail, Phone, MapPin, Building, Edit, Save, X, Loader2 } from 'lucide-react';
 import { useNotifications, NotificationContainer } from '../components/ui/notification';
 import { userService, UserProfile, UserProfileUpdate } from '../services/userService';
+import { organizationService, OrganizationProfile } from '../services/organizationService';
 import { useAuth } from '../utils/AuthContext';
 import { Card, CardContent, CardHeader } from '../components/ui/card';
 
@@ -14,12 +15,14 @@ const Profile: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [tempProfile, setTempProfile] = useState<UserProfileUpdate>({});
   const [isLoadingPincode, setIsLoadingPincode] = useState(false);
+  const [organization, setOrganization] = useState<OrganizationProfile | null>(null);
 
   const notifications = useNotifications();
 
   useEffect(() => {
     if (authUser) {
       loadProfile();
+      loadOrganization();
     }
   }, [authUser]);
 
@@ -38,6 +41,16 @@ const Profile: React.FC = () => {
     }
   };
 
+  const loadOrganization = async () => {
+    try {
+      const org = await organizationService.getOrganizationProfile();
+      setOrganization(org);
+    } catch (error) {
+      // If no organization exists or 404, treat as null and do not alert
+      setOrganization(null);
+    }
+  };
+
   const handleEdit = () => {
     if (profile) {
       setTempProfile({
@@ -49,8 +62,10 @@ const Profile: React.FC = () => {
         city: profile.city,
         state: profile.state,
         postal_code: profile.postal_code,
-        company: profile.company,
+        company: profile.company || organization?.company_name || '',
         designation: profile.designation,
+        signature_name: profile.signature_name || ((profile.first_name || '') + ' ' + (profile.last_name || '')).trim(),
+        signature_style: profile.signature_style || 'handwritten',
       });
     }
     setIsEditing(true);
@@ -64,8 +79,26 @@ const Profile: React.FC = () => {
   const handleSave = async () => {
     setIsLoading(true);
     try {
-      const updatedProfile = await userService.updateProfile(tempProfile);
-      setProfile(updatedProfile);
+      // Build payload ensuring blank strings persist and company defaults to org name if available
+      const payload: UserProfileUpdate = {
+        first_name: tempProfile.first_name ?? '',
+        last_name: tempProfile.last_name ?? '',
+        phone: tempProfile.phone ?? '',
+        mobile: tempProfile.mobile ?? '',
+        address: tempProfile.address ?? '',
+        city: tempProfile.city ?? '',
+        state: tempProfile.state ?? '',
+        postal_code: tempProfile.postal_code ?? '',
+        company: (tempProfile.company !== undefined && tempProfile.company !== null)
+          ? tempProfile.company
+          : (organization?.company_name || ''),
+        designation: tempProfile.designation ?? '',
+        signature_name: tempProfile.signature_name ?? `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim(),
+        signature_style: tempProfile.signature_style ?? 'handwritten',
+      };
+
+      await userService.updateProfile(payload);
+      await loadProfile();
       setIsEditing(false);
       
       notifications.success(
@@ -160,7 +193,11 @@ const Profile: React.FC = () => {
 
   const getInitials = () => {
     if (!profile) return '';
-    return `${profile.first_name.charAt(0)}${profile.last_name.charAt(0)}`.toUpperCase();
+    const first = profile.first_name || profile.username || '';
+    const last = profile.last_name || '';
+    const fi = typeof first === 'string' && first.length > 0 ? first.charAt(0) : '';
+    const li = typeof last === 'string' && last.length > 0 ? last.charAt(0) : '';
+    return `${fi}${li}`.toUpperCase();
   };
 
   // Show loading state while profile is being fetched
@@ -228,7 +265,7 @@ const Profile: React.FC = () => {
                       {profile.first_name} {profile.last_name}
                     </h2>
                     <p className="text-gray-600">{profile.designation || 'No designation'}</p>
-                    <p className="text-sm text-gray-500">{profile.company || 'No company'}</p>
+                    <p className="text-sm text-gray-500">{profile.company || ''}</p>
                   </div>
 
                   {/* Contact Info */}
@@ -371,7 +408,7 @@ const Profile: React.FC = () => {
                           className="w-full p-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-lg"
                         />
                       ) : (
-                        <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile.company || 'No company'}</p>
+                        <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile.company || ''}</p>
                       )}
                     </div>
 
@@ -401,6 +438,63 @@ const Profile: React.FC = () => {
                       ) : (
                         <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile.address || 'No address'}</p>
                       )}
+                    </div>
+
+                    {/* Digital Signature Settings */}
+                    <div className="pt-2 border-t">
+                      <h4 className="font-medium text-gray-900 mb-2">Digital Signature</h4>
+                      <div className="grid grid-cols-1 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Signature Name</label>
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={tempProfile.signature_name || ''}
+                              onChange={(e) => handleInputChange('signature_name', e.target.value)}
+                              className="w-full p-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-lg"
+                              placeholder="Name to display in signature"
+                            />
+                          ) : (
+                            <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile.signature_name || `${profile.first_name} ${profile.last_name}`}</p>
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Signature Style</label>
+                          {isEditing ? (
+                            <select
+                              value={tempProfile.signature_style || 'handwritten'}
+                              onChange={(e) => handleInputChange('signature_style', e.target.value)}
+                              className="w-full p-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-lg"
+                            >
+                              <option value="handwritten">Handwritten</option>
+                              <option value="cursive">Cursive</option>
+                              <option value="print">Print</option>
+                              <option value="mono">Monospace</option>
+                            </select>
+                          ) : (
+                            <p className="p-3 bg-gray-50 rounded-lg text-gray-900 capitalize">{profile.signature_style || 'handwritten'}</p>
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Preview</label>
+                          {(() => {
+                            const styleMap: Record<string, React.CSSProperties> = {
+                              handwritten: { fontFamily: 'Brush Script MT, Segoe Script, Lucida Handwriting, cursive', fontSize: '20px', fontWeight: 500 },
+                              cursive: { fontFamily: 'cursive', fontSize: '20px' },
+                              print: { fontFamily: 'Times New Roman, Times, serif', fontSize: '16px', fontWeight: 600 },
+                              mono: { fontFamily: 'Courier New, monospace', fontSize: '16px', fontWeight: 600 },
+                            };
+                            const s = (isEditing ? tempProfile.signature_style : profile.signature_style) || 'handwritten';
+                            const name = (isEditing ? tempProfile.signature_name : profile.signature_name) || `${profile.first_name} ${profile.last_name}`;
+                            return (
+                              <div className="p-3 bg-white/70 rounded border border-white/80 text-right">
+                                <div style={styleMap[s]}> {name} </div>
+                                <div className="text-xs text-gray-600 mt-1">Authorized Signatory</div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
                     </div>
                   </div>
 

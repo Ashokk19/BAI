@@ -117,3 +117,5 @@ class UserUpdate(BaseModel):
     postal_code: Optional[str] = None
     company: Optional[str] = None
     designation: Optional[str] = None 
+    signature_name: Optional[str] = None
+    signature_style: Optional[str] = None

@@ -6,21 +6,13 @@
 import { apiService } from './api';
 
 export interface PurchaseOrderItem {
-  id: number;
-  purchase_order_id: number;
   item_id: number;
   item_name: string;
-  item_description?: string;
-  item_sku: string;
-  quantity_ordered: number;
+  description?: string;
+  quantity: number;
   unit_price: number;
-  discount_rate: number;
-  tax_rate: number;
-  discount_amount: number;
-  tax_amount: number;
-  line_total: number;
-  created_at: string;
-  updated_at?: string;
+  tax_rate?: number;
+  discount_percentage?: number;
 }
 
 export interface PurchaseOrder {
@@ -29,73 +21,87 @@ export interface PurchaseOrder {
   po_date: string;
   expected_delivery_date?: string;
   vendor_id: number;
+  vendor_name?: string;
   status: string;
-  priority: string;
   subtotal: number;
   tax_amount: number;
   discount_amount: number;
   total_amount: number;
-  payment_terms: string;
-  currency: string;
-  shipping_address?: string;
-  shipping_method?: string;
-  shipping_cost: number;
   notes?: string;
-  terms_conditions?: string;
-  created_by: number;
-  items: PurchaseOrderItem[];
-  created_at: string;
-  updated_at?: string;
+  terms_and_conditions?: string;
+}
+
+export interface PurchaseOrderDetailItem {
+  id: number;
+  item_id: number;
+  item_name: string;
+  description?: string;
+  quantity: number;
+  unit_price: number;
+  tax_rate?: number;
+  tax_amount?: number;
+  discount_percentage?: number;
+  discount_amount?: number;
+  line_total?: number;
+}
+
+export interface PurchaseOrderDetail extends PurchaseOrder {
+  vendor_code?: string;
+  reference_number?: string;
+  items: PurchaseOrderDetailItem[];
 }
 
 export interface PurchaseOrderListResponse {
   purchase_orders: PurchaseOrder[];
   total: number;
-  page: number;
-  per_page: number;
-  total_pages: number;
+  skip: number;
+  limit: number;
 }
 
 export interface PurchaseOrderItemCreatePayload {
   item_id: number;
   item_name: string;
-  item_sku: string;
-  quantity_ordered: number;
+  description?: string;
+  quantity: number;
   unit_price: number;
-  discount_rate?: number;
   tax_rate?: number;
+  discount_percentage?: number;
 }
 
 export interface PurchaseOrderCreatePayload {
-  po_number: string;
-  po_date: string;
-  expected_delivery_date?: string;
   vendor_id: number;
+  po_date: string; // ISO date string
+  expected_delivery_date?: string; // ISO date string
+  reference_number?: string;
   status?: string;
-  priority?: string;
-  payment_terms?: string;
-  currency?: string;
-  shipping_address?: string;
-  shipping_method?: string;
-  shipping_cost?: number;
   notes?: string;
-  terms_conditions?: string;
+  terms_and_conditions?: string;
   items: PurchaseOrderItemCreatePayload[];
 }
 
 export const getPurchaseOrders = async (): Promise<PurchaseOrderListResponse> => {
-  const response = await apiService.get<PurchaseOrderListResponse>('/purchases/purchase-orders');
+  const response = await apiService.get<PurchaseOrderListResponse>('/api/purchases/orders/');
   return response;
 };
 
-export const createPurchaseOrder = async (orderData: PurchaseOrderCreatePayload): Promise<PurchaseOrder> => {
-  const response = await apiService.post<PurchaseOrder>('/purchases/purchase-orders', orderData);
+export const createPurchaseOrder = async (orderData: PurchaseOrderCreatePayload): Promise<{ po_id: number; po_number: string; message: string }> => {
+  const response = await apiService.post<{ po_id: number; po_number: string; message: string }, PurchaseOrderCreatePayload>('/api/purchases/orders/', orderData);
+  return response;
+};
+
+export const getPurchaseOrder = async (orderId: number): Promise<PurchaseOrderDetail> => {
+  const response = await apiService.get<PurchaseOrderDetail>(`/api/purchases/orders/${orderId}`);
+  return response;
+};
+
+export const updatePurchaseOrder = async (orderId: number, orderData: PurchaseOrderCreatePayload): Promise<{ message: string; po_id: number; po_number: string }> => {
+  const response = await apiService.put<{ message: string; po_id: number; po_number: string }, PurchaseOrderCreatePayload>(`/api/purchases/orders/${orderId}`, orderData);
   return response;
 };
 
 export const deletePurchaseOrder = async (orderId: number): Promise<void> => {
   try {
-    await apiService.delete(`/purchases/purchase-orders/${orderId}`);
+    await apiService.delete(`/api/purchases/orders/${orderId}`);
   } catch (error: any) {
     const errorMessage = error.response?.data?.detail || 'Failed to delete purchase order';
     throw new Error(errorMessage);

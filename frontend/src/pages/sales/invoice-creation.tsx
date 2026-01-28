@@ -19,6 +19,13 @@ const formatDate = (date: Date, format: string) => {
     return date.toISOString().split('T')[0]
   }
   
+  if (format === "dd/mm/yyyy") {
+    const day = String(date.getDate()).padStart(2, '0')
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const year = date.getFullYear()
+    return `${day}/${month}/${year}`
+  }
+  
   if (format === "PPP") {
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
@@ -160,13 +167,33 @@ export default function InvoiceCreation() {
                     <Label>Invoice Date</Label>
                     <Popover>
                       <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start bg-white/50 border-white/20">
+                        <Button variant="outline" className="w-full justify-start">
                           <CalendarIcon className="mr-2 h-4 w-4" />
-                          {invoiceDate ? formatDate(invoiceDate, "PPP") : "Pick a date"}
+                          {invoiceDate ? formatDate(invoiceDate, "dd/mm/yyyy") : "dd/mm/yyyy"}
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar mode="single" selected={invoiceDate} onSelect={setInvoiceDate} initialFocus />
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <div className="p-0">
+                          <Calendar mode="single" selected={invoiceDate} onSelect={setInvoiceDate} initialFocus />
+                          <div className="flex items-center justify-between p-3 border-t">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setInvoiceDate(undefined)}
+                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            >
+                              Clear
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setInvoiceDate(new Date())}
+                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            >
+                              Today
+                            </Button>
+                          </div>
+                        </div>
                       </PopoverContent>
                     </Popover>
                   </div>
@@ -174,13 +201,33 @@ export default function InvoiceCreation() {
                     <Label>Due Date</Label>
                     <Popover>
                       <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start bg-white/50 border-white/20">
+                        <Button variant="outline" className="w-full justify-start">
                           <CalendarIcon className="mr-2 h-4 w-4" />
-                          {dueDate ? formatDate(dueDate, "PPP") : "Pick a date"}
+                          {dueDate ? formatDate(dueDate, "dd/mm/yyyy") : "dd/mm/yyyy"}
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar mode="single" selected={dueDate} onSelect={setDueDate} initialFocus />
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <div className="p-0">
+                          <Calendar mode="single" selected={dueDate} onSelect={setDueDate} initialFocus />
+                          <div className="flex items-center justify-between p-3 border-t">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDueDate(undefined)}
+                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            >
+                              Clear
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDueDate(new Date())}
+                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            >
+                              Today
+                            </Button>
+                          </div>
+                        </div>
                       </PopoverContent>
                     </Popover>
                   </div>

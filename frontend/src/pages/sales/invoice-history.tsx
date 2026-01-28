@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar } from "@/components/ui/calendar"
+import { DatePopover } from "@/components/ui/date-popover"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CalendarIcon, Search, FileText, Eye, Download, Send, TrendingUp, DollarSign, Clock, CheckCircle, Plus, RefreshCw, Trash2, ChevronLeft, ChevronRight, Truck } from "lucide-react"
 import { toast } from "sonner"
@@ -46,6 +47,13 @@ const safeNumber = (value: number | string): number => {
 const formatDate = (date: Date, format: string) => {
   if (format === "yyyy-MM-dd") {
     return date.toISOString().split('T')[0]
+  }
+  
+  if (format === "dd/mm/yyyy") {
+    const day = String(date.getDate()).padStart(2, '0')
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const year = date.getFullYear()
+    return `${day}/${month}/${year}`
   }
   
   if (format === "PPP") {
@@ -197,6 +205,7 @@ export default function InvoiceHistory() {
       }
 
       const response = await invoiceApi.getInvoices(filters)
+      console.log('📊 Invoice API Response:', { total: response.total, invoiceCount: response.invoices?.length })
       setInvoices(response.invoices || [])
       
       // Calculate pagination info
@@ -209,8 +218,8 @@ export default function InvoiceHistory() {
         const invoiceIds = response.invoices.map(invoice => invoice.id)
         const notesMap = await loadDeliveryNotes(invoiceIds)
         console.log('📝 Delivery notes loaded, now loading delivery statuses...')
-        // Load delivery statuses with the fresh delivery notes data
-        loadDeliveryStatuses(notesMap)
+        // Load delivery statuses with the fresh delivery notes data AND pass the invoices
+        loadDeliveryStatuses(notesMap, response.invoices)
       }
     } catch (error) {
       console.error('Error loading invoices:', error)
@@ -314,13 +323,15 @@ export default function InvoiceHistory() {
     return paymentStatuses[invoiceId] || 'Pending'
   }
 
-  const loadDeliveryStatuses = async (notesMap?: { [invoiceId: number]: DeliveryNote[] }) => {
+  const loadDeliveryStatuses = async (notesMap?: { [invoiceId: number]: DeliveryNote[] }, invoicesList?: any[]) => {
     const currentDeliveryNotes = notesMap || deliveryNotes
+    const currentInvoices = invoicesList || invoices
     console.log('🚀 loadDeliveryStatuses called', {
-      invoicesCount: invoices.length,
+      invoicesCount: currentInvoices.length,
       deliveryNotesCount: Object.keys(currentDeliveryNotes).length,
       alreadyLoaded: deliveryStatusesLoaded,
-      usingPassedNotes: !!notesMap
+      usingPassedNotes: !!notesMap,
+      usingPassedInvoices: !!invoicesList
     })
     
     // Prevent unnecessary reloading if we already have statuses
@@ -340,7 +351,7 @@ export default function InvoiceHistory() {
     try {
       const statuses: {[key: number]: string} = {}
       
-      for (const invoice of invoices) {
+      for (const invoice of currentInvoices) {
         try {
           // First, check shipments for this invoice (primary source)
           console.log(`🚚 Invoice ${invoice.id}: Checking shipments first...`)
@@ -394,8 +405,27 @@ export default function InvoiceHistory() {
             console.log(`📝 Invoice ${invoice.id}: No shipments, checking delivery notes...`)
             console.log(`📝 Invoice ${invoice.id}: Available delivery notes data:`, currentDeliveryNotes)
             console.log(`📝 Invoice ${invoice.id}: Checking currentDeliveryNotes[${invoice.id}]:`, currentDeliveryNotes[invoice.id])
-            const notes = currentDeliveryNotes[invoice.id] || []
-            console.log(`📝 Invoice ${invoice.id}: Found ${notes.length} delivery notes:`, notes)
+            console.log(`📝 Invoice ${invoice.id}: All invoice IDs in currentDeliveryNotes:`, Object.keys(currentDeliveryNotes))
+            
+            let notes = currentDeliveryNotes[invoice.id] || []
+            console.log(`📝 Invoice ${invoice.id}: Found ${notes.length} delivery notes in map:`, notes)
+            
+            // If no notes in map, try fetching directly from API as fallback
+            if (notes.length === 0) {
+              console.log(`📝 Invoice ${invoice.id}: No notes in map, fetching directly from API...`)
+              try {
+                notes = await shipmentApi.getDeliveryNotesByInvoice(invoice.id)
+                console.log(`📝 Invoice ${invoice.id}: Fetched ${notes.length} delivery notes from API:`, notes)
+              } catch (fetchError) {
+                console.error(`📝 Invoice ${invoice.id}: Error fetching delivery notes:`, fetchError)
+                notes = []
+              }
+            }
+            
+            // Debug: Log each note's details
+            notes.forEach((note, index) => {
+              console.log(`📝 Invoice ${invoice.id}: Note ${index + 1} - Status: "${note.delivery_status}", ID: ${note.id}, Invoice ID: ${note.invoice_id}`)
+            })
             
             if (notes.length > 0) {
               // Get the most recent delivery note status
@@ -720,6 +750,23 @@ export default function InvoiceHistory() {
       const roundedTotalIGST = Math.round(totalIGST * 100) / 100;
       const roundedTotalTax = Math.round(totalTax * 100) / 100;
       const roundedTotalAmount = Math.round(totalAmount * 100) / 100;
+      
+      // Signature preferences from current user
+      const signatureName = ((user as any)?.signature_name || `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || user?.username || '').toString();
+      const signatureStyle = ((user as any)?.signature_style || 'handwritten') as string;
+      const signatureStyleCss = (() => {
+        switch (signatureStyle) {
+          case 'cursive':
+            return "font-family: cursive; font-size: 18px;";
+          case 'print':
+            return "font-family: 'Times New Roman', Times, serif; font-size: 16px; font-weight: 600;";
+          case 'mono':
+            return "font-family: 'Courier New', monospace; font-size: 16px; font-weight: 600;";
+          case 'handwritten':
+          default:
+            return "font-family: 'Brush Script MT', 'Segoe Script', 'Lucida Handwriting', cursive; font-size: 20px; font-weight: 500;";
+        }
+      })();
       
       const invoiceContent = `
         <!DOCTYPE html>
@@ -1278,7 +1325,7 @@ export default function InvoiceHistory() {
                 <div style="color: #555; font-size: 11px; line-height: 1.3;">${invoice.notes}</div>
               </div>
               ` : ''}
-              
+
               <!-- Amount in Words -->
               <div class="amount-words">
                 <div class="label">Amount in Words:</div>
@@ -1312,6 +1359,23 @@ export default function InvoiceHistory() {
                 </div>` : ''}
               </div>
               ` : ''}
+
+              <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-top: 10px;">
+                <div style="border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px;">
+                  <div style="font-weight: 700; color: #4c1d95; margin-bottom: 6px;">Terms and Conditions :</div>
+                  <div style="font-style: italic; color: #555; white-space: pre-wrap; line-height: 1.35; font-size: 12px;">
+                    ${organization?.terms_and_conditions || ''}
+                  </div>
+                </div>
+                <div style="border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between;">
+                  <div style="text-align: right; font-size: 12px; color: #444;">For <strong>${organization?.company_name || ''}</strong></div>
+                  <div style="height: 46px;"></div>
+                  <div style="text-align: right;">
+                    <div style="${signatureStyleCss}">${signatureName}</div>
+                    <div style="font-size: 11px; color: #666;">Authorized Signatory</div>
+                  </div>
+                </div>
+              </div>
               
               <!-- Footer -->
               <div class="footer-info">
@@ -1538,17 +1602,12 @@ export default function InvoiceHistory() {
                   ))}
                 </SelectContent>
               </Select>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="bg-white/70 border-white/30 hover:bg-white hover:border-violet-300">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    Date Range
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar mode="range" numberOfMonths={2} />
-                </PopoverContent>
-              </Popover>
+              <DatePopover
+                mode="range"
+                value={dateRange}
+                onChange={handleDateRangeChange}
+                className="bg-white/70 border-white/30 hover:bg-white hover:border-violet-300"
+              />
               
             </div>
           </CardContent>

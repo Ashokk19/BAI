@@ -11,7 +11,27 @@ from fastapi import HTTPException
 import uvicorn
 import traceback
 
-from routers import auth, inventory, sales, purchases, dashboard, customers  # , organization, user_management
+from routers import (
+    auth,
+    inventory,
+    sales,
+    purchases,
+    dashboard,
+    customers,
+    organization_pg,
+    user_management_pg,
+    sales_invoices_pg,
+    payments_pg,
+    shipments_pg,
+    sales_returns_pg,
+    credits_pg,
+    vendors_pg,
+    purchase_orders_pg,
+    bills_pg,
+    vendor_payments_pg,
+    vendor_credits_pg,
+    purchase_receipts_pg,
+)
 from database.postgres_db import postgres_db
 from config.settings import settings
 
@@ -22,7 +42,7 @@ print("🐘 Initializing PostgreSQL connection...")
 app = FastAPI(
     title="BAI - Billing and Inventory Management API (PostgreSQL)",
     description="Backend API for BAI application using direct PostgreSQL",
-    version="2.0.0",
+    version="2.0.6",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -43,11 +63,21 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
 app.include_router(customers.router, prefix="/api/customers", tags=["Customers"])
 app.include_router(sales.router, prefix="/api/sales", tags=["Sales"])
+app.include_router(sales_invoices_pg.router, prefix="/api/sales/invoices", tags=["Invoices (PostgreSQL)"])
+app.include_router(payments_pg.router, prefix="/api/sales/payments", tags=["Payments (PostgreSQL)"])
+app.include_router(shipments_pg.router, prefix="/api/sales/shipments", tags=["Shipments (PostgreSQL)"])
+app.include_router(sales_returns_pg.router, prefix="/api/sales/returns", tags=["Sales Returns (PostgreSQL)"])
+app.include_router(credits_pg.router, prefix="/api/sales/credits", tags=["Credits (PostgreSQL)"])
 app.include_router(purchases.router, prefix="/api/purchases", tags=["Purchases"])
+app.include_router(vendors_pg.router, prefix="/api/purchases/vendors", tags=["Vendors (PostgreSQL)"])
+app.include_router(purchase_orders_pg.router, prefix="/api/purchases/orders", tags=["Purchase Orders (PostgreSQL)"])
+app.include_router(bills_pg.router, prefix="/api/purchases/bills", tags=["Bills (PostgreSQL)"])
+app.include_router(vendor_payments_pg.router, prefix="/api/purchases/payments", tags=["Vendor Payments (PostgreSQL)"])
+app.include_router(vendor_credits_pg.router, prefix="/api/purchases/credits", tags=["Vendor Credits (PostgreSQL)"])
+app.include_router(purchase_receipts_pg.router, prefix="/api/purchases/receipts", tags=["Purchase Receipts (PostgreSQL)"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
-# TODO: Migrate these routers to PostgreSQL
-# app.include_router(organization.router, prefix="/api/organization", tags=["Organization"])
-# app.include_router(user_management.router, prefix="/api/user-management", tags=["User Management"])
+app.include_router(organization_pg.router, prefix="/api/organization", tags=["Organization"])
+app.include_router(user_management_pg.router, prefix="/api/user-management", tags=["User Management"])
 
 @app.options("/{path:path}")
 async def options_handler(path: str):
@@ -112,4 +142,4 @@ if __name__ == "__main__":
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG
-    ) 
+    )

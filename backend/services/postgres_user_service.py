@@ -15,15 +15,31 @@ class PostgresUserService:
         """Get user by ID using direct PostgreSQL."""
         
         query = """
-        SELECT id, account_id, username, email, full_name, 
-               is_active, is_admin, created_at, updated_at
-        FROM users 
+        SELECT id, account_id, username, email, full_name,
+               first_name, last_name, phone, mobile, address, city, state, postal_code,
+               company, designation, is_active, is_admin, created_at, updated_at, last_login,
+               signature_name, signature_style
+        FROM users
+        WHERE id = %s
+        """
+        fallback_query = """
+        SELECT id, account_id, username, email, full_name,
+               first_name, last_name, phone, mobile, address, city, state, postal_code,
+               company, designation, is_active, is_admin, created_at, updated_at, last_login
+        FROM users
         WHERE id = %s
         """
         
         try:
             return postgres_db.execute_single(query, (user_id,))
         except Exception as e:
+            msg = str(e).lower()
+            if "signature_name" in msg or "signature_style" in msg or "does not exist" in msg:
+                try:
+                    return postgres_db.execute_single(fallback_query, (user_id,))
+                except Exception as e2:
+                    print(f"Error getting user by ID (fallback): {e2}")
+                    return None
             print(f"Error getting user by ID: {e}")
             return None
     
@@ -32,15 +48,31 @@ class PostgresUserService:
         """Get user by username using direct PostgreSQL."""
         
         query = """
-        SELECT id, account_id, username, email, full_name, 
-               hashed_password, is_active, is_admin, created_at, updated_at
-        FROM users 
+        SELECT id, account_id, username, email, full_name,
+               first_name, last_name, phone, mobile, address, city, state, postal_code,
+               company, designation, hashed_password, is_active, is_admin, created_at, updated_at, last_login,
+               signature_name, signature_style
+        FROM users
+        WHERE username = %s
+        """
+        fallback_query = """
+        SELECT id, account_id, username, email, full_name,
+               first_name, last_name, phone, mobile, address, city, state, postal_code,
+               company, designation, hashed_password, is_active, is_admin, created_at, updated_at, last_login
+        FROM users
         WHERE username = %s
         """
         
         try:
             return postgres_db.execute_single(query, (username,))
         except Exception as e:
+            msg = str(e).lower()
+            if "signature_name" in msg or "signature_style" in msg or "does not exist" in msg:
+                try:
+                    return postgres_db.execute_single(fallback_query, (username,))
+                except Exception as e2:
+                    print(f"Error getting user by username (fallback): {e2}")
+                    return None
             print(f"Error getting user by username: {e}")
             return None
     
@@ -49,15 +81,31 @@ class PostgresUserService:
         """Get user by username and account_id using direct PostgreSQL."""
         
         query = """
-        SELECT id, account_id, username, email, full_name, 
-               hashed_password, is_active, is_admin, created_at, updated_at
-        FROM users 
+        SELECT id, account_id, username, email, full_name,
+               first_name, last_name, phone, mobile, address, city, state, postal_code,
+               company, designation, hashed_password, is_active, is_admin, created_at, updated_at, last_login,
+               signature_name, signature_style
+        FROM users
+        WHERE username = %s AND account_id = %s
+        """
+        fallback_query = """
+        SELECT id, account_id, username, email, full_name,
+               first_name, last_name, phone, mobile, address, city, state, postal_code,
+               company, designation, hashed_password, is_active, is_admin, created_at, updated_at, last_login
+        FROM users
         WHERE username = %s AND account_id = %s
         """
         
         try:
             return postgres_db.execute_single(query, (username, account_id))
         except Exception as e:
+            msg = str(e).lower()
+            if "signature_name" in msg or "signature_style" in msg or "does not exist" in msg:
+                try:
+                    return postgres_db.execute_single(fallback_query, (username, account_id))
+                except Exception as e2:
+                    print(f"Error getting user by username and account (fallback): {e2}")
+                    return None
             print(f"Error getting user by username and account: {e}")
             return None
     
@@ -66,15 +114,31 @@ class PostgresUserService:
         """Get user by email using direct PostgreSQL."""
         
         query = """
-        SELECT id, account_id, username, email, full_name, 
-               hashed_password, is_active, is_admin, created_at, updated_at
-        FROM users 
+        SELECT id, account_id, username, email, full_name,
+               first_name, last_name, phone, mobile, address, city, state, postal_code,
+               company, designation, hashed_password, is_active, is_admin, created_at, updated_at, last_login,
+               signature_name, signature_style
+        FROM users
+        WHERE email = %s
+        """
+        fallback_query = """
+        SELECT id, account_id, username, email, full_name,
+               first_name, last_name, phone, mobile, address, city, state, postal_code,
+               company, designation, hashed_password, is_active, is_admin, created_at, updated_at, last_login
+        FROM users
         WHERE email = %s
         """
         
         try:
             return postgres_db.execute_single(query, (email,))
         except Exception as e:
+            msg = str(e).lower()
+            if "signature_name" in msg or "signature_style" in msg or "does not exist" in msg:
+                try:
+                    return postgres_db.execute_single(fallback_query, (email,))
+                except Exception as e2:
+                    print(f"Error getting user by email (fallback): {e2}")
+                    return None
             print(f"Error getting user by email: {e}")
             return None
     
@@ -139,7 +203,17 @@ class PostgresUserService:
         
         query = """
         SELECT id, account_id, username, email, full_name,
-               hashed_password, is_active, is_admin, created_at, updated_at
+               first_name, last_name, phone, mobile, address, city, state, postal_code,
+               company, designation, hashed_password, is_active, is_admin, created_at, updated_at, last_login,
+               signature_name, signature_style
+        FROM users
+        WHERE account_id = %s AND (username = %s OR email = %s)
+        LIMIT 1
+        """
+        fallback_query = """
+        SELECT id, account_id, username, email, full_name,
+               first_name, last_name, phone, mobile, address, city, state, postal_code,
+               company, designation, hashed_password, is_active, is_admin, created_at, updated_at, last_login
         FROM users
         WHERE account_id = %s AND (username = %s OR email = %s)
         LIMIT 1
@@ -147,8 +221,16 @@ class PostgresUserService:
         try:
             user = postgres_db.execute_single(query, (account_id, identifier, identifier))
         except Exception as e:
-            print(f"Error authenticating user: {e}")
-            user = None
+            msg = str(e).lower()
+            if "signature_name" in msg or "signature_style" in msg or "does not exist" in msg:
+                try:
+                    user = postgres_db.execute_single(fallback_query, (account_id, identifier, identifier))
+                except Exception as e2:
+                    print(f"Error authenticating user (fallback): {e2}")
+                    user = None
+            else:
+                print(f"Error authenticating user: {e}")
+                user = None
         
         if not user:
             return None

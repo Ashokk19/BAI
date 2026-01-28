@@ -127,21 +127,6 @@ export const salesReturnApi = {
   },
 
   /**
-   * Update an existing sales return
-   */
-  async updateSalesReturn(returnId: number, salesReturn: Partial<SalesReturnCreate>): Promise<SalesReturn> {
-    const response = await fetch(buildApiUrl(`${API_ENDPOINTS.sales.returns}${returnId}`), {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(salesReturn),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return response.json();
-  },
-
-  /**
    * Delete a sales return
    */
   async deleteSalesReturn(returnId: number): Promise<{ message: string }> {

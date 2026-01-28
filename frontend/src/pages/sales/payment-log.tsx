@@ -23,6 +23,13 @@ const formatDate = (date: Date, format: string) => {
     return date.toISOString().split('T')[0]
   }
   
+  if (format === "dd/mm/yyyy") {
+    const day = String(date.getDate()).padStart(2, '0')
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const year = date.getFullYear()
+    return `${day}/${month}/${year}`
+  }
+  
   if (format === "PPP") {
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
@@ -752,17 +759,12 @@ export default function PaymentLog() {
               </div>
               <div>
                 <Label>Payment Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start bg-white/50 border-white/20">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {selectedDate ? formatDate(selectedDate, "PPP") : "Pick a date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} initialFocus />
-                  </PopoverContent>
-                </Popover>
+                <input
+                  type="date"
+                  value={selectedDate ? formatDate(selectedDate, "yyyy-MM-dd") : ''}
+                  onChange={(e) => setSelectedDate(e.target.value ? new Date(e.target.value) : undefined)}
+                  className="w-full p-2 border border-white/20 rounded-md bg-white/50"
+                />
               </div>
               <div>
                 <Label htmlFor="reference">Reference Number</Label>
@@ -887,17 +889,12 @@ export default function PaymentLog() {
               </div>
               <div>
                 <Label>Payment Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start bg-white/50 border-white/20">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {selectedDate ? formatDate(selectedDate, "PPP") : "Pick a date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} initialFocus />
-                  </PopoverContent>
-                </Popover>
+                <input
+                  type="date"
+                  value={selectedDate ? formatDate(selectedDate, "yyyy-MM-dd") : ''}
+                  onChange={(e) => setSelectedDate(e.target.value ? new Date(e.target.value) : undefined)}
+                  className="w-full p-2 border border-white/20 rounded-md bg-white/50"
+                />
               </div>
               <div>
                 <Label htmlFor="reference">Reference Number</Label>
@@ -1146,13 +1143,13 @@ export default function PaymentLog() {
                 groupPayments.forEach(payment => {
                   const paymentAmount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
                   
-                  // Only add to paidAmount if it's NOT a credit payment
-                  if (payment.payment_status !== 'credit' && payment.payment_method !== 'credit') {
+                  // Add to paidAmount for all completed payments (including credit)
+                  if (payment.payment_status === 'completed' || payment.payment_status === 'credit') {
                     paidAmount += paymentAmount
                   }
                 })
                 
-                const balanceAmount = invoiceAmount - paidAmount
+                const balanceAmount = Math.max(0, invoiceAmount - paidAmount)
                 const paymentStatus = isNoInvoiceGroup ? 'N/A' : getPaymentStatus(invoiceIdNum)
                 const isExpanded = expandedGroups.has(invoiceId)
 

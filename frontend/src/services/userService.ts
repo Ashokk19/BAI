@@ -22,6 +22,8 @@ export interface UserProfile {
   created_at: string;
   updated_at?: string;
   last_login?: string;
+  signature_name?: string;
+  signature_style?: string;
 }
 
 export interface UserProfileUpdate {
@@ -35,6 +37,8 @@ export interface UserProfileUpdate {
   postal_code?: string;
   company?: string;
   designation?: string;
+  signature_name?: string;
+  signature_style?: string;
 }
 
 export interface PasswordChange {

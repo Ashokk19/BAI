@@ -140,6 +140,56 @@ export interface ExpiryItem {
   status: string;
 }
 
+const toNumber = (value: any): number => {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const n = Number.parseFloat(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+};
+
+const normalizeItem = (raw: any): Item => {
+  const sku = (raw?.sku ?? raw?.item_code ?? raw?.itemCode ?? '') as string;
+  const sellingPrice = toNumber(raw?.selling_price ?? raw?.mrp);
+  let unitPrice = toNumber(raw?.unit_price ?? raw?.purchase_price ?? raw?.cost_price);
+  // Many backends store price in selling_price; if unit_price is missing/zero but selling_price exists, display selling.
+  if (unitPrice <= 0 && sellingPrice > 0) unitPrice = sellingPrice;
+
+  const currentStock = toNumber(raw?.current_stock ?? raw?.stock_quantity);
+  const minimumStock = toNumber(raw?.minimum_stock ?? raw?.reorder_level);
+  const stockValue = raw?.stock_value !== undefined ? toNumber(raw?.stock_value) : currentStock * unitPrice;
+
+  return {
+    id: raw?.id,
+    name: raw?.name ?? '',
+    description: raw?.description ?? '',
+    sku,
+    barcode: raw?.barcode ?? undefined,
+    category_id: raw?.category_id ?? 1,
+    unit_price: unitPrice,
+    cost_price: raw?.cost_price !== undefined ? toNumber(raw?.cost_price) : toNumber(raw?.purchase_price) || unitPrice,
+    selling_price: sellingPrice || unitPrice,
+    current_stock: currentStock,
+    minimum_stock: minimumStock,
+    maximum_stock: raw?.maximum_stock !== undefined ? toNumber(raw?.maximum_stock) : undefined,
+    unit_of_measure: raw?.unit_of_measure ?? raw?.unit ?? 'pcs',
+    weight: raw?.weight !== undefined ? toNumber(raw?.weight) : undefined,
+    dimensions: raw?.dimensions ?? undefined,
+    has_expiry: Boolean(raw?.has_expiry ?? raw?.hasExpiry ?? false),
+    shelf_life_days: raw?.shelf_life_days ?? undefined,
+    expiry_date: raw?.expiry_date ?? undefined,
+    is_active: Boolean(raw?.is_active ?? true),
+    is_serialized: Boolean(raw?.is_serialized ?? false),
+    tax_rate: toNumber(raw?.tax_rate ?? raw?.gst_rate),
+    tax_type: raw?.tax_type ?? 'inclusive',
+    created_at: raw?.created_at ?? new Date().toISOString(),
+    is_low_stock: Boolean(raw?.is_low_stock ?? (currentStock <= minimumStock)),
+    stock_value: stockValue,
+  };
+};
+
 class InventoryApiService {
   // Items API
   async getItems(params?: { 
@@ -157,21 +207,23 @@ class InventoryApiService {
     const url = `/api/inventory/items${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
     const resp = await apiService.get<any>(url);
     // Backend may return either an array or an object { items, total }
-    if (Array.isArray(resp)) return resp as Item[];
-    if (resp && Array.isArray(resp.items)) return resp.items as Item[];
-    return [];
+    const rows = Array.isArray(resp) ? resp : (resp && Array.isArray(resp.items) ? resp.items : []);
+    return (rows as any[]).map(normalizeItem);
   }
 
   async getItem(id: number): Promise<Item> {
-    return apiService.get<Item>(`/api/inventory/items/${id}`);
+    const raw = await apiService.get<any>(`/api/inventory/items/${id}`);
+    return normalizeItem(raw);
   }
 
   async createItem(item: ItemCreate): Promise<Item> {
-    return apiService.post<Item>('/api/inventory/items', item);
+    const raw = await apiService.post<any>('/api/inventory/items', item);
+    return normalizeItem(raw);
   }
 
   async updateItem(id: number, item: ItemUpdate): Promise<Item> {
-    return apiService.put<Item>(`/api/inventory/items/${id}`, item);
+    const raw = await apiService.put<any>(`/api/inventory/items/${id}`, item);
+    return normalizeItem(raw);
   }
 
   async deleteItem(id: number): Promise<void> {

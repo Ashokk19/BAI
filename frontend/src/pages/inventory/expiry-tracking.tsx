@@ -12,7 +12,8 @@ import { inventoryApi, type ExpiryItem, type ItemCategory } from "@/services/inv
 import { toast } from "sonner"
 
 export default function ExpiryTracking() {
-  const [items, setItems] = useState<ExpiryItem[]>([])
+  type ExpiryRow = ExpiryItem & { expiry_date?: string }
+  const [items, setItems] = useState<ExpiryRow[]>([])
   const [categories, setCategories] = useState<ItemCategory[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -27,7 +28,7 @@ export default function ExpiryTracking() {
         inventoryApi.getCategories()
       ])
       
-      setItems(expiryData)
+      setItems(expiryData as unknown as ExpiryRow[])
       setCategories(categoriesData)
       setError(null)
     } catch (err) {
@@ -46,8 +47,44 @@ export default function ExpiryTracking() {
     const category = categories.find(cat => cat.id === categoryId)
     return category ? category.name : 'Unknown'
   }
+  
+  const deriveStatus = (item: ExpiryRow): string => {
+    const rawNorm = (item.status || '').toLowerCase().replace(/_/g, '-')
+    const days = Number(item.days_until_expiry)
 
-  const filteredItems = items.filter((item) => {
+    // Respect explicit unknown from backend
+    if (rawNorm === 'unknown') return 'unknown'
+
+    // Map synonyms
+    const base = rawNorm === 'ok' ? 'good' : rawNorm
+
+    // If backend says expiring-soon, refine into warning vs expiring-soon by days
+    if (base === 'expiring-soon') {
+      if (Number.isFinite(days)) {
+        if (days <= 7) return 'expiring-soon'
+        if (days <= 30) return 'warning'
+        return 'good'
+      }
+      return 'expiring-soon'
+    }
+
+    // If backend provides a known good/expired, trust it, else compute from days when we have context
+    if (base === 'good' || base === 'expired' || base === 'warning') return base
+
+    // As a fallback, compute status only when expiry context exists
+    const hasContext = Boolean(item.expiry_date || item.shelf_life_days)
+    if (hasContext && Number.isFinite(days)) {
+      if (days < 0) return 'expired'
+      if (days <= 7) return 'expiring-soon'
+      if (days <= 30) return 'warning'
+      return 'good'
+    }
+    return 'unknown'
+  }
+
+  const normalizedItems = items.map((it) => ({ ...it, status: deriveStatus(it) }))
+
+  const filteredItems = normalizedItems.filter((item) => {
     const categoryName = getCategoryName(item.category_id)
     const matchesSearch =
       item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -76,10 +113,10 @@ export default function ExpiryTracking() {
 
   const getStatusCounts = () => {
     return {
-      expired: items.filter((item) => item.status === "expired").length,
-      expiringSoon: items.filter((item) => item.status === "expiring-soon").length,
-      warning: items.filter((item) => item.status === "warning").length,
-      good: items.filter((item) => item.status === "good").length,
+      expired: normalizedItems.filter((item) => item.status === "expired").length,
+      expiringSoon: normalizedItems.filter((item) => item.status === "expiring-soon").length,
+      warning: normalizedItems.filter((item) => item.status === "warning").length,
+      good: normalizedItems.filter((item) => item.status === "good").length,
     }
   }
 
@@ -297,7 +334,7 @@ export default function ExpiryTracking() {
                           {getCategoryName(item.category_id)}
                         </span>
                       </TableCell>
-                      <TableCell className="font-medium">{new Date(item.expiry_date).toLocaleDateString()}</TableCell>
+                      <TableCell className="font-medium">{item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : "-"}</TableCell>
                       <TableCell>
                         <span
                           className={`font-semibold ${

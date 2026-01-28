@@ -12,7 +12,17 @@ import uvicorn
 import traceback
 
 # Import PostgreSQL routers instead of SQLAlchemy ones
-from routers import postgres_auth, postgres_inventory, sales, purchases, dashboard, customers, organization, user_management
+from routers import (
+    postgres_auth,
+    postgres_inventory,
+    sales,
+    purchases,
+    dashboard,
+    customers,
+    organization,
+    user_management,
+    sales_invoices_pg,
+)
 from database.postgres_db import postgres_db
 from config.settings import settings
 
@@ -46,6 +56,7 @@ app.include_router(postgres_inventory.router, prefix="/api/inventory", tags=["In
 # Keep existing routers for other modules (will migrate these later)
 app.include_router(customers.router, prefix="/api/customers", tags=["Customers"])
 app.include_router(sales.router, prefix="/api/sales", tags=["Sales"])
+app.include_router(sales_invoices_pg.router, prefix="/api/sales/invoices", tags=["Invoices (PostgreSQL)"])
 app.include_router(purchases.router, prefix="/api/purchases", tags=["Purchases"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(organization.router, prefix="/api/organization", tags=["Organization"])

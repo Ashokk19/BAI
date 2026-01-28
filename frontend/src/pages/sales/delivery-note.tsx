@@ -25,6 +25,13 @@ const formatDate = (date: Date, format: string) => {
     return date.toISOString().split('T')[0]
   }
   
+  if (format === "dd/mm/yyyy") {
+    const day = String(date.getDate()).padStart(2, '0')
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const year = date.getFullYear()
+    return `${day}/${month}/${year}`
+  }
+  
   if (format === "PPP") {
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
@@ -80,6 +87,8 @@ export default function DeliveryNote() {
     delivery_notes: "",
     special_instructions: "",
   })
+  
+  const [useSameAddress, setUseSameAddress] = useState(false)
 
   // Load delivery notes on component mount
   useEffect(() => {
@@ -223,6 +232,28 @@ export default function DeliveryNote() {
     return 'Unknown Customer'
   }
 
+  // Helpers to align status with invoice-history logic (shipment-first)
+  const mapShipmentToDeliveryStatus = (raw?: string): string => {
+    const s = (raw || '').toLowerCase()
+    if (s === 'delivered') return 'Delivered'
+    if (s === 'in_transit' || s === 'in transit' || s === 'shipped') return 'In Transit'
+    if (s === 'cancelled' || s === 'failed') return 'Failed'
+    if (s === 'refused') return 'Refused'
+    return 'Pending'
+  }
+
+  const normalizeStatus = (label: string): string => label.toLowerCase().replace(/[_\s]+/g, '-')
+
+  const getEffectiveDeliveryStatus = (note: any): string => {
+    if (note?.invoice_id) {
+      const relatedShipment = shipments.find(s => s.invoice_id === note.invoice_id)
+      if (relatedShipment) {
+        return mapShipmentToDeliveryStatus(relatedShipment.status)
+      }
+    }
+    return note?.delivery_status || 'Pending'
+  }
+
   // Calculate delivery status counts
   const getDeliveryStatusCounts = () => {
     const counts = {
@@ -235,7 +266,8 @@ export default function DeliveryNote() {
     }
     
     allDeliveryNotes.forEach(note => {
-      const status = note.delivery_status.toLowerCase().replace(' ', '-')
+      const label = getEffectiveDeliveryStatus(note)
+      const status = normalizeStatus(label)
       switch (status) {
         case 'pending':
           counts.pending++
@@ -383,6 +415,22 @@ export default function DeliveryNote() {
     });
   };
 
+  // Get minimum delivery date based on invoice date
+  const getMinimumDeliveryDate = (): Date => {
+    if (formData.invoice_id > 0) {
+      const selectedInvoice = invoices.find(i => i.id === formData.invoice_id)
+      if (selectedInvoice && selectedInvoice.invoice_date) {
+        const invoiceDate = new Date(selectedInvoice.invoice_date)
+        invoiceDate.setHours(0, 0, 0, 0)
+        return invoiceDate
+      }
+    }
+    // Default to today if no invoice selected
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return today
+  }
+
   // Auto-populate delivery address when invoice is selected
   const handleInvoiceChange = (invoiceId: number) => {
     console.log('Invoice selected:', invoiceId)
@@ -415,6 +463,45 @@ export default function DeliveryNote() {
     setFormData(prev => ({ ...prev, customer_id: customerId }))
     setCustomerSearch('') // Clear search when customer is selected
     setShowCustomerDropdown(false)
+    
+    // If "use same address" is checked, populate address from customer
+    if (useSameAddress && customerId > 0) {
+      const customer = customers.find(c => c.id === customerId)
+      if (customer) {
+        const customerAddress = buildCustomerAddress(customer)
+        setFormData(prev => ({ ...prev, delivery_address: customerAddress }))
+      }
+    }
+  }
+  
+  // Build full customer address starting with billing_address
+  const buildCustomerAddress = (customer: Customer): string => {
+    const parts = []
+    // Start with billing_address if available, otherwise use address
+    if (customer.billing_address) {
+      parts.push(customer.billing_address)
+    } else if (customer.address) {
+      parts.push(customer.address)
+    }
+    // Add city and postal_code
+    if (customer.city) parts.push(customer.city)
+    if (customer.postal_code) parts.push(customer.postal_code)
+    if (customer.state) parts.push(customer.state)
+    if (customer.country) parts.push(customer.country)
+    return parts.join(', ')
+  }
+  
+  // Handle "use same address" checkbox change
+  const handleUseSameAddressChange = (checked: boolean) => {
+    setUseSameAddress(checked)
+    
+    if (checked && formData.customer_id > 0) {
+      const customer = customers.find(c => c.id === formData.customer_id)
+      if (customer) {
+        const customerAddress = buildCustomerAddress(customer)
+        setFormData(prev => ({ ...prev, delivery_address: customerAddress }))
+      }
+    }
   }
 
   // Handle invoice input changes
@@ -467,6 +554,7 @@ export default function DeliveryNote() {
     setCustomerSearch("")
     setShowInvoiceDropdown(false)
     setShowCustomerDropdown(false)
+    setUseSameAddress(false)
     setIsDialogOpen(false)
   }
 
@@ -1340,54 +1428,57 @@ export default function DeliveryNote() {
                 </div>
                 <div>
                   <Label>Delivery Date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start bg-white/50 border-white/20">
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {selectedDate ? selectedDate.toLocaleDateString('en-GB') : "Pick a date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0 bg-white border border-gray-200 shadow-lg">
-                      <Calendar 
-                        mode="single" 
-                        selected={selectedDate} 
-                        onSelect={setSelectedDate} 
-                        initialFocus 
-                        disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
-                        className="bg-white"
-                        classNames={{
-                          months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
-                          month: "space-y-4",
-                          caption: "flex justify-center pt-1 relative items-center",
-                          caption_label: "text-sm font-medium",
-                          nav: "space-x-1 flex items-center",
-                          nav_button: "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 border border-gray-300 rounded",
-                          nav_button_previous: "absolute left-1",
-                          nav_button_next: "absolute right-1",
-                          table: "w-full border-collapse space-y-1",
-                          head_row: "flex",
-                          head_cell: "text-gray-600 rounded-md w-9 font-normal text-[0.8rem]",
-                          row: "flex w-full mt-2",
-                          cell: "h-9 w-9 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
-                          day: "h-9 w-9 p-0 font-normal aria-selected:opacity-100 hover:bg-gray-100 rounded",
-                          day_selected: "bg-blue-600 text-white hover:bg-blue-700 focus:bg-blue-700",
-                          day_today: "bg-gray-200 text-gray-900",
-                          day_outside: "text-gray-400 aria-selected:bg-gray-100 aria-selected:text-gray-400",
-                          day_disabled: "text-gray-300 opacity-50",
-                          day_hidden: "invisible",
-                        }}
-                      />
-                    </PopoverContent>
-                  </Popover>
+                  <input
+                    type="date"
+                    value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+                    onChange={(e) => setSelectedDate(e.target.value ? new Date(e.target.value) : undefined)}
+                    min={formatDate(getMinimumDeliveryDate(), "yyyy-MM-dd")}
+                    className="w-full p-2 border border-white/20 rounded-md bg-white/50"
+                  />
+                  {formData.invoice_id > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      ℹ Delivery date must be on or after invoice date
+                    </p>
+                  )}
                 </div>
                 <div>
-                  <Label htmlFor="address">Delivery Address</Label>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label htmlFor="address">Delivery Address</Label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="useSameAddress"
+                        checked={useSameAddress}
+                        onChange={(e) => handleUseSameAddressChange(e.target.checked)}
+                        className="w-4 h-4 text-violet-600 bg-gray-100 border-gray-300 rounded focus:ring-violet-500 focus:ring-2"
+                      />
+                      <Label htmlFor="useSameAddress" className="text-sm font-normal text-gray-600 cursor-pointer">
+                        Same as customer address
+                      </Label>
+                    </div>
+                  </div>
                   <Textarea
                     id="address"
                     value={formData.delivery_address}
-                    onChange={(e) => setFormData({ ...formData, delivery_address: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, delivery_address: e.target.value })
+                      // Uncheck the checkbox if user manually edits
+                      if (useSameAddress) setUseSameAddress(false)
+                    }}
                     placeholder="Enter complete delivery address"
+                    readOnly={useSameAddress}
+                    className={useSameAddress ? "bg-gray-50 cursor-not-allowed" : ""}
                   />
+                  {useSameAddress && (
+                    <p className="text-sm text-green-600 mt-1">
+                      ✓ Using customer's registered address
+                    </p>
+                  )}
+                  {!formData.customer_id && useSameAddress && (
+                    <p className="text-sm text-red-500 mt-1">
+                      ⚠ Please select a customer first
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="notes">Delivery Notes</Label>

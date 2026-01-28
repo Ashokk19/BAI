@@ -5,82 +5,83 @@
 
 import { apiService } from './api';
 
-// Bill interface
-export interface Bill {
+export interface BillListItem {
   id: number;
   bill_number: string;
   bill_date: string;
   due_date: string;
   vendor_id: number;
-  purchase_order_id?: number;
+  vendor_name?: string;
+  vendor_code?: string;
+  po_id?: number | null;
+  vendor_invoice_number?: string | null;
   status: string;
   subtotal: number;
   tax_amount: number;
   discount_amount: number;
   total_amount: number;
   paid_amount: number;
-  currency: string;
-  payment_terms: string;
-  notes?: string;
-  reference_number?: string;
-  created_by: number;
+  balance_due: number;
+  payment_terms?: string | null;
+  notes?: string | null;
   created_at: string;
-  updated_at?: string;
+  updated_at?: string | null;
 }
 
-// Bill list response interface
+export interface BillItem {
+  id: number;
+  item_id?: number | null;
+  item_name: string;
+  description?: string | null;
+  quantity: number;
+  unit_price: number;
+  tax_rate?: number | null;
+  tax_amount?: number | null;
+  discount_amount?: number | null;
+  line_total?: number | null;
+}
+
+export interface BillDetail extends BillListItem {
+  items: BillItem[];
+}
+
 export interface BillListResponse {
-  bills: Bill[];
+  bills: BillListItem[];
   total: number;
-  page: number;
-  per_page: number;
-  total_pages: number;
+  skip: number;
+  limit: number;
 }
 
-// Bill summary interface
-export interface BillSummary {
-  total_bills: number;
-  pending_bills: number;
-  total_amount: number;
-  paid_amount: number;
-  outstanding_amount: number;
+export interface BillItemCreatePayload {
+  item_id?: number;
+  item_name: string;
+  description?: string;
+  quantity: number;
+  unit_price: number;
+  tax_rate?: number;
+  discount_amount?: number;
 }
 
-// Bill create/update interfaces
-export interface BillCreate {
-  bill_number?: string;
+export interface BillCreatePayload {
+  vendor_id: number;
+  vendor_invoice_number?: string;
+  po_id?: number;
   bill_date: string;
   due_date: string;
-  vendor_id: number;
-  purchase_order_id?: number;
-  status?: string;
-  subtotal?: number;
-  tax_amount?: number;
-  discount_amount?: number;
-  total_amount?: number;
-  paid_amount?: number;
-  currency?: string;
   payment_terms?: string;
   notes?: string;
-  reference_number?: string;
+  items: BillItemCreatePayload[];
 }
 
-export interface BillUpdate {
-  bill_number?: string;
-  bill_date?: string;
-  due_date?: string;
-  vendor_id?: number;
-  purchase_order_id?: number;
-  status?: string;
-  subtotal?: number;
-  tax_amount?: number;
-  discount_amount?: number;
-  total_amount?: number;
-  paid_amount?: number;
-  currency?: string;
-  payment_terms?: string;
-  notes?: string;
-  reference_number?: string;
+export interface BillCreateResponse {
+  message: string;
+  bill_number: string;
+  bill_id: number;
+}
+
+export interface BillUpdateResponse {
+  message: string;
+  bill_id: number;
 }
 
 /**
@@ -93,9 +94,8 @@ export const getBills = async (
     search?: string;
     status?: string;
     vendor_id?: number;
+    po_id?: number;
     purchase_order_id?: number;
-    start_date?: string;
-    end_date?: string;
   } = {}
 ): Promise<BillListResponse> => {
   const searchParams = new URLSearchParams();
@@ -105,9 +105,8 @@ export const getBills = async (
   if (params.search) searchParams.append('search', params.search);
   if (params.status) searchParams.append('status', params.status);
   if (params.vendor_id) searchParams.append('vendor_id', params.vendor_id.toString());
+  if (params.po_id) searchParams.append('po_id', params.po_id.toString());
   if (params.purchase_order_id) searchParams.append('purchase_order_id', params.purchase_order_id.toString());
-  if (params.start_date) searchParams.append('start_date', params.start_date);
-  if (params.end_date) searchParams.append('end_date', params.end_date);
 
   return await apiService.get<BillListResponse>(`/api/purchases/bills/?${searchParams.toString()}`);
 };
@@ -115,22 +114,19 @@ export const getBills = async (
 /**
  * Get a specific bill by ID
  */
-export const getBill = async (billId: number): Promise<Bill> => {
-  return await apiService.get<Bill>(`/api/purchases/bills/${billId}`);
+export const getBill = async (billId: number): Promise<BillDetail> => {
+  return await apiService.get<BillDetail>(`/api/purchases/bills/${billId}`);
 };
 
 /**
  * Create a new bill
  */
-export const createBill = async (billData: BillCreate): Promise<Bill> => {
-  return await apiService.post<Bill, BillCreate>('/api/purchases/bills/', billData);
+export const createBill = async (billData: BillCreate): Promise<BillCreateResponse> => {
+  return await apiService.post<BillCreateResponse, BillCreatePayload>('/api/purchases/bills/', billData as any);
 };
 
-/**
- * Update an existing bill
- */
-export const updateBill = async (billId: number, billData: BillUpdate): Promise<Bill> => {
-  return await apiService.put<Bill, BillUpdate>(`/api/purchases/bills/${billId}`, billData);
+export const updateBill = async (billId: number, billData: BillCreate): Promise<BillUpdateResponse> => {
+  return await apiService.put<BillUpdateResponse, BillCreatePayload>(`/api/purchases/bills/${billId}`, billData as any);
 };
 
 /**
@@ -145,66 +141,10 @@ export const deleteBill = async (billId: number): Promise<void> => {
   }
 };
 
-/**
- * Get bill summary statistics
- */
-export const getBillSummary = async (): Promise<BillSummary> => {
-  return await apiService.get<BillSummary>('/api/purchases/bills/summary/stats');
-};
+export type Bill = BillDetail;
+export type BillCreate = BillCreatePayload;
 
-/**
- * Get bills for a specific vendor
- */
-export const getBillsByVendor = async (vendorId: number): Promise<Bill[]> => {
-  const response = await getBills({ vendor_id: vendorId, limit: 1000 });
-  return response.bills;
+export const billExistsForPurchaseOrder = async (poId: number): Promise<boolean> => {
+  const res = await getBills({ po_id: poId, limit: 1 });
+  return (res.total || 0) > 0;
 };
-
-/**
- * Get bills by status
- */
-export const getBillsByStatus = async (status: string): Promise<Bill[]> => {
-  const response = await getBills({ status, limit: 1000 });
-  return response.bills;
-};
-
-/**
- * Get pending bills
- */
-export const getPendingBills = async (): Promise<Bill[]> => {
-  return await getBillsByStatus('pending');
-};
-
-/**
- * Get paid bills
- */
-export const getPaidBills = async (): Promise<Bill[]> => {
-  return await getBillsByStatus('paid');
-};
-
-/**
- * Get overdue bills
- */
-export const getOverdueBills = async (): Promise<Bill[]> => {
-  const today = new Date().toISOString().split('T')[0];
-  const response = await getBills({ end_date: today, status: 'pending', limit: 1000 });
-  return response.bills.filter(bill => new Date(bill.due_date) < new Date());
-};
-
-/**
- * Get bills due this week
- */
-export const getBillsDueThisWeek = async (): Promise<Bill[]> => {
-  const today = new Date();
-  const endOfWeek = new Date(today);
-  endOfWeek.setDate(today.getDate() + 7);
-  
-  const response = await getBills({ 
-    start_date: today.toISOString().split('T')[0],
-    end_date: endOfWeek.toISOString().split('T')[0],
-    status: 'pending',
-    limit: 1000 
-  });
-  
-  return response.bills;
-}; 
