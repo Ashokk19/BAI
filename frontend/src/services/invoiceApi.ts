@@ -39,6 +39,7 @@ export interface InvoiceItem {
   item_name: string;
   item_description?: string;
   item_sku: string;
+  hsn_code?: string;
   quantity: number;
   unit_price: number;
   discount_rate: number;
@@ -79,6 +80,7 @@ export interface InvoiceItemCreate {
   item_name: string;
   item_description?: string;
   item_sku: string;
+  hsn_code?: string;
   quantity: number;
   unit_price: number;
   discount_rate?: number;

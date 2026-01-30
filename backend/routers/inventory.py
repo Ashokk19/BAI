@@ -148,12 +148,14 @@ class ItemCreate(BaseModel):
     tax_type: str = "inclusive"  # Frontend compatibility field
     description: Optional[str] = None
     barcode: Optional[str] = None
+    hsn_code: Optional[str] = None
 
 class ItemUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     sku: Optional[str] = None
     barcode: Optional[str] = None
+    hsn_code: Optional[str] = None
     category_id: Optional[int] = None
     unit_price: Optional[float] = None
     cost_price: Optional[float] = None
@@ -203,7 +205,8 @@ async def create_item(
         'name': item_dict.get('name'),
         'selling_price': item_dict.get('selling_price'),
         'description': item_dict.get('description', ''),
-        'category': 'General',  # Default category
+        # Do not set category text here; service will derive from category_id. Defaults to 'General' if none.
+        'category': None,
         'unit': item_dict.get('unit_of_measure', 'pcs'),
         'purchase_price': item_dict.get('cost_price') or item_dict.get('unit_price'),
         'tax_rate': item_dict.get('tax_rate', 18.0),
@@ -216,6 +219,7 @@ async def create_item(
         'maximum_stock': item_dict.get('maximum_stock'),
         'sku': item_dict.get('sku'),
         'barcode': item_dict.get('barcode'),
+        'hsn_code': item_dict.get('hsn_code'),
         'category_account_id': current_user["account_id"] if item_dict.get('category_id') else None,
         'category_id': item_dict.get('category_id'),
         'mrp': item_dict.get('selling_price'),

@@ -9,6 +9,7 @@ from datetime import timedelta, datetime
 from typing import Optional
 
 from services.postgres_user_service import PostgresUserService
+from services.postgres_accounts_service import PostgresAccountsService
 from utils.postgres_auth_deps import create_access_token, get_current_user
 from config.settings import settings
 from database.postgres_db import postgres_db
@@ -71,11 +72,18 @@ class UserResponse(BaseModel):
 @router.post("/login")
 async def login(user_credentials: UserLogin):
     """Authenticate user and return JWT token."""
-    
+    # Require a valid account_id from accounts table (case-insensitive lookup)
+    acc = PostgresAccountsService.get_by_account_id(user_credentials.account_id)
+    if not acc or not acc.get("is_active", True):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or inactive account_id")
+
+    # Use the canonical account_id from the database (preserves original casing)
+    canonical_account_id = acc.get("account_id", user_credentials.account_id)
+
     user = PostgresUserService.authenticate_user(
         identifier=user_credentials.identifier,
         password=user_credentials.password,
-        account_id=user_credentials.account_id,
+        account_id=canonical_account_id,
     )
     
     if not user:

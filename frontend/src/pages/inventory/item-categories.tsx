@@ -48,7 +48,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { inventoryApi, type ItemCategoryWithStats } from '@/services/inventoryApi'
 import { toast } from 'sonner'
 
-type Category = ItemCategoryWithStats
+type Category = ItemCategoryWithStats & { display_id?: number }
 
 interface SortableCategoryProps {
   category: Category
@@ -99,7 +99,7 @@ function SortableCategory({ category, onEdit, onDelete }: SortableCategoryProps)
                   {category.name}
                 </CardTitle>
                 <CardDescription className="text-xs text-gray-500 font-medium">
-                  Category ID: {category.id}
+                  Category ID: {(category as any).display_id ?? category.id}
                 </CardDescription>
               </div>
             </div>

@@ -14,6 +14,22 @@ from utils.postgres_auth_deps import get_current_user
 router = APIRouter()
 
 
+def _ensure_invoice_items_hsn_code_column() -> None:
+    """Ensure invoice_items table has hsn_code column."""
+    try:
+        with postgres_db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                ALTER TABLE invoice_items
+                ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(50)
+                """
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"Error ensuring invoice_items.hsn_code column: {e}")
+
+
 def _generate_invoice_number(cursor: RealDictCursor, account_id: str) -> str:
     """Generate the next invoice number for an account."""
     cursor.execute(
@@ -258,6 +274,9 @@ async def create_invoice(
 ):
     """Create an invoice using direct PostgreSQL queries."""
 
+    # Ensure hsn_code column exists in invoice_items table
+    _ensure_invoice_items_hsn_code_column()
+
     account_id = current_user["account_id"]
 
     if not invoice_data.items:
@@ -421,6 +440,7 @@ async def create_invoice(
                         item_name,
                         item_description,
                         item_sku,
+                        hsn_code,
                         quantity,
                         unit_price,
                         discount_rate,
@@ -436,7 +456,7 @@ async def create_invoice(
                         line_total,
                         created_at
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     """,
                     (
@@ -446,6 +466,7 @@ async def create_invoice(
                         payload.item_name or db_item.get("name"),
                         payload.item_description or db_item.get("description"),
                         payload.item_sku or db_item.get("sku"),
+                        payload.hsn_code or db_item.get("hsn_code"),
                         Decimal(payload.quantity),
                         Decimal(payload.unit_price),
                         Decimal(payload.discount_rate or 0),
@@ -585,6 +606,7 @@ async def create_invoice(
                 item_name=item.get("item_name"),
                 item_description=item.get("item_description"),
                 item_sku=item.get("item_sku"),
+                hsn_code=item.get("hsn_code"),
                 quantity=_to_decimal(item.get("quantity")),
                 unit_price=_to_decimal(item.get("unit_price")),
                 discount_rate=_to_decimal(item.get("discount_rate")),

@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS public.items (
   maximum_stock      NUMERIC(10,3),
   sku                VARCHAR(50),
   barcode            VARCHAR(50),
+  hsn_code           VARCHAR(50),
   category_account_id VARCHAR(100),
   category_id        INTEGER,
   mrp                NUMERIC(10,2),

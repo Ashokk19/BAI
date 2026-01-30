@@ -17,12 +17,13 @@ import {
 import { useAuth } from "../utils/AuthContext"
 import APP_CONFIG from "@/config/app"
 import Footer from "@/components/Layout/Footer"
+import { accountsApi } from "@/services/accountsApi"
 
 export default function Login() {
   const [formData, setFormData] = useState({
     identifier: "",
     password: "",
-    account_id: "TestAccount"
+    account_id: ""
   })
   const [showPassword, setShowPassword] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
@@ -36,15 +37,47 @@ export default function Login() {
 
   const { login, forgotPassword } = useAuth()
 
-  // Load remembered identifier on component mount
+  // Load remembered identifier on component mount and enforce account from URL param
   useEffect(() => {
-    const rememberedIdentifier = localStorage.getItem('user_identifier')
-    const isRemembered = localStorage.getItem('remember_me') === 'true'
-    
-    if (isRemembered && rememberedIdentifier) {
-      setFormData(prev => ({ ...prev, identifier: rememberedIdentifier }))
-      setRememberMe(true)
+    const init = async () => {
+      const rememberedIdentifier = localStorage.getItem('user_identifier')
+      const isRemembered = localStorage.getItem('remember_me') === 'true'
+      
+      if (isRemembered && rememberedIdentifier) {
+        setFormData(prev => ({ ...prev, identifier: rememberedIdentifier }))
+        setRememberMe(true)
+      }
+
+      let acc = ''
+      try {
+        const params = new URLSearchParams(window.location.search)
+        acc = (params.get('account') || '').trim()
+      } catch {
+        acc = ''
+      }
+
+      if (!acc) {
+        setFormData(prev => ({ ...prev, account_id: '' }))
+        setError('Account parameter is required: open /login?account=YourAccount')
+        return
+      }
+
+      try {
+        const publicAccounts = await accountsApi.getPublicAccounts()
+        const match = publicAccounts.find(a => (a.account_id || '').toLowerCase() === acc.toLowerCase())
+        if (!match) {
+          setFormData(prev => ({ ...prev, account_id: '' }))
+          setError(`Invalid account parameter: ${acc}`)
+          return
+        }
+        setFormData(prev => ({ ...prev, account_id: match.account_id }))
+      } catch (e) {
+        setFormData(prev => ({ ...prev, account_id: '' }))
+        setError('Failed to validate account parameter')
+      }
     }
+
+    init()
   }, [])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -54,9 +87,15 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!formData.account_id) {
+      setError("Invalid or missing account: open /login?account=YourAccount")
+      return
+    }
+
     setError("")
 
-    // Login validation
+    // Login validation (require account_id)
     if (!formData.identifier || !formData.password) {
       setError("Please fill in all fields")
       return
@@ -245,14 +284,14 @@ export default function Login() {
                           value={formData.account_id}
                           onChange={(e) => setFormData({...formData, account_id: e.target.value})}
                           className="pl-10 w-full bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-md appearance-none pr-4"
-                          disabled={isLoading}
+                          disabled={true}
                           required
                         >
-                          <option value="TestAccount">TestAccount</option>
-                          <option value="AccountA">Account A</option>
-                          <option value="AccountB">Account B</option>
-                          <option value="AccountC">Account C</option>
-                          <option value="DemoAccount">Demo Account</option>
+                          {formData.account_id ? (
+                            <option value={formData.account_id}>{formData.account_id}</option>
+                          ) : (
+                            <option value="">-- Account required via URL --</option>
+                          )}
                         </select>
                       </div>
                     </div>
@@ -343,7 +382,7 @@ export default function Login() {
 
                   <Button
                     type="submit"
-                    disabled={isLoading}
+                    disabled={isLoading || !formData.account_id}
                     className="w-full h-12 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white font-bold rounded-xl transition-all duration-200 transform hover:scale-[1.02] shadow-xl hover:shadow-2xl ring-2 ring-violet-400/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                   >
                     {isLoading ? "Signing in..." : "Sign In"}
@@ -394,18 +433,6 @@ export default function Login() {
                   </div>
                 </form>
 
-                <div className="text-center">
-                  <p className="text-gray-700 text-sm font-semibold">
-                    Don't have an account?{" "}
-                    <button
-                      type="button"
-                      onClick={() => window.location.href = '/register'}
-                      className="text-violet-600 hover:text-violet-700 font-bold transition-colors underline-offset-4 hover:underline"
-                    >
-                      Register
-                    </button>
-                  </p>
-                </div>
               </div>
             </div>
 

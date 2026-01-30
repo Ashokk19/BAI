@@ -37,12 +37,14 @@ class ItemCreate(BaseModel):
     tax_type: str = "inclusive"
     description: Optional[str] = None
     barcode: Optional[str] = None
+    hsn_code: Optional[str] = None
 
 class ItemUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     sku: Optional[str] = None
     barcode: Optional[str] = None
+    hsn_code: Optional[str] = None
     category_id: Optional[int] = None
     unit_price: Optional[float] = None
     cost_price: Optional[float] = None

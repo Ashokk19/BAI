@@ -1,12 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Eye, EyeOff, Mail, Lock, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import APP_CONFIG from "@/config/app"
 import Footer from "@/components/Layout/Footer"
+import { accountsApi, type PublicAccount } from "@/services/accountsApi"
+import { API_BASE_URL } from "@/config/api.config"
 
 export default function Register() {
   const [formData, setFormData] = useState({
@@ -16,10 +18,11 @@ export default function Register() {
     confirmPassword: "",
     first_name: "",
     last_name: "",
-    account_id: "TestAccount",
+    account_id: "",
     phone: "",
     address: ""
   })
+  const [accounts, setAccounts] = useState<PublicAccount[]>([])
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [error, setError] = useState("")
@@ -30,6 +33,21 @@ export default function Register() {
     const { name, value } = e.target
     setFormData(prev => ({ ...prev, [name]: value }))
   }
+
+  useEffect(() => {
+    const loadAccounts = async () => {
+      try {
+        const list = await accountsApi.getPublicAccounts()
+        setAccounts(list)
+        if (!formData.account_id && list.length > 0) {
+          setFormData(prev => ({ ...prev, account_id: list[0].account_id }))
+        }
+      } catch (e) {
+        // silently ignore
+      }
+    }
+    loadAccounts()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -60,7 +78,7 @@ export default function Register() {
     setIsLoading(true)
     
     try {
-      const response = await fetch("http://localhost:8001/api/auth/register", {
+      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -174,36 +192,85 @@ export default function Register() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="first_name" className="text-gray-800 font-bold">
-                      First Name *
-                    </Label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
-                      <Input
-                        id="first_name"
-                        name="first_name"
-                        type="text"
-                        placeholder="First name"
-                        value={formData.first_name}
-                        onChange={handleInputChange}
-                        className="pl-10 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 placeholder:text-gray-600 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold"
-                        disabled={isLoading}
-                        required
-                      />
+                        First Name *
+                      </Label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
+                        <Input
+                          id="first_name"
+                          name="first_name"
+                          type="text"
+                          placeholder="First name"
+                          value={formData.first_name}
+                          onChange={handleInputChange}
+                          className="pl-10 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 placeholder:text-gray-600 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold"
+                          disabled={isLoading}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="last_name" className="text-gray-800 font-bold">
+                        Last Name *
+                      </Label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
+                        <Input
+                          id="last_name"
+                          name="last_name"
+                          type="text"
+                          placeholder="Last name"
+                          value={formData.last_name}
+                          onChange={handleInputChange}
+                          className="pl-10 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 placeholder:text-gray-600 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold"
+                          disabled={isLoading}
+                          required
+                        />
+                      </div>
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="last_name" className="text-gray-800 font-bold">
-                      Last Name *
+                    <Label htmlFor="account_id" className="text-gray-800 font-bold">
+                      Account ID *
                     </Label>
                     <div className="relative">
                       <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
+                      <select
+                        id="account_id"
+                        name="account_id"
+                        value={formData.account_id}
+                        onChange={(e) => setFormData({...formData, account_id: e.target.value})}
+                        className="pl-10 w-full bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-md appearance-none pr-4"
+                        disabled={isLoading}
+                        required
+                      >
+                        {accounts.length === 0 ? (
+                          <option value="">Loading accounts...</option>
+                        ) : (
+                          accounts.map((acc) => (
+                            <option key={acc.account_id} value={acc.account_id}>
+                              {acc.display_name || acc.account_id}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="email" className="text-gray-800 font-bold">
+                      Email Address *
+                    </Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
                       <Input
-                        id="last_name"
-                        name="last_name"
-                        type="text"
-                        placeholder="Last name"
-                        value={formData.last_name}
+                        id="email"
+                        name="email"
+                        type="email"
+                        placeholder="Enter your email"
+                        value={formData.email}
                         onChange={handleInputChange}
                         className="pl-10 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 placeholder:text-gray-600 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold"
                         disabled={isLoading}
@@ -211,51 +278,6 @@ export default function Register() {
                       />
                     </div>
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="account_id" className="text-gray-800 font-bold">
-                    Account ID *
-                  </Label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
-                    <select
-                      id="account_id"
-                      name="account_id"
-                      value={formData.account_id}
-                      onChange={(e) => setFormData({...formData, account_id: e.target.value})}
-                      className="pl-10 w-full bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-md appearance-none pr-4"
-                      disabled={isLoading}
-                      required
-                    >
-                      <option value="TestAccount">TestAccount</option>
-                      <option value="AccountA">Account A</option>
-                      <option value="AccountB">Account B</option>
-                      <option value="AccountC">Account C</option>
-                      <option value="DemoAccount">Demo Account</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-gray-800 font-bold">
-                    Email Address *
-                  </Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 w-5 h-5" />
-                    <Input
-                      id="email"
-                      name="email"
-                      type="email"
-                      placeholder="Enter your email"
-                      value={formData.email}
-                      onChange={handleInputChange}
-                      className="pl-10 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 placeholder:text-gray-600 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 h-12 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold"
-                      disabled={isLoading}
-                      required
-                    />
-                  </div>
-                </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="password" className="text-gray-800 font-bold">

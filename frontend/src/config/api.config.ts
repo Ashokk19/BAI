@@ -3,8 +3,10 @@
  * All backend API endpoints should be defined here
  */
 
-// Base API URL from environment variable or default
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
+// Base API URL from environment variable or runtime origin (fallback to localhost for dev)
+export const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8001');
 
 // API endpoint configuration
 export const API_ENDPOINTS = {

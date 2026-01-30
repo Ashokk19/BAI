@@ -12,12 +12,14 @@ import ExpiryTracking from './pages/inventory/expiry-tracking';
 import InventoryLog from './pages/inventory/inventory-log';
 import Customers from './pages/sales/Customers';
 import TaxInvoice from './pages/sales/TaxInvoice';
+import ProformaInvoice from './pages/sales/ProformaInvoice';
 import PaymentLog from './pages/sales/payment-log';
 import CustomerList from './pages/sales/customer-list';
 import DeliveryNote from './pages/sales/delivery-note';
 import SalesReturns from './pages/sales/sales-returns';
 import CreditTracking from './pages/sales/credit-tracking';
 import InvoiceHistory from './pages/sales/invoice-history';
+import ProformaInvoiceHistory from './pages/sales/proforma-invoice-history';
 import InvoiceCreation from './pages/sales/invoice-creation';
 import ShipmentRecords from './pages/sales/shipment-records';
 import Vendors from './pages/purchases/Vendors';
@@ -30,6 +32,7 @@ import VendorCredits from './pages/purchases/vendor-credits';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import OrganizationSettings from './pages/OrganizationSettings';
+import AccountsAdmin from './pages/admin/accounts';
 
 // Protected Route component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -172,6 +175,17 @@ function App() {
             />
 
             <Route
+              path="/sales/proforma-invoices"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ProformaInvoice />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
               path="/sales/invoices"
               element={
                 <ProtectedRoute>
@@ -199,6 +213,17 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <InvoiceHistory />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/sales/proforma-history"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ProformaInvoiceHistory />
                   </Layout>
                 </ProtectedRoute>
               }
@@ -368,6 +393,18 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <OrganizationSettings />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Admin Routes */}
+            <Route
+              path="/admin/accounts"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <AccountsAdmin />
                   </Layout>
                 </ProtectedRoute>
               }

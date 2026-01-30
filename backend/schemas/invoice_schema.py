@@ -15,6 +15,7 @@ class InvoiceItemBase(BaseModel):
     item_name: str = Field(..., max_length=200, description="Item name")
     item_description: Optional[str] = Field(None, description="Item description")
     item_sku: str = Field(..., max_length=50, description="Item SKU")
+    hsn_code: Optional[str] = Field(None, max_length=50, description="HSN/SAC code")
     quantity: Decimal = Field(..., gt=0, description="Quantity")
     unit_price: Decimal = Field(..., ge=0, description="Unit price")
     discount_rate: Optional[Decimal] = Field(default=0.00, ge=0, le=100, description="Discount rate percentage")

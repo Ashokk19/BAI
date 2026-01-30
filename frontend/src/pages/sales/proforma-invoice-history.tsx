@@ -13,7 +13,7 @@ import { DatePopover } from "@/components/ui/date-popover"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CalendarIcon, Search, FileText, Eye, Download, Send, TrendingUp, DollarSign, Clock, CheckCircle, Plus, RefreshCw, Trash2, ChevronLeft, ChevronRight, Truck } from "lucide-react"
 import { toast } from "sonner"
-import { invoiceApi, Invoice, InvoiceFilters } from "../../services/invoiceApi"
+import { proformaInvoiceApi, ProformaInvoice, ProformaInvoiceFilters } from "../../services/proformaInvoiceApi"
 import { customerApi, Customer } from "../../services/customerApi"
 import { organizationService } from "../../services/organizationService"
 import { shipmentApi, DeliveryNote } from "../../services/shipmentApi"
@@ -136,18 +136,11 @@ const convertNumberToWords = (amount: number): string => {
   return result;
 }
 
-export default function InvoiceHistory() {
+export default function ProformaInvoiceHistory() {
   const { user } = useAuth()
-  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [invoices, setInvoices] = useState<ProformaInvoice[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [deliveryNotes, setDeliveryNotes] = useState<{ [invoiceId: number]: DeliveryNote[] }>({})
-  const [deliveryStatuses, setDeliveryStatuses] = useState<{[key: number]: string}>({})
-  const [paymentStatuses, setPaymentStatuses] = useState<{[key: number]: string}>({})
-  const [deliveryStatusesLoaded, setDeliveryStatusesLoaded] = useState(false)
-  const [paymentStatusesLoaded, setPaymentStatusesLoaded] = useState(false)
-  const [isLoadingDeliveryStatuses, setIsLoadingDeliveryStatuses] = useState(false)
-  const [isLoadingPaymentStatuses, setIsLoadingPaymentStatuses] = useState(false)
-  const [loading, setLoading] = useState(true)
+    const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [customerFilter, setCustomerFilter] = useState("all")
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({})
@@ -169,23 +162,14 @@ export default function InvoiceHistory() {
     loadInvoices()
   }, [searchTerm, customerFilter, dateRange, currentPage])
 
-  // Load payment statuses when invoices change (but only once)
-  useEffect(() => {
-    if (invoices.length > 0 && !paymentStatusesLoaded && !isLoadingPaymentStatuses) {
-      console.log('🔄 useEffect: Loading payment statuses because invoices changed')
-      loadPaymentStatuses(invoices)
-    }
-  }, [invoices, paymentStatusesLoaded, isLoadingPaymentStatuses])
-
+  
   const loadInvoices = async () => {
     try {
       setLoading(true)
       const skip = (currentPage - 1) * recordsPerPage
-      const filters: InvoiceFilters = {
+      const filters: ProformaInvoiceFilters = {
         limit: recordsPerPage,
-        skip: skip,
-        sort_by: 'id',
-        sort_order: 'desc'
+        skip: skip
       }
       
       if (searchTerm) {
@@ -196,15 +180,9 @@ export default function InvoiceHistory() {
         filters.customer_id = parseInt(customerFilter)
       }
       
-      if (dateRange.from) {
-        filters.date_from = dateRange.from.toISOString().split('T')[0]
-      }
-      
-      if (dateRange.to) {
-        filters.date_to = dateRange.to.toISOString().split('T')[0]
-      }
+      // Date filtering not yet implemented for proforma invoices
 
-      const response = await invoiceApi.getInvoices(filters)
+      const response = await proformaInvoiceApi.getInvoices(filters)
       console.log('📊 Invoice API Response:', { total: response.total, invoiceCount: response.invoices?.length })
       setInvoices(response.invoices || [])
       
@@ -213,15 +191,7 @@ export default function InvoiceHistory() {
       setTotalRecords(total)
       setTotalPages(Math.ceil(total / recordsPerPage))
       
-      // Load delivery notes for all invoices
-      if (response.invoices.length > 0) {
-        const invoiceIds = response.invoices.map(invoice => invoice.id)
-        const notesMap = await loadDeliveryNotes(invoiceIds)
-        console.log('📝 Delivery notes loaded, now loading delivery statuses...')
-        // Load delivery statuses with the fresh delivery notes data AND pass the invoices
-        loadDeliveryStatuses(notesMap, response.invoices)
-      }
-    } catch (error) {
+          } catch (error) {
       console.error('Error loading invoices:', error)
       toast.error('Failed to load invoices')
     } finally {
@@ -238,367 +208,7 @@ export default function InvoiceHistory() {
     }
   }
 
-  const loadDeliveryNotes = async (invoiceIds: number[]) => {
-    try {
-      const deliveryNotesMap: { [invoiceId: number]: DeliveryNote[] } = {}
-      
-      console.log('📝 Loading delivery notes for invoices:', invoiceIds)
-      
-      for (const invoiceId of invoiceIds) {
-        try {
-          const notes = await shipmentApi.getDeliveryNotesByInvoice(invoiceId)
-          deliveryNotesMap[invoiceId] = notes
-          console.log(`📝 Invoice ${invoiceId}: Loaded ${notes.length} delivery notes:`, notes)
-        } catch (error) {
-          console.error(`Error loading delivery notes for invoice ${invoiceId}:`, error)
-          deliveryNotesMap[invoiceId] = []
-        }
-      }
-      
-      console.log('📝 Final delivery notes map:', deliveryNotesMap)
-      setDeliveryNotes(deliveryNotesMap)
-      return deliveryNotesMap
-    } catch (error) {
-      console.error('Error loading delivery notes:', error)
-      return {}
-    }
-  }
-
-  // Reset delivery and payment statuses when invoices change
-  useEffect(() => {
-    if (invoices.length > 0) {
-      console.log('🔄 useEffect: Invoices changed, resetting delivery and payment statuses')
-      setDeliveryStatusesLoaded(false)
-      setDeliveryStatuses({})
-      setPaymentStatusesLoaded(false)
-      setPaymentStatuses({})
-    }
-  }, [invoices])
-
-  // Load delivery statuses when delivery notes change or when we have invoices but no statuses
-  useEffect(() => {
-    const hasDeliveryNotes = Object.keys(deliveryNotes).length > 0
-    const hasInvoices = invoices.length > 0
-    
-    if (!deliveryStatusesLoaded && !isLoadingDeliveryStatuses && (hasDeliveryNotes || hasInvoices)) {
-      console.log('🔄 useEffect: Loading delivery statuses because delivery notes changed or invoices available')
-      loadDeliveryStatuses()
-    }
-  }, [Object.keys(deliveryNotes).length, deliveryStatusesLoaded, isLoadingDeliveryStatuses, invoices.length])
-
-  // Load delivery notes when invoices are loaded (but don't auto-create them)
-  useEffect(() => {
-    if (invoices.length > 0 && Object.keys(deliveryNotes).length === 0) {
-      // Load existing delivery notes for all invoices
-      const invoiceIds = invoices.map(invoice => invoice.id)
-      loadDeliveryNotes(invoiceIds)
-    }
-  }, [invoices])
-
-  const getDeliveryStatus = (invoiceId: number): string => {
-    // If delivery statuses haven't been loaded yet, show loading state
-    if (!deliveryStatusesLoaded) {
-      return 'Loading...'
-    }
-    
-    // If we have a status for this invoice, return it
-    if (deliveryStatuses[invoiceId]) {
-      return deliveryStatuses[invoiceId]
-    }
-    
-    // If currently loading, show loading state
-    if (isLoadingDeliveryStatuses) {
-      return 'Loading...'
-    }
-    
-    // Final fallback - return pending instead of triggering reload to prevent infinite loop
-    return 'Pending'
-  }
-
-  const getPaymentStatus = (invoiceId: number): string => {
-    // If payment statuses haven't been loaded yet, show loading state
-    if (!paymentStatusesLoaded) {
-      return 'Loading...'
-    }
-    return paymentStatuses[invoiceId] || 'Pending'
-  }
-
-  const loadDeliveryStatuses = async (notesMap?: { [invoiceId: number]: DeliveryNote[] }, invoicesList?: any[]) => {
-    const currentDeliveryNotes = notesMap || deliveryNotes
-    const currentInvoices = invoicesList || invoices
-    console.log('🚀 loadDeliveryStatuses called', {
-      invoicesCount: currentInvoices.length,
-      deliveryNotesCount: Object.keys(currentDeliveryNotes).length,
-      alreadyLoaded: deliveryStatusesLoaded,
-      usingPassedNotes: !!notesMap,
-      usingPassedInvoices: !!invoicesList
-    })
-    
-    // Prevent unnecessary reloading if we already have statuses
-    if (deliveryStatusesLoaded) {
-      console.log('⏭️ Skipping loadDeliveryStatuses - already loaded')
-      return
-    }
-    
-    // Prevent multiple simultaneous calls
-    if (isLoadingDeliveryStatuses) {
-      console.log('⏭️ Skipping loadDeliveryStatuses - already in progress')
-      return
-    }
-    
-    setIsLoadingDeliveryStatuses(true)
-    
-    try {
-      const statuses: {[key: number]: string} = {}
-      
-      for (const invoice of currentInvoices) {
-        try {
-          // First, check shipments for this invoice (primary source)
-          console.log(`🚚 Invoice ${invoice.id}: Checking shipments first...`)
-          const shipments = await shipmentApi.getShipmentsByInvoice(invoice.id)
-          
-          if (shipments.length > 0) {
-            // If shipments exist, use shipment status as the primary source
-            const latestShipment = shipments.sort((a, b) => 
-              new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            )[0]
-            
-            // Debug: Log the actual shipment status
-            console.log(`🚚 Invoice ${invoice.id}: Raw shipment status: "${latestShipment.status}" (type: ${typeof latestShipment.status})`)
-            
-            // Map shipment status to delivery status
-            let deliveryStatus = 'Pending'
-            const statusLower = latestShipment.status?.toLowerCase()
-            console.log(`🚚 Invoice ${invoice.id}: Status after toLowerCase: "${statusLower}"`)
-            
-            switch (statusLower) {
-              case 'delivered':
-                deliveryStatus = 'Delivered'
-                break
-              case 'in_transit':
-              case 'in transit':
-                deliveryStatus = 'In Transit'
-                break
-              case 'shipped':
-                deliveryStatus = 'In Transit'
-                break
-              case 'cancelled':
-                deliveryStatus = 'Failed'
-                break
-              case 'failed':
-                deliveryStatus = 'Failed'
-                break
-              case 'refused':
-                deliveryStatus = 'Refused'
-                break
-              case 'pending':
-              default:
-                deliveryStatus = 'Pending'
-                console.log(`🚚 Invoice ${invoice.id}: Status "${statusLower}" not matched, defaulting to Pending`)
-                break
-            }
-            
-            console.log(`🚚 Invoice ${invoice.id}: Final delivery status: ${deliveryStatus}`)
-            statuses[invoice.id] = deliveryStatus
-          } else {
-            // Only check delivery notes if there are NO shipments
-            console.log(`📝 Invoice ${invoice.id}: No shipments, checking delivery notes...`)
-            console.log(`📝 Invoice ${invoice.id}: Available delivery notes data:`, currentDeliveryNotes)
-            console.log(`📝 Invoice ${invoice.id}: Checking currentDeliveryNotes[${invoice.id}]:`, currentDeliveryNotes[invoice.id])
-            console.log(`📝 Invoice ${invoice.id}: All invoice IDs in currentDeliveryNotes:`, Object.keys(currentDeliveryNotes))
-            
-            let notes = currentDeliveryNotes[invoice.id] || []
-            console.log(`📝 Invoice ${invoice.id}: Found ${notes.length} delivery notes in map:`, notes)
-            
-            // If no notes in map, try fetching directly from API as fallback
-            if (notes.length === 0) {
-              console.log(`📝 Invoice ${invoice.id}: No notes in map, fetching directly from API...`)
-              try {
-                notes = await shipmentApi.getDeliveryNotesByInvoice(invoice.id)
-                console.log(`📝 Invoice ${invoice.id}: Fetched ${notes.length} delivery notes from API:`, notes)
-              } catch (fetchError) {
-                console.error(`📝 Invoice ${invoice.id}: Error fetching delivery notes:`, fetchError)
-                notes = []
-              }
-            }
-            
-            // Debug: Log each note's details
-            notes.forEach((note, index) => {
-              console.log(`📝 Invoice ${invoice.id}: Note ${index + 1} - Status: "${note.delivery_status}", ID: ${note.id}, Invoice ID: ${note.invoice_id}`)
-            })
-            
-            if (notes.length > 0) {
-              // Get the most recent delivery note status
-              const latestNote = notes.sort((a, b) => 
-                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-              )[0]
-              
-              // Use the delivery note status as fallback
-              let deliveryStatus = latestNote.delivery_status || 'Pending'
-              
-              // Ensure delivery status matches our expected values (capitalize first letter)
-              const statusLower = deliveryStatus.toLowerCase()
-              switch (statusLower) {
-                case 'delivered':
-                  deliveryStatus = 'Delivered'
-                  break
-                case 'in transit':
-                case 'in_transit':
-                  deliveryStatus = 'In Transit'
-                  break
-                case 'failed':
-                  deliveryStatus = 'Failed'
-                  break
-                case 'refused':
-                  deliveryStatus = 'Refused'
-                  break
-                case 'pending':
-                default:
-                  deliveryStatus = 'Pending'
-                  break
-              }
-              
-              console.log(`📝 Invoice ${invoice.id}: Using delivery note status: ${deliveryStatus}`)
-              statuses[invoice.id] = deliveryStatus
-            } else {
-              // No shipments or delivery notes - default to pending
-              console.log(`❌ Invoice ${invoice.id}: No shipments or delivery notes, defaulting to Pending`)
-              statuses[invoice.id] = 'Pending'
-            }
-          }
-        } catch (error) {
-          console.error(`Error getting delivery status for invoice ${invoice.id}:`, error)
-          statuses[invoice.id] = 'Pending' // Fallback to pending status
-        }
-      }
-      
-      console.log('✅ Setting delivery statuses:', statuses)
-      setDeliveryStatuses(statuses)
-      setDeliveryStatusesLoaded(true)
-      console.log('✅ Delivery statuses loaded successfully')
-    } catch (error) {
-      console.error('Error loading delivery statuses:', error)
-    } finally {
-      setIsLoadingDeliveryStatuses(false)
-    }
-  }
-
-  const loadPaymentStatuses = async (invoiceList: Invoice[]) => {
-    console.log('🚀 loadPaymentStatuses called for', invoiceList.length, 'invoices')
-    
-    // Prevent unnecessary reloading if we already have payment statuses
-    if (paymentStatusesLoaded) {
-      console.log('⏭️ Skipping loadPaymentStatuses - already loaded')
-      return
-    }
-    
-    // Prevent multiple simultaneous calls
-    if (isLoadingPaymentStatuses) {
-      console.log('⏭️ Skipping loadPaymentStatuses - already in progress')
-      return
-    }
-    
-    setIsLoadingPaymentStatuses(true)
-    
-    try {
-      const statuses: {[key: number]: string} = {}
-      
-      for (const invoice of invoiceList) {
-        try {
-          // Get all payments for this invoice
-          const payments = await paymentApi.getPayments({ 
-            invoice_id: invoice.id,
-            limit: 100 
-          })
-          
-          console.log(`Found ${payments.payments.length} payments for invoice ${invoice.id}`)
-          
-          if (payments.payments.length === 0) {
-            // No payments found, check if there's a pending payment
-            statuses[invoice.id] = 'Pending'
-          } else {
-            // Calculate total amount paid and check for credit payments
-            let totalPaid = 0
-            let hasCreditPayments = false
-            
-            payments.payments.forEach(payment => {
-              const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
-              
-              // Check if this is a credit payment
-              if (payment.payment_status === 'credit' || payment.payment_method === 'credit') {
-                hasCreditPayments = true
-                // For credit payments, DON'T add to totalPaid - it's a loan, not actual payment
-              } else {
-                // Only add to totalPaid if it's NOT a credit payment
-                totalPaid += amount
-              }
-            })
-            
-            const invoiceAmount = typeof invoice.total_amount === 'string' ? parseFloat(invoice.total_amount) : invoice.total_amount
-            
-            // If there are credit payments, show as "Credit" regardless of paid amount
-            if (hasCreditPayments) {
-              statuses[invoice.id] = 'Credit'
-            } else if (totalPaid >= invoiceAmount) {
-              statuses[invoice.id] = 'Completed'
-            } else if (totalPaid > 0) {
-              statuses[invoice.id] = 'Partial'
-            } else {
-              statuses[invoice.id] = 'Pending'
-            }
-          }
-        } catch (error) {
-          console.error(`Error getting payment status for invoice ${invoice.id}:`, error)
-          statuses[invoice.id] = 'Pending' // Fallback to default status
-        }
-      }
-      
-      console.log('✅ Final payment statuses:', statuses)
-      setPaymentStatuses(statuses)
-      setPaymentStatusesLoaded(true)
-      console.log('✅ Payment statuses loaded successfully')
-    } catch (error) {
-      console.error('Error loading payment statuses:', error)
-    } finally {
-      setIsLoadingPaymentStatuses(false)
-    }
-  }
-
-  const getDeliveryStatusColor = (status: string): string => {
-    switch (status) {
-      case 'Delivered':
-        return 'bg-green-100 text-green-800 border-green-200'
-      case 'Pending':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200'
-      case 'In Transit':
-        return 'bg-blue-100 text-blue-800 border-blue-200'
-      case 'Failed':
-        return 'bg-red-100 text-red-800 border-red-200'
-      case 'Refused':
-        return 'bg-red-100 text-red-800 border-red-200'
-      case 'Loading...':
-        return 'bg-gray-100 text-gray-600 border-gray-300 animate-pulse'
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200'
-    }
-  }
-
-  const getPaymentStatusColor = (status: string): string => {
-    switch (status) {
-      case 'Completed':
-        return 'bg-green-100 text-green-800 border-green-200'
-      case 'Credit':
-        return 'bg-orange-100 text-orange-800 border-orange-200'
-      case 'Partial':
-        return 'bg-blue-100 text-blue-800 border-blue-200'
-      case 'Pending':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200'
-      case 'Loading...':
-        return 'bg-gray-100 text-gray-600 border-gray-300 animate-pulse'
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200'
-    }
-  }
+  // Status functions removed - proforma invoices don't track delivery/payment status
 
   const getCustomerName = (customerId: number): string => {
     const customer = customers.find(c => c.id === customerId)
@@ -611,58 +221,18 @@ export default function InvoiceHistory() {
   // Calculate totals with safe number conversion
   const totalAmount = invoices.reduce((sum, invoice) => sum + safeNumber(invoice.total_amount), 0)
   const paidAmount = invoices
-    .filter((invoice) => invoice.is_paid)
+    .filter((invoice) => invoice.status === 'converted')
     .reduce((sum, invoice) => sum + safeNumber(invoice.total_amount), 0)
   const pendingAmount = totalAmount - paidAmount
 
   // Calculate additional metrics
   const overdueInvoices = invoices.filter(invoice => {
-    if (!invoice.due_date || invoice.is_paid) return false
-    return new Date(invoice.due_date) < new Date()
+    if (!invoice.valid_until || invoice.status === 'converted') return false
+    return new Date(invoice.valid_until) < new Date()
   }).length
 
   const handleSendReminder = (invoiceId: number) => {
     toast.success("Payment reminder sent!")
-  }
-
-  const handleCreateDeliveryNotesForInvoices = async () => {
-    try {
-      const response = await shipmentApi.createDeliveryNotesForInvoices()
-      toast.success('Delivery Notes Created!')
-      // Reload data to show new delivery notes
-      await loadInvoices()
-    } catch (error) {
-      console.error('Error creating delivery notes:', error)
-      toast.error('Creation Failed')
-    }
-  }
-
-  const handleRefreshDeliveryStatuses = async () => {
-    try {
-      // Reload delivery statuses for existing invoices
-      if (invoices.length > 0) {
-        setDeliveryStatusesLoaded(false)
-        await loadDeliveryStatuses()
-        toast.success('Delivery statuses refreshed!')
-      }
-    } catch (error) {
-      console.error('Error refreshing delivery statuses:', error)
-      toast.error('Failed to refresh delivery statuses')
-    }
-  }
-
-  const handleRefreshPaymentStatuses = async () => {
-    try {
-      // Reload payment statuses for existing invoices
-      if (invoices.length > 0) {
-        setPaymentStatusesLoaded(false)
-        await loadPaymentStatuses(invoices)
-        toast.success('Payment statuses refreshed!')
-      }
-    } catch (error) {
-      console.error('Error refreshing payment statuses:', error)
-      toast.error('Failed to refresh payment statuses')
-    }
   }
 
   const handleViewInvoice = (invoiceId: number) => {
@@ -673,7 +243,7 @@ export default function InvoiceHistory() {
   const handleDownloadInvoice = async (invoiceId: number) => {
     try {
       // Get the specific invoice data
-      const invoice = await invoiceApi.getInvoice(invoiceId);
+      const invoice = await proformaInvoiceApi.getInvoice(invoiceId);
       const customer = customers.find(c => c.id === invoice.customer_id);
       
       if (!customer) {
@@ -686,7 +256,7 @@ export default function InvoiceHistory() {
 
       const customerName = customer.company_name || `${customer.first_name} ${customer.last_name}`;
       const currentCustomer = customer;
-      const invoiceNumber = invoice.invoice_number;
+      const invoiceNumber = invoice.proforma_number;
       const currentDate = new Date();
       
       // Determine GST type based on customer and organization states
@@ -774,7 +344,7 @@ export default function InvoiceHistory() {
           <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Tax Invoice - ${customerName}</title>
+            <title>Proforma Invoice - ${customerName}</title>
             <style>
               * {
                 margin: 0;
@@ -1168,7 +738,7 @@ export default function InvoiceHistory() {
                 </div>
                 
                 <div class="invoice-title">
-                  <h2>TAX INVOICE</h2>
+                  <h2>PROFORMA INVOICE</h2>
                   <div class="invoice-number">${invoiceNumber}</div>
                 </div>
               </div>
@@ -1177,7 +747,7 @@ export default function InvoiceHistory() {
               <div class="invoice-details">
                 <div class="detail-group">
                   <div class="detail-label">Invoice Date</div>
-                  <div class="detail-value">${new Date(invoice.invoice_date).toLocaleDateString('en-IN', { 
+                  <div class="detail-value">${new Date(invoice.proforma_date).toLocaleDateString('en-IN', { 
                     day: '2-digit', 
                     month: 'short', 
                     year: 'numeric' 
@@ -1185,7 +755,7 @@ export default function InvoiceHistory() {
                 </div>
                 <div class="detail-group">
                   <div class="detail-label">Due Date</div>
-                  <div class="detail-value">${invoice.due_date ? new Date(invoice.due_date).toLocaleDateString('en-IN', { 
+                  <div class="detail-value">${invoice.valid_until ? new Date(invoice.valid_until).toLocaleDateString('en-IN', { 
                     day: '2-digit', 
                     month: 'short', 
                     year: 'numeric' 
@@ -1421,7 +991,7 @@ export default function InvoiceHistory() {
     }
 
     try {
-      await invoiceApi.deleteInvoice(invoiceId)
+      await proformaInvoiceApi.deleteInvoice(invoiceId)
       toast.success('Invoice deleted successfully!')
       // Reload invoices to update the list
       await loadInvoices()
@@ -1499,7 +1069,7 @@ export default function InvoiceHistory() {
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-blue-600 bg-clip-text text-transparent mb-2">
-              Invoice History
+              Proforma Invoice History
             </h1>
             <p className="text-gray-600 text-lg">Track and manage all your invoices efficiently</p>
           </div>
@@ -1567,7 +1137,7 @@ export default function InvoiceHistory() {
             <CardContent className="relative z-10">
               <div className="text-2xl font-bold text-orange-600">{formatCurrency(pendingAmount)}</div>
               <p className="text-xs text-gray-600 mt-1">
-                {invoices.filter(i => !i.is_paid).length} invoices pending
+                {invoices.filter(i => i.status !== 'converted').length} invoices pending
               </p>
             </CardContent>
           </Card>
@@ -1638,8 +1208,7 @@ export default function InvoiceHistory() {
                     <TableHead className="font-semibold text-gray-700">Invoice Date</TableHead>
                     <TableHead className="font-semibold text-gray-700">Due Date</TableHead>
                     <TableHead className="font-semibold text-gray-700">Amount</TableHead>
-                    <TableHead className="font-semibold text-gray-700">Delivery Status</TableHead>
-                    <TableHead className="font-semibold text-gray-700">Payment Status</TableHead>
+                    <TableHead className="font-semibold text-gray-700">Status</TableHead>
                     <TableHead className="font-semibold text-gray-700 text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1667,20 +1236,20 @@ export default function InvoiceHistory() {
                     invoices.map((invoice) => (
                       <TableRow key={invoice.id} className="border-white/20 hover:bg-white/50 transition-colors">
                         <TableCell>
-                          <div className="font-semibold text-gray-900">{invoice.invoice_number}</div>
+                          <div className="font-semibold text-gray-900">{invoice.proforma_number}</div>
                           <div className="text-sm text-gray-500">{invoice.items?.length || 0} items</div>
                         </TableCell>
                         <TableCell>
                           <div className="font-medium text-gray-800">{getCustomerName(invoice.customer_id)}</div>
                         </TableCell>
                         <TableCell>
-                          <div className="text-gray-700">{formatDate(new Date(invoice.invoice_date), "MMM dd, yyyy")}</div>
+                          <div className="text-gray-700">{formatDate(new Date(invoice.proforma_date), "MMM dd, yyyy")}</div>
                         </TableCell>
                         <TableCell>
                           <div className="text-gray-700">
-                            {invoice.due_date ? formatDate(new Date(invoice.due_date), "MMM dd, yyyy") : 'No due date'}
-                            {invoice.due_date && new Date(invoice.due_date) < new Date() && !invoice.is_paid && (
-                              <span className="block text-xs text-red-600 font-medium">Overdue</span>
+                            {invoice.valid_until ? formatDate(new Date(invoice.valid_until), "MMM dd, yyyy") : 'No due date'}
+                            {invoice.valid_until && new Date(invoice.valid_until) < new Date() && invoice.status !== 'converted' && (
+                              <span className="block text-xs text-red-600 font-medium">Expired</span>
                             )}
                           </div>
                         </TableCell>
@@ -1688,13 +1257,8 @@ export default function InvoiceHistory() {
                           <div className="font-semibold text-gray-900">{formatCurrency(invoice.total_amount)}</div>
                         </TableCell>
                         <TableCell>
-                          <Badge className={`${getDeliveryStatusColor(getDeliveryStatus(invoice.id))} font-medium`}>
-                            {getDeliveryStatus(invoice.id)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getPaymentStatusColor(getPaymentStatus(invoice.id))}>
-                            {getPaymentStatus(invoice.id)}
+                          <Badge className={`${getStatusColor(invoice.status)} font-medium`}>
+                            {invoice.status || 'draft'}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -1707,7 +1271,7 @@ export default function InvoiceHistory() {
                                     className="hover:bg-green-50 hover:border-green-300">
                               <Download className="w-3 h-3" />
                             </Button>
-                            {!invoice.is_paid && (
+                            {invoice.status !== 'converted' && (
                               <Button size="sm" variant="outline" onClick={() => handleSendReminder(invoice.id)}
                                       className="hover:bg-orange-50 hover:border-orange-300">
                                 <Send className="w-3 h-3" />
