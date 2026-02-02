@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './utils/AuthContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import Layout from './components/Layout/Layout';
 import ItemList from './pages/inventory/item-list';
@@ -410,8 +411,8 @@ function App() {
               }
             />
 
-            {/* Default redirect */}
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            {/* Home page (public) */}
+            <Route path="/" element={<Home />} />
 
             {/* 404 - Page not found */}
             <Route

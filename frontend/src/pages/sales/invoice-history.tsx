@@ -145,8 +145,6 @@ export default function InvoiceHistory() {
   const [paymentStatuses, setPaymentStatuses] = useState<{[key: number]: string}>({})
   const [deliveryStatusesLoaded, setDeliveryStatusesLoaded] = useState(false)
   const [paymentStatusesLoaded, setPaymentStatusesLoaded] = useState(false)
-  const [isLoadingDeliveryStatuses, setIsLoadingDeliveryStatuses] = useState(false)
-  const [isLoadingPaymentStatuses, setIsLoadingPaymentStatuses] = useState(false)
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [customerFilter, setCustomerFilter] = useState("all")
@@ -158,24 +156,15 @@ export default function InvoiceHistory() {
   const [totalRecords, setTotalRecords] = useState(0)
   const recordsPerPage = 10
 
-  // Load invoices and customers on component mount
+  // Load customers on component mount (only once)
   useEffect(() => {
-    loadInvoices()
     loadCustomers()
   }, [])
 
-  // Reload invoices when filters or page change
+  // Load invoices when filters or page change (includes initial mount)
   useEffect(() => {
     loadInvoices()
   }, [searchTerm, customerFilter, dateRange, currentPage])
-
-  // Load payment statuses when invoices change (but only once)
-  useEffect(() => {
-    if (invoices.length > 0 && !paymentStatusesLoaded && !isLoadingPaymentStatuses) {
-      console.log('🔄 useEffect: Loading payment statuses because invoices changed')
-      loadPaymentStatuses(invoices)
-    }
-  }, [invoices, paymentStatusesLoaded, isLoadingPaymentStatuses])
 
   const loadInvoices = async () => {
     try {
@@ -213,13 +202,9 @@ export default function InvoiceHistory() {
       setTotalRecords(total)
       setTotalPages(Math.ceil(total / recordsPerPage))
       
-      // Load delivery notes for all invoices
+      // Load all statuses in parallel for all invoices
       if (response.invoices.length > 0) {
-        const invoiceIds = response.invoices.map(invoice => invoice.id)
-        const notesMap = await loadDeliveryNotes(invoiceIds)
-        console.log('📝 Delivery notes loaded, now loading delivery statuses...')
-        // Load delivery statuses with the fresh delivery notes data AND pass the invoices
-        loadDeliveryStatuses(notesMap, response.invoices)
+        await loadAllStatusesInParallel(response.invoices)
       }
     } catch (error) {
       console.error('Error loading invoices:', error)
@@ -238,81 +223,176 @@ export default function InvoiceHistory() {
     }
   }
 
-  const loadDeliveryNotes = async (invoiceIds: number[]) => {
-    try {
-      const deliveryNotesMap: { [invoiceId: number]: DeliveryNote[] } = {}
-      
-      console.log('📝 Loading delivery notes for invoices:', invoiceIds)
-      
-      for (const invoiceId of invoiceIds) {
+  // Consolidated function to load all statuses in parallel
+  const loadAllStatusesInParallel = async (invoiceList: Invoice[]) => {
+    console.log('🚀 Loading all statuses in parallel for', invoiceList.length, 'invoices')
+    
+    const invoiceIds = invoiceList.map(inv => inv.id)
+    
+    // Fetch all shipments and delivery notes in parallel using Promise.all
+    const [shipmentsResults, deliveryNotesResults, paymentResults] = await Promise.all([
+      // Fetch shipments for all invoices in parallel
+      Promise.all(invoiceIds.map(async (id) => {
         try {
-          const notes = await shipmentApi.getDeliveryNotesByInvoice(invoiceId)
-          deliveryNotesMap[invoiceId] = notes
-          console.log(`📝 Invoice ${invoiceId}: Loaded ${notes.length} delivery notes:`, notes)
+          const shipments = await shipmentApi.getShipmentsByInvoice(id)
+          return { invoiceId: id, shipments }
         } catch (error) {
-          console.error(`Error loading delivery notes for invoice ${invoiceId}:`, error)
-          deliveryNotesMap[invoiceId] = []
+          console.error(`Error fetching shipments for invoice ${id}:`, error)
+          return { invoiceId: id, shipments: [] }
+        }
+      })),
+      // Fetch delivery notes for all invoices in parallel
+      Promise.all(invoiceIds.map(async (id) => {
+        try {
+          const notes = await shipmentApi.getDeliveryNotesByInvoice(id)
+          return { invoiceId: id, notes }
+        } catch (error) {
+          console.error(`Error fetching delivery notes for invoice ${id}:`, error)
+          return { invoiceId: id, notes: [] }
+        }
+      })),
+      // Fetch payments for all invoices in parallel
+      Promise.all(invoiceIds.map(async (id) => {
+        try {
+          const payments = await paymentApi.getPayments({ invoice_id: id, limit: 100 })
+          return { invoiceId: id, payments: payments.payments }
+        } catch (error) {
+          console.error(`Error fetching payments for invoice ${id}:`, error)
+          return { invoiceId: id, payments: [] }
+        }
+      }))
+    ])
+    
+    // Build maps from results
+    const shipmentsMap: { [key: number]: any[] } = {}
+    const notesMap: { [key: number]: DeliveryNote[] } = {}
+    const paymentsMap: { [key: number]: Payment[] } = {}
+    
+    shipmentsResults.forEach(result => {
+      shipmentsMap[result.invoiceId] = result.shipments
+    })
+    
+    deliveryNotesResults.forEach(result => {
+      notesMap[result.invoiceId] = result.notes
+    })
+    
+    paymentResults.forEach(result => {
+      paymentsMap[result.invoiceId] = result.payments
+    })
+    
+    // Set delivery notes state
+    setDeliveryNotes(notesMap)
+    
+    // Compute delivery statuses from shipments and delivery notes
+    const deliveryStatusMap: { [key: number]: string } = {}
+    for (const invoice of invoiceList) {
+      const shipments = shipmentsMap[invoice.id] || []
+      const notes = notesMap[invoice.id] || []
+      
+      // Priority: Check shipments first, then delivery notes
+      if (shipments.length > 0) {
+        const latestShipment = shipments.sort((a: any, b: any) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )[0]
+        
+        const statusLower = latestShipment.status?.toLowerCase() || 'pending'
+        switch (statusLower) {
+          case 'delivered':
+            deliveryStatusMap[invoice.id] = 'Delivered'
+            break
+          case 'in_transit':
+          case 'in transit':
+          case 'shipped':
+            deliveryStatusMap[invoice.id] = 'In Transit'
+            break
+          case 'cancelled':
+          case 'failed':
+            deliveryStatusMap[invoice.id] = 'Failed'
+            break
+          case 'refused':
+            deliveryStatusMap[invoice.id] = 'Refused'
+            break
+          default:
+            deliveryStatusMap[invoice.id] = 'Pending'
+        }
+      } else if (notes.length > 0) {
+        // Fallback to delivery notes if no shipments
+        const latestNote = notes.sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )[0]
+        
+        const statusLower = (latestNote.delivery_status || 'pending').toLowerCase()
+        switch (statusLower) {
+          case 'delivered':
+            deliveryStatusMap[invoice.id] = 'Delivered'
+            break
+          case 'in transit':
+          case 'in_transit':
+            deliveryStatusMap[invoice.id] = 'In Transit'
+            break
+          case 'failed':
+            deliveryStatusMap[invoice.id] = 'Failed'
+            break
+          case 'refused':
+            deliveryStatusMap[invoice.id] = 'Refused'
+            break
+          default:
+            deliveryStatusMap[invoice.id] = 'Pending'
+        }
+      } else {
+        deliveryStatusMap[invoice.id] = 'Pending'
+      }
+    }
+    
+    // Compute payment statuses
+    const paymentStatusMap: { [key: number]: string } = {}
+    for (const invoice of invoiceList) {
+      const payments = paymentsMap[invoice.id] || []
+      
+      if (payments.length === 0) {
+        paymentStatusMap[invoice.id] = 'Pending'
+      } else {
+        let totalPaid = 0
+        let hasCreditPayments = false
+        
+        payments.forEach((payment: any) => {
+          const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
+          
+          if (payment.payment_status === 'credit' || payment.payment_method === 'credit') {
+            hasCreditPayments = true
+          } else {
+            totalPaid += amount
+          }
+        })
+        
+        const invoiceAmount = typeof invoice.total_amount === 'string' ? parseFloat(invoice.total_amount) : invoice.total_amount
+        
+        if (hasCreditPayments) {
+          paymentStatusMap[invoice.id] = 'Credit'
+        } else if (totalPaid >= invoiceAmount) {
+          paymentStatusMap[invoice.id] = 'Completed'
+        } else if (totalPaid > 0) {
+          paymentStatusMap[invoice.id] = 'Partial'
+        } else {
+          paymentStatusMap[invoice.id] = 'Pending'
         }
       }
-      
-      console.log('📝 Final delivery notes map:', deliveryNotesMap)
-      setDeliveryNotes(deliveryNotesMap)
-      return deliveryNotesMap
-    } catch (error) {
-      console.error('Error loading delivery notes:', error)
-      return {}
     }
+    
+    // Update all states at once
+    setDeliveryStatuses(deliveryStatusMap)
+    setDeliveryStatusesLoaded(true)
+    setPaymentStatuses(paymentStatusMap)
+    setPaymentStatusesLoaded(true)
+    
+    console.log('✅ All statuses loaded:', { delivery: deliveryStatusMap, payment: paymentStatusMap })
   }
 
-  // Reset delivery and payment statuses when invoices change
-  useEffect(() => {
-    if (invoices.length > 0) {
-      console.log('🔄 useEffect: Invoices changed, resetting delivery and payment statuses')
-      setDeliveryStatusesLoaded(false)
-      setDeliveryStatuses({})
-      setPaymentStatusesLoaded(false)
-      setPaymentStatuses({})
-    }
-  }, [invoices])
-
-  // Load delivery statuses when delivery notes change or when we have invoices but no statuses
-  useEffect(() => {
-    const hasDeliveryNotes = Object.keys(deliveryNotes).length > 0
-    const hasInvoices = invoices.length > 0
-    
-    if (!deliveryStatusesLoaded && !isLoadingDeliveryStatuses && (hasDeliveryNotes || hasInvoices)) {
-      console.log('🔄 useEffect: Loading delivery statuses because delivery notes changed or invoices available')
-      loadDeliveryStatuses()
-    }
-  }, [Object.keys(deliveryNotes).length, deliveryStatusesLoaded, isLoadingDeliveryStatuses, invoices.length])
-
-  // Load delivery notes when invoices are loaded (but don't auto-create them)
-  useEffect(() => {
-    if (invoices.length > 0 && Object.keys(deliveryNotes).length === 0) {
-      // Load existing delivery notes for all invoices
-      const invoiceIds = invoices.map(invoice => invoice.id)
-      loadDeliveryNotes(invoiceIds)
-    }
-  }, [invoices])
-
   const getDeliveryStatus = (invoiceId: number): string => {
-    // If delivery statuses haven't been loaded yet, show loading state
     if (!deliveryStatusesLoaded) {
       return 'Loading...'
     }
-    
-    // If we have a status for this invoice, return it
-    if (deliveryStatuses[invoiceId]) {
-      return deliveryStatuses[invoiceId]
-    }
-    
-    // If currently loading, show loading state
-    if (isLoadingDeliveryStatuses) {
-      return 'Loading...'
-    }
-    
-    // Final fallback - return pending instead of triggering reload to prevent infinite loop
-    return 'Pending'
+    return deliveryStatuses[invoiceId] || 'Pending'
   }
 
   const getPaymentStatus = (invoiceId: number): string => {
@@ -321,247 +401,6 @@ export default function InvoiceHistory() {
       return 'Loading...'
     }
     return paymentStatuses[invoiceId] || 'Pending'
-  }
-
-  const loadDeliveryStatuses = async (notesMap?: { [invoiceId: number]: DeliveryNote[] }, invoicesList?: any[]) => {
-    const currentDeliveryNotes = notesMap || deliveryNotes
-    const currentInvoices = invoicesList || invoices
-    console.log('🚀 loadDeliveryStatuses called', {
-      invoicesCount: currentInvoices.length,
-      deliveryNotesCount: Object.keys(currentDeliveryNotes).length,
-      alreadyLoaded: deliveryStatusesLoaded,
-      usingPassedNotes: !!notesMap,
-      usingPassedInvoices: !!invoicesList
-    })
-    
-    // Prevent unnecessary reloading if we already have statuses
-    if (deliveryStatusesLoaded) {
-      console.log('⏭️ Skipping loadDeliveryStatuses - already loaded')
-      return
-    }
-    
-    // Prevent multiple simultaneous calls
-    if (isLoadingDeliveryStatuses) {
-      console.log('⏭️ Skipping loadDeliveryStatuses - already in progress')
-      return
-    }
-    
-    setIsLoadingDeliveryStatuses(true)
-    
-    try {
-      const statuses: {[key: number]: string} = {}
-      
-      for (const invoice of currentInvoices) {
-        try {
-          // First, check shipments for this invoice (primary source)
-          console.log(`🚚 Invoice ${invoice.id}: Checking shipments first...`)
-          const shipments = await shipmentApi.getShipmentsByInvoice(invoice.id)
-          
-          if (shipments.length > 0) {
-            // If shipments exist, use shipment status as the primary source
-            const latestShipment = shipments.sort((a, b) => 
-              new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            )[0]
-            
-            // Debug: Log the actual shipment status
-            console.log(`🚚 Invoice ${invoice.id}: Raw shipment status: "${latestShipment.status}" (type: ${typeof latestShipment.status})`)
-            
-            // Map shipment status to delivery status
-            let deliveryStatus = 'Pending'
-            const statusLower = latestShipment.status?.toLowerCase()
-            console.log(`🚚 Invoice ${invoice.id}: Status after toLowerCase: "${statusLower}"`)
-            
-            switch (statusLower) {
-              case 'delivered':
-                deliveryStatus = 'Delivered'
-                break
-              case 'in_transit':
-              case 'in transit':
-                deliveryStatus = 'In Transit'
-                break
-              case 'shipped':
-                deliveryStatus = 'In Transit'
-                break
-              case 'cancelled':
-                deliveryStatus = 'Failed'
-                break
-              case 'failed':
-                deliveryStatus = 'Failed'
-                break
-              case 'refused':
-                deliveryStatus = 'Refused'
-                break
-              case 'pending':
-              default:
-                deliveryStatus = 'Pending'
-                console.log(`🚚 Invoice ${invoice.id}: Status "${statusLower}" not matched, defaulting to Pending`)
-                break
-            }
-            
-            console.log(`🚚 Invoice ${invoice.id}: Final delivery status: ${deliveryStatus}`)
-            statuses[invoice.id] = deliveryStatus
-          } else {
-            // Only check delivery notes if there are NO shipments
-            console.log(`📝 Invoice ${invoice.id}: No shipments, checking delivery notes...`)
-            console.log(`📝 Invoice ${invoice.id}: Available delivery notes data:`, currentDeliveryNotes)
-            console.log(`📝 Invoice ${invoice.id}: Checking currentDeliveryNotes[${invoice.id}]:`, currentDeliveryNotes[invoice.id])
-            console.log(`📝 Invoice ${invoice.id}: All invoice IDs in currentDeliveryNotes:`, Object.keys(currentDeliveryNotes))
-            
-            let notes = currentDeliveryNotes[invoice.id] || []
-            console.log(`📝 Invoice ${invoice.id}: Found ${notes.length} delivery notes in map:`, notes)
-            
-            // If no notes in map, try fetching directly from API as fallback
-            if (notes.length === 0) {
-              console.log(`📝 Invoice ${invoice.id}: No notes in map, fetching directly from API...`)
-              try {
-                notes = await shipmentApi.getDeliveryNotesByInvoice(invoice.id)
-                console.log(`📝 Invoice ${invoice.id}: Fetched ${notes.length} delivery notes from API:`, notes)
-              } catch (fetchError) {
-                console.error(`📝 Invoice ${invoice.id}: Error fetching delivery notes:`, fetchError)
-                notes = []
-              }
-            }
-            
-            // Debug: Log each note's details
-            notes.forEach((note, index) => {
-              console.log(`📝 Invoice ${invoice.id}: Note ${index + 1} - Status: "${note.delivery_status}", ID: ${note.id}, Invoice ID: ${note.invoice_id}`)
-            })
-            
-            if (notes.length > 0) {
-              // Get the most recent delivery note status
-              const latestNote = notes.sort((a, b) => 
-                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-              )[0]
-              
-              // Use the delivery note status as fallback
-              let deliveryStatus = latestNote.delivery_status || 'Pending'
-              
-              // Ensure delivery status matches our expected values (capitalize first letter)
-              const statusLower = deliveryStatus.toLowerCase()
-              switch (statusLower) {
-                case 'delivered':
-                  deliveryStatus = 'Delivered'
-                  break
-                case 'in transit':
-                case 'in_transit':
-                  deliveryStatus = 'In Transit'
-                  break
-                case 'failed':
-                  deliveryStatus = 'Failed'
-                  break
-                case 'refused':
-                  deliveryStatus = 'Refused'
-                  break
-                case 'pending':
-                default:
-                  deliveryStatus = 'Pending'
-                  break
-              }
-              
-              console.log(`📝 Invoice ${invoice.id}: Using delivery note status: ${deliveryStatus}`)
-              statuses[invoice.id] = deliveryStatus
-            } else {
-              // No shipments or delivery notes - default to pending
-              console.log(`❌ Invoice ${invoice.id}: No shipments or delivery notes, defaulting to Pending`)
-              statuses[invoice.id] = 'Pending'
-            }
-          }
-        } catch (error) {
-          console.error(`Error getting delivery status for invoice ${invoice.id}:`, error)
-          statuses[invoice.id] = 'Pending' // Fallback to pending status
-        }
-      }
-      
-      console.log('✅ Setting delivery statuses:', statuses)
-      setDeliveryStatuses(statuses)
-      setDeliveryStatusesLoaded(true)
-      console.log('✅ Delivery statuses loaded successfully')
-    } catch (error) {
-      console.error('Error loading delivery statuses:', error)
-    } finally {
-      setIsLoadingDeliveryStatuses(false)
-    }
-  }
-
-  const loadPaymentStatuses = async (invoiceList: Invoice[]) => {
-    console.log('🚀 loadPaymentStatuses called for', invoiceList.length, 'invoices')
-    
-    // Prevent unnecessary reloading if we already have payment statuses
-    if (paymentStatusesLoaded) {
-      console.log('⏭️ Skipping loadPaymentStatuses - already loaded')
-      return
-    }
-    
-    // Prevent multiple simultaneous calls
-    if (isLoadingPaymentStatuses) {
-      console.log('⏭️ Skipping loadPaymentStatuses - already in progress')
-      return
-    }
-    
-    setIsLoadingPaymentStatuses(true)
-    
-    try {
-      const statuses: {[key: number]: string} = {}
-      
-      for (const invoice of invoiceList) {
-        try {
-          // Get all payments for this invoice
-          const payments = await paymentApi.getPayments({ 
-            invoice_id: invoice.id,
-            limit: 100 
-          })
-          
-          console.log(`Found ${payments.payments.length} payments for invoice ${invoice.id}`)
-          
-          if (payments.payments.length === 0) {
-            // No payments found, check if there's a pending payment
-            statuses[invoice.id] = 'Pending'
-          } else {
-            // Calculate total amount paid and check for credit payments
-            let totalPaid = 0
-            let hasCreditPayments = false
-            
-            payments.payments.forEach(payment => {
-              const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
-              
-              // Check if this is a credit payment
-              if (payment.payment_status === 'credit' || payment.payment_method === 'credit') {
-                hasCreditPayments = true
-                // For credit payments, DON'T add to totalPaid - it's a loan, not actual payment
-              } else {
-                // Only add to totalPaid if it's NOT a credit payment
-                totalPaid += amount
-              }
-            })
-            
-            const invoiceAmount = typeof invoice.total_amount === 'string' ? parseFloat(invoice.total_amount) : invoice.total_amount
-            
-            // If there are credit payments, show as "Credit" regardless of paid amount
-            if (hasCreditPayments) {
-              statuses[invoice.id] = 'Credit'
-            } else if (totalPaid >= invoiceAmount) {
-              statuses[invoice.id] = 'Completed'
-            } else if (totalPaid > 0) {
-              statuses[invoice.id] = 'Partial'
-            } else {
-              statuses[invoice.id] = 'Pending'
-            }
-          }
-        } catch (error) {
-          console.error(`Error getting payment status for invoice ${invoice.id}:`, error)
-          statuses[invoice.id] = 'Pending' // Fallback to default status
-        }
-      }
-      
-      console.log('✅ Final payment statuses:', statuses)
-      setPaymentStatuses(statuses)
-      setPaymentStatusesLoaded(true)
-      console.log('✅ Payment statuses loaded successfully')
-    } catch (error) {
-      console.error('Error loading payment statuses:', error)
-    } finally {
-      setIsLoadingPaymentStatuses(false)
-    }
   }
 
   const getDeliveryStatusColor = (status: string): string => {
@@ -637,31 +476,18 @@ export default function InvoiceHistory() {
     }
   }
 
-  const handleRefreshDeliveryStatuses = async () => {
+  const handleRefreshStatuses = async () => {
     try {
-      // Reload delivery statuses for existing invoices
+      // Reload all statuses for existing invoices
       if (invoices.length > 0) {
         setDeliveryStatusesLoaded(false)
-        await loadDeliveryStatuses()
-        toast.success('Delivery statuses refreshed!')
-      }
-    } catch (error) {
-      console.error('Error refreshing delivery statuses:', error)
-      toast.error('Failed to refresh delivery statuses')
-    }
-  }
-
-  const handleRefreshPaymentStatuses = async () => {
-    try {
-      // Reload payment statuses for existing invoices
-      if (invoices.length > 0) {
         setPaymentStatusesLoaded(false)
-        await loadPaymentStatuses(invoices)
-        toast.success('Payment statuses refreshed!')
+        await loadAllStatusesInParallel(invoices)
+        toast.success('Statuses refreshed!')
       }
     } catch (error) {
-      console.error('Error refreshing payment statuses:', error)
-      toast.error('Failed to refresh payment statuses')
+      console.error('Error refreshing statuses:', error)
+      toast.error('Failed to refresh statuses')
     }
   }
 

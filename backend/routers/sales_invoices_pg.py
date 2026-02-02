@@ -484,6 +484,10 @@ async def create_invoice(
                     ),
                 )
 
+                # Get current stock before update
+                current_stock_before = float(db_item.get("current_stock") or 0)
+                current_stock_after = current_stock_before - float(payload.quantity)
+                
                 cursor.execute(
                     """
                     UPDATE items
@@ -510,16 +514,20 @@ async def create_invoice(
                         notes,
                         recorded_by,
                         recorded_by_account_id,
+                        quantity_before,
+                        quantity_after,
                         created_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         db_item["id"],
                         account_id,
-                        "sold",
+                        "stock_out",
                         f"Stock reduced for invoice {invoice_number}",
                         current_user["id"],
                         account_id,
+                        current_stock_before,
+                        current_stock_after,
                         created_at,
                     ),
                 )

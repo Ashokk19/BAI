@@ -6,10 +6,24 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Badge } from "@/components/ui/badge"
 import { accountsApi, type Account } from "@/services/accountsApi"
 import { useAuth } from "@/utils/AuthContext"
 import { apiService } from "@/services/api"
-import { Pencil, Trash2, UserPlus, Users } from "lucide-react"
+import { Pencil, Trash2, UserPlus, Users, Calendar, Phone, Mail, Building2, CheckCircle, XCircle, Clock } from "lucide-react"
+
+interface DemoRequest {
+  id: number
+  name: string
+  email: string
+  phone: string
+  company_name?: string
+  message?: string
+  status: string
+  demo_date?: string
+  created_at: string
+  updated_at?: string
+}
 
 interface User {
   id: number
@@ -26,6 +40,9 @@ export default function AccountsAdmin() {
   const { user } = useAuth()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [users, setUsers] = useState<User[]>([])
+  const [demoRequests, setDemoRequests] = useState<DemoRequest[]>([])
+  const [demoStatusFilter, setDemoStatusFilter] = useState<string>("")
+  const [isDemoLoading, setIsDemoLoading] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -62,10 +79,83 @@ export default function AccountsAdmin() {
     }
   }
 
+  const loadDemoRequests = async (statusFilter?: string) => {
+    setIsDemoLoading(true)
+    try {
+      const filterToUse = statusFilter !== undefined ? statusFilter : demoStatusFilter
+      const url = filterToUse 
+        ? `/api/demo-requests/?status_filter=${filterToUse}`
+        : "/api/demo-requests/"
+      console.log('Loading demo requests with URL:', url)
+      const list = await apiService.get<DemoRequest[]>(url)
+      console.log('Loaded demo requests:', list.length, 'records')
+      setDemoRequests(list)
+    } catch (e: any) {
+      console.error("Failed to load demo requests:", e)
+      setError("Failed to load demo requests")
+    } finally {
+      setIsDemoLoading(false)
+    }
+  }
+
+  const handleUpdateDemoStatus = async (id: number, newStatus: string) => {
+    try {
+      await apiService.put(`/api/demo-requests/${id}/status?new_status=${newStatus}`, {})
+      setSuccess("Demo request status updated")
+      await loadDemoRequests()
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || "Failed to update status")
+    }
+  }
+
+  const handleUpdateDemoDate = async (id: number, newDate: string) => {
+    if (!newDate) return // Don't update if date is cleared
+    try {
+      setError(null)
+      setSuccess(null)
+      await apiService.put(`/api/demo-requests/${id}/date?demo_date=${newDate}`, {})
+      setSuccess("Demo date updated successfully")
+      // Reload with current filter to ensure we see the updated record
+      await loadDemoRequests(demoStatusFilter)
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || "Failed to update date")
+      // Reload to revert UI to database state
+      await loadDemoRequests(demoStatusFilter)
+    }
+  }
+
+  const handleDeleteDemoRequest = async (id: number) => {
+    if (!confirm("Delete this demo request?")) return
+    try {
+      await apiService.delete(`/api/demo-requests/${id}`)
+      setSuccess("Demo request deleted")
+      await loadDemoRequests()
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || "Failed to delete demo request")
+    }
+  }
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "pending":
+        return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800"><Clock className="w-3 h-3 mr-1" />Pending</Badge>
+      case "contacted":
+        return <Badge variant="secondary" className="bg-blue-100 text-blue-800"><Phone className="w-3 h-3 mr-1" />Contacted</Badge>
+      case "demo_scheduled":
+        return <Badge variant="secondary" className="bg-purple-100 text-purple-800"><Calendar className="w-3 h-3 mr-1" />Scheduled</Badge>
+      case "completed":
+        return <Badge variant="secondary" className="bg-green-100 text-green-800"><CheckCircle className="w-3 h-3 mr-1" />Completed</Badge>
+      case "cancelled":
+        return <Badge variant="secondary" className="bg-red-100 text-red-800"><XCircle className="w-3 h-3 mr-1" />Cancelled</Badge>
+      default:
+        return <Badge variant="secondary">{status}</Badge>
+    }
+  }
+
   useEffect(() => {
     if (isMaster) {
       setIsLoading(true)
-      Promise.all([loadAccounts(), loadUsers()]).finally(() => setIsLoading(false))
+      Promise.all([loadAccounts(), loadUsers(), loadDemoRequests()]).finally(() => setIsLoading(false))
     }
   }, [isMaster])
 
@@ -289,6 +379,115 @@ export default function AccountsAdmin() {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Demo Requests Section */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2"><Calendar className="w-5 h-5" /> Demo Requests</CardTitle>
+          <div className="flex items-center gap-2">
+            <Label className="text-sm">Filter by Status:</Label>
+            <select 
+              className="border rounded px-3 py-1.5 text-sm"
+              value={demoStatusFilter}
+              onChange={(e) => {
+                const newFilter = e.target.value
+                setDemoStatusFilter(newFilter)
+                loadDemoRequests(newFilter)
+              }}
+            >
+              <option value="">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="contacted">Contacted</option>
+              <option value="demo_scheduled">Demo Scheduled</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isDemoLoading ? (
+            <div className="text-center text-gray-500 py-8">Loading demo requests...</div>
+          ) : demoRequests.length === 0 ? (
+            <div className="text-center text-gray-500 py-8">No demo requests {demoStatusFilter ? `with status "${demoStatusFilter}"` : "yet"}</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr className="text-left">
+                    <th className="p-3 font-semibold">Name</th>
+                    <th className="p-3 font-semibold">Contact</th>
+                    <th className="p-3 font-semibold">Company</th>
+                    <th className="p-3 font-semibold">Message</th>
+                    <th className="p-3 font-semibold">Status</th>
+                    <th className="p-3 font-semibold">Date</th>
+                    <th className="p-3 font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {demoRequests.map((req) => (
+                    <tr key={req.id} className="border-t hover:bg-gray-50">
+                      <td className="p-3 font-medium">{req.name}</td>
+                      <td className="p-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1 text-xs">
+                            <Mail className="w-3 h-3 text-gray-400" />
+                            <a href={`mailto:${req.email}`} className="text-blue-600 hover:underline">{req.email}</a>
+                          </div>
+                          <div className="flex items-center gap-1 text-xs">
+                            <Phone className="w-3 h-3 text-gray-400" />
+                            <a href={`tel:${req.phone}`} className="text-blue-600 hover:underline">{req.phone}</a>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        {req.company_name ? (
+                          <div className="flex items-center gap-1">
+                            <Building2 className="w-3 h-3 text-gray-400" />
+                            {req.company_name}
+                          </div>
+                        ) : "-"}
+                      </td>
+                      <td className="p-3 max-w-xs truncate" title={req.message}>{req.message || "-"}</td>
+                      <td className="p-3">{getStatusBadge(req.status)}</td>
+                      <td className="p-3">
+                        <Input
+                          type="date"
+                          className="text-xs w-32"
+                          defaultValue={req.demo_date || ""}
+                          onBlur={(e) => {
+                            const newDate = e.target.value
+                            if (newDate !== (req.demo_date || "")) {
+                              handleUpdateDemoDate(req.id, newDate)
+                            }
+                          }}
+                        />
+                      </td>
+                      <td className="p-3">
+                        <div className="flex gap-1 flex-wrap">
+                          <select 
+                            className="text-xs border rounded px-2 py-1"
+                            value={req.status}
+                            onChange={(e) => handleUpdateDemoStatus(req.id, e.target.value)}
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="contacted">Contacted</option>
+                            <option value="demo_scheduled">Demo Scheduled</option>
+                            <option value="completed">Completed</option>
+                            <option value="cancelled">Cancelled</option>
+                          </select>
+                          <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" onClick={() => handleDeleteDemoRequest(req.id)}>
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 

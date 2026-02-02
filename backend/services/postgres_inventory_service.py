@@ -22,6 +22,26 @@ class PostgresInventoryService:
                 )
         except Exception as e:
             print(f"Error ensuring items.hsn_code column: {e}")
+
+    @staticmethod
+    def _ensure_inventory_logs_quantity_columns() -> None:
+        """Ensure inventory_logs table has quantity_before and quantity_after columns."""
+        try:
+            with postgres_db.get_cursor() as cursor:
+                cursor.execute(
+                    """
+                    ALTER TABLE public.inventory_logs
+                    ADD COLUMN IF NOT EXISTS quantity_before NUMERIC(10, 3)
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.inventory_logs
+                    ADD COLUMN IF NOT EXISTS quantity_after NUMERIC(10, 3)
+                    """
+                )
+        except Exception as e:
+            print(f"Error ensuring inventory_logs quantity columns: {e}")
     
     @staticmethod
     def create_item(item_data: Dict, account_id: str) -> Optional[Dict]:
@@ -145,8 +165,12 @@ class PostgresInventoryService:
     @staticmethod
     def get_inventory_logs(account_id: str, limit: int = 50, offset: int = 0, item_id: Optional[int] = None, transaction_type: Optional[str] = None) -> List[Dict]:
         """Fetch inventory logs with optional filters and join item info."""
+        # Ensure quantity columns exist
+        PostgresInventoryService._ensure_inventory_logs_quantity_columns()
+        
         base = """
         SELECT il.id, il.item_id, il.item_account_id, il.action, il.notes, il.recorded_by, il.created_at,
+               il.quantity_before, il.quantity_after,
                i.name AS item_name, i.item_code AS item_sku,
                COALESCE(u.full_name, u.username, 'User #' || il.recorded_by::text) AS user_name
         FROM inventory_logs il
@@ -195,9 +219,26 @@ class PostgresInventoryService:
                     "deleted": "removed",
                     "delete": "removed",
                     "remove": "removed",
+                    "sold": "stock_out",
+                    "sale": "stock_out",
+                    "invoice": "stock_out",
+                    "purchase_received": "stock_in",
+                    "purchase": "stock_in",
+                    "received": "stock_in",
+                    "receipt": "stock_in",
                 }
                 action_val = synonyms.get(norm, norm)
 
+                # Get quantity values from database
+                qty_before = r.get("quantity_before")
+                qty_after = r.get("quantity_after")
+                
+                # Convert Decimal to float if needed
+                if qty_before is not None:
+                    qty_before = float(qty_before) if hasattr(qty_before, '__float__') else qty_before
+                if qty_after is not None:
+                    qty_after = float(qty_after) if hasattr(qty_after, '__float__') else qty_after
+                
                 logs.append({
                     "id": r.get("id"),
                     "item_id": r.get("item_id"),
@@ -206,8 +247,8 @@ class PostgresInventoryService:
                     "action": action_val,
                     "user_id": r.get("recorded_by"),
                     "user_name": r.get("user_name") or (f"User #{r.get('recorded_by')}" if r.get('recorded_by') is not None else "Unknown"),
-                    "quantity_before": None,
-                    "quantity_after": None,
+                    "quantity_before": qty_before,
+                    "quantity_after": qty_after,
                     "notes": r.get("notes"),
                     "created_at": created_iso,
                 })
@@ -419,13 +460,16 @@ class PostgresInventoryService:
             }
 
     @staticmethod
-    def log_inventory_action(item_id: int, account_id: str, action: str, notes: str = None, user_id: int = None) -> bool:
+    def log_inventory_action(item_id: int, account_id: str, action: str, notes: str = None, user_id: int = None, quantity_before: float = None, quantity_after: float = None) -> bool:
         """Log an inventory action using direct PostgreSQL."""
+        
+        # Ensure quantity columns exist
+        PostgresInventoryService._ensure_inventory_logs_quantity_columns()
         
         insert_query = """
         INSERT INTO inventory_logs (
-            item_id, item_account_id, action, notes, recorded_by, recorded_by_account_id, created_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            item_id, item_account_id, action, notes, recorded_by, recorded_by_account_id, quantity_before, quantity_after, created_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         
         params = (
@@ -435,6 +479,8 @@ class PostgresInventoryService:
             notes,
             user_id,
             account_id,
+            quantity_before,
+            quantity_after,
             datetime.now()
         )
         
