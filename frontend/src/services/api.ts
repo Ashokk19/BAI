@@ -1,7 +1,8 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosResponse } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
 
 class ApiService {
   private api: AxiosInstance;

@@ -13,7 +13,7 @@ import { DatePopover } from "@/components/ui/date-popover"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CalendarIcon, Search, FileText, Eye, Download, Send, TrendingUp, DollarSign, Clock, CheckCircle, Plus, RefreshCw, Trash2, ChevronLeft, ChevronRight, Truck } from "lucide-react"
 import { toast } from "sonner"
-import { invoiceApi, Invoice, InvoiceFilters } from "../../services/invoiceApi"
+import { proformaInvoiceApi, ProformaInvoice, ProformaInvoiceFilters } from "../../services/proformaInvoiceApi"
 import { customerApi, Customer } from "../../services/customerApi"
 import { organizationService } from "../../services/organizationService"
 import { shipmentApi, DeliveryNote } from "../../services/shipmentApi"
@@ -136,16 +136,11 @@ const convertNumberToWords = (amount: number): string => {
   return result;
 }
 
-export default function InvoiceHistory() {
+export default function ProformaInvoiceHistory() {
   const { user } = useAuth()
-  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [invoices, setInvoices] = useState<ProformaInvoice[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [deliveryNotes, setDeliveryNotes] = useState<{ [invoiceId: number]: DeliveryNote[] }>({})
-  const [deliveryStatuses, setDeliveryStatuses] = useState<{[key: number]: string}>({})
-  const [paymentStatuses, setPaymentStatuses] = useState<{[key: number]: string}>({})
-  const [deliveryStatusesLoaded, setDeliveryStatusesLoaded] = useState(false)
-  const [paymentStatusesLoaded, setPaymentStatusesLoaded] = useState(false)
-  const [loading, setLoading] = useState(true)
+    const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [customerFilter, setCustomerFilter] = useState("all")
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({})
@@ -156,25 +151,25 @@ export default function InvoiceHistory() {
   const [totalRecords, setTotalRecords] = useState(0)
   const recordsPerPage = 10
 
-  // Load customers on component mount (only once)
+  // Load invoices and customers on component mount
   useEffect(() => {
+    loadInvoices()
     loadCustomers()
   }, [])
 
-  // Load invoices when filters or page change (includes initial mount)
+  // Reload invoices when filters or page change
   useEffect(() => {
     loadInvoices()
   }, [searchTerm, customerFilter, dateRange, currentPage])
 
+  
   const loadInvoices = async () => {
     try {
       setLoading(true)
       const skip = (currentPage - 1) * recordsPerPage
-      const filters: InvoiceFilters = {
+      const filters: ProformaInvoiceFilters = {
         limit: recordsPerPage,
-        skip: skip,
-        sort_by: 'id',
-        sort_order: 'desc'
+        skip: skip
       }
       
       if (searchTerm) {
@@ -185,15 +180,9 @@ export default function InvoiceHistory() {
         filters.customer_id = parseInt(customerFilter)
       }
       
-      if (dateRange.from) {
-        filters.date_from = dateRange.from.toISOString().split('T')[0]
-      }
-      
-      if (dateRange.to) {
-        filters.date_to = dateRange.to.toISOString().split('T')[0]
-      }
+      // Date filtering not yet implemented for proforma invoices
 
-      const response = await invoiceApi.getInvoices(filters)
+      const response = await proformaInvoiceApi.getInvoices(filters)
       console.log('📊 Invoice API Response:', { total: response.total, invoiceCount: response.invoices?.length })
       setInvoices(response.invoices || [])
       
@@ -202,11 +191,7 @@ export default function InvoiceHistory() {
       setTotalRecords(total)
       setTotalPages(Math.ceil(total / recordsPerPage))
       
-      // Load all statuses in parallel for all invoices
-      if (response.invoices.length > 0) {
-        await loadAllStatusesInParallel(response.invoices)
-      }
-    } catch (error) {
+          } catch (error) {
       console.error('Error loading invoices:', error)
       toast.error('Failed to load invoices')
     } finally {
@@ -223,221 +208,7 @@ export default function InvoiceHistory() {
     }
   }
 
-  // Consolidated function to load all statuses in parallel
-  const loadAllStatusesInParallel = async (invoiceList: Invoice[]) => {
-    console.log('🚀 Loading all statuses in parallel for', invoiceList.length, 'invoices')
-    
-    const invoiceIds = invoiceList.map(inv => inv.id)
-    
-    // Fetch all shipments and delivery notes in parallel using Promise.all
-    const [shipmentsResults, deliveryNotesResults, paymentResults] = await Promise.all([
-      // Fetch shipments for all invoices in parallel
-      Promise.all(invoiceIds.map(async (id) => {
-        try {
-          const shipments = await shipmentApi.getShipmentsByInvoice(id)
-          return { invoiceId: id, shipments }
-        } catch (error) {
-          console.error(`Error fetching shipments for invoice ${id}:`, error)
-          return { invoiceId: id, shipments: [] }
-        }
-      })),
-      // Fetch delivery notes for all invoices in parallel
-      Promise.all(invoiceIds.map(async (id) => {
-        try {
-          const notes = await shipmentApi.getDeliveryNotesByInvoice(id)
-          return { invoiceId: id, notes }
-        } catch (error) {
-          console.error(`Error fetching delivery notes for invoice ${id}:`, error)
-          return { invoiceId: id, notes: [] }
-        }
-      })),
-      // Fetch payments for all invoices in parallel
-      Promise.all(invoiceIds.map(async (id) => {
-        try {
-          const payments = await paymentApi.getPayments({ invoice_id: id, limit: 100 })
-          return { invoiceId: id, payments: payments.payments }
-        } catch (error) {
-          console.error(`Error fetching payments for invoice ${id}:`, error)
-          return { invoiceId: id, payments: [] }
-        }
-      }))
-    ])
-    
-    // Build maps from results
-    const shipmentsMap: { [key: number]: any[] } = {}
-    const notesMap: { [key: number]: DeliveryNote[] } = {}
-    const paymentsMap: { [key: number]: Payment[] } = {}
-    
-    shipmentsResults.forEach(result => {
-      shipmentsMap[result.invoiceId] = result.shipments
-    })
-    
-    deliveryNotesResults.forEach(result => {
-      notesMap[result.invoiceId] = result.notes
-    })
-    
-    paymentResults.forEach(result => {
-      paymentsMap[result.invoiceId] = result.payments
-    })
-    
-    // Set delivery notes state
-    setDeliveryNotes(notesMap)
-    
-    // Compute delivery statuses from shipments and delivery notes
-    const deliveryStatusMap: { [key: number]: string } = {}
-    for (const invoice of invoiceList) {
-      const shipments = shipmentsMap[invoice.id] || []
-      const notes = notesMap[invoice.id] || []
-      
-      // Priority: Check shipments first, then delivery notes
-      if (shipments.length > 0) {
-        const latestShipment = shipments.sort((a: any, b: any) => 
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )[0]
-        
-        const statusLower = latestShipment.status?.toLowerCase() || 'pending'
-        switch (statusLower) {
-          case 'delivered':
-            deliveryStatusMap[invoice.id] = 'Delivered'
-            break
-          case 'in_transit':
-          case 'in transit':
-          case 'shipped':
-            deliveryStatusMap[invoice.id] = 'In Transit'
-            break
-          case 'cancelled':
-          case 'failed':
-            deliveryStatusMap[invoice.id] = 'Failed'
-            break
-          case 'refused':
-            deliveryStatusMap[invoice.id] = 'Refused'
-            break
-          default:
-            deliveryStatusMap[invoice.id] = 'Pending'
-        }
-      } else if (notes.length > 0) {
-        // Fallback to delivery notes if no shipments
-        const latestNote = notes.sort((a, b) => 
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )[0]
-        
-        const statusLower = (latestNote.delivery_status || 'pending').toLowerCase()
-        switch (statusLower) {
-          case 'delivered':
-            deliveryStatusMap[invoice.id] = 'Delivered'
-            break
-          case 'in transit':
-          case 'in_transit':
-            deliveryStatusMap[invoice.id] = 'In Transit'
-            break
-          case 'failed':
-            deliveryStatusMap[invoice.id] = 'Failed'
-            break
-          case 'refused':
-            deliveryStatusMap[invoice.id] = 'Refused'
-            break
-          default:
-            deliveryStatusMap[invoice.id] = 'Pending'
-        }
-      } else {
-        deliveryStatusMap[invoice.id] = 'Pending'
-      }
-    }
-    
-    // Compute payment statuses
-    const paymentStatusMap: { [key: number]: string } = {}
-    for (const invoice of invoiceList) {
-      const payments = paymentsMap[invoice.id] || []
-      
-      if (payments.length === 0) {
-        paymentStatusMap[invoice.id] = 'Pending'
-      } else {
-        let totalPaid = 0
-        let hasCreditPayments = false
-        
-        payments.forEach((payment: any) => {
-          const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount
-          
-          if (payment.payment_status === 'credit' || payment.payment_method === 'credit') {
-            hasCreditPayments = true
-          } else {
-            totalPaid += amount
-          }
-        })
-        
-        const invoiceAmount = typeof invoice.total_amount === 'string' ? parseFloat(invoice.total_amount) : invoice.total_amount
-        
-        if (hasCreditPayments) {
-          paymentStatusMap[invoice.id] = 'Credit'
-        } else if (totalPaid >= invoiceAmount) {
-          paymentStatusMap[invoice.id] = 'Completed'
-        } else if (totalPaid > 0) {
-          paymentStatusMap[invoice.id] = 'Partial'
-        } else {
-          paymentStatusMap[invoice.id] = 'Pending'
-        }
-      }
-    }
-    
-    // Update all states at once
-    setDeliveryStatuses(deliveryStatusMap)
-    setDeliveryStatusesLoaded(true)
-    setPaymentStatuses(paymentStatusMap)
-    setPaymentStatusesLoaded(true)
-    
-    console.log('✅ All statuses loaded:', { delivery: deliveryStatusMap, payment: paymentStatusMap })
-  }
-
-  const getDeliveryStatus = (invoiceId: number): string => {
-    if (!deliveryStatusesLoaded) {
-      return 'Loading...'
-    }
-    return deliveryStatuses[invoiceId] || 'Pending'
-  }
-
-  const getPaymentStatus = (invoiceId: number): string => {
-    // If payment statuses haven't been loaded yet, show loading state
-    if (!paymentStatusesLoaded) {
-      return 'Loading...'
-    }
-    return paymentStatuses[invoiceId] || 'Pending'
-  }
-
-  const getDeliveryStatusColor = (status: string): string => {
-    switch (status) {
-      case 'Delivered':
-        return 'bg-green-100 text-green-800 border-green-200'
-      case 'Pending':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200'
-      case 'In Transit':
-        return 'bg-blue-100 text-blue-800 border-blue-200'
-      case 'Failed':
-        return 'bg-red-100 text-red-800 border-red-200'
-      case 'Refused':
-        return 'bg-red-100 text-red-800 border-red-200'
-      case 'Loading...':
-        return 'bg-gray-100 text-gray-600 border-gray-300 animate-pulse'
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200'
-    }
-  }
-
-  const getPaymentStatusColor = (status: string): string => {
-    switch (status) {
-      case 'Completed':
-        return 'bg-green-100 text-green-800 border-green-200'
-      case 'Credit':
-        return 'bg-orange-100 text-orange-800 border-orange-200'
-      case 'Partial':
-        return 'bg-blue-100 text-blue-800 border-blue-200'
-      case 'Pending':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200'
-      case 'Loading...':
-        return 'bg-gray-100 text-gray-600 border-gray-300 animate-pulse'
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200'
-    }
-  }
+  // Status functions removed - proforma invoices don't track delivery/payment status
 
   const getCustomerName = (customerId: number): string => {
     const customer = customers.find(c => c.id === customerId)
@@ -450,45 +221,18 @@ export default function InvoiceHistory() {
   // Calculate totals with safe number conversion
   const totalAmount = invoices.reduce((sum, invoice) => sum + safeNumber(invoice.total_amount), 0)
   const paidAmount = invoices
-    .filter((invoice) => invoice.is_paid)
+    .filter((invoice) => invoice.status === 'converted')
     .reduce((sum, invoice) => sum + safeNumber(invoice.total_amount), 0)
   const pendingAmount = totalAmount - paidAmount
 
   // Calculate additional metrics
   const overdueInvoices = invoices.filter(invoice => {
-    if (!invoice.due_date || invoice.is_paid) return false
-    return new Date(invoice.due_date) < new Date()
+    if (!invoice.valid_until || invoice.status === 'converted') return false
+    return new Date(invoice.valid_until) < new Date()
   }).length
 
   const handleSendReminder = (invoiceId: number) => {
     toast.success("Payment reminder sent!")
-  }
-
-  const handleCreateDeliveryNotesForInvoices = async () => {
-    try {
-      const response = await shipmentApi.createDeliveryNotesForInvoices()
-      toast.success('Delivery Notes Created!')
-      // Reload data to show new delivery notes
-      await loadInvoices()
-    } catch (error) {
-      console.error('Error creating delivery notes:', error)
-      toast.error('Creation Failed')
-    }
-  }
-
-  const handleRefreshStatuses = async () => {
-    try {
-      // Reload all statuses for existing invoices
-      if (invoices.length > 0) {
-        setDeliveryStatusesLoaded(false)
-        setPaymentStatusesLoaded(false)
-        await loadAllStatusesInParallel(invoices)
-        toast.success('Statuses refreshed!')
-      }
-    } catch (error) {
-      console.error('Error refreshing statuses:', error)
-      toast.error('Failed to refresh statuses')
-    }
   }
 
   const handleViewInvoice = (invoiceId: number) => {
@@ -499,7 +243,7 @@ export default function InvoiceHistory() {
   const handleDownloadInvoice = async (invoiceId: number) => {
     try {
       // Get the specific invoice data
-      const invoice = await invoiceApi.getInvoice(invoiceId);
+      const invoice = await proformaInvoiceApi.getInvoice(invoiceId);
       const customer = customers.find(c => c.id === invoice.customer_id);
       
       if (!customer) {
@@ -512,7 +256,7 @@ export default function InvoiceHistory() {
 
       const customerName = customer.company_name || `${customer.first_name} ${customer.last_name}`;
       const currentCustomer = customer;
-      const invoiceNumber = invoice.invoice_number;
+      const invoiceNumber = invoice.proforma_number;
       const currentDate = new Date();
       
       // Determine GST type based on customer and organization states
@@ -600,7 +344,7 @@ export default function InvoiceHistory() {
           <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Tax Invoice - ${customerName}</title>
+            <title>Proforma Invoice - ${customerName}</title>
             <style>
               * {
                 margin: 0;
@@ -994,7 +738,7 @@ export default function InvoiceHistory() {
                 </div>
                 
                 <div class="invoice-title">
-                  <h2>TAX INVOICE</h2>
+                  <h2>PROFORMA INVOICE</h2>
                   <div class="invoice-number">${invoiceNumber}</div>
                 </div>
               </div>
@@ -1003,7 +747,7 @@ export default function InvoiceHistory() {
               <div class="invoice-details">
                 <div class="detail-group">
                   <div class="detail-label">Invoice Date</div>
-                  <div class="detail-value">${new Date(invoice.invoice_date).toLocaleDateString('en-IN', { 
+                  <div class="detail-value">${new Date(invoice.proforma_date).toLocaleDateString('en-IN', { 
                     day: '2-digit', 
                     month: 'short', 
                     year: 'numeric' 
@@ -1011,7 +755,7 @@ export default function InvoiceHistory() {
                 </div>
                 <div class="detail-group">
                   <div class="detail-label">Due Date</div>
-                  <div class="detail-value">${invoice.due_date ? new Date(invoice.due_date).toLocaleDateString('en-IN', { 
+                  <div class="detail-value">${invoice.valid_until ? new Date(invoice.valid_until).toLocaleDateString('en-IN', { 
                     day: '2-digit', 
                     month: 'short', 
                     year: 'numeric' 
@@ -1247,7 +991,7 @@ export default function InvoiceHistory() {
     }
 
     try {
-      await invoiceApi.deleteInvoice(invoiceId)
+      await proformaInvoiceApi.deleteInvoice(invoiceId)
       toast.success('Invoice deleted successfully!')
       // Reload invoices to update the list
       await loadInvoices()
@@ -1325,7 +1069,7 @@ export default function InvoiceHistory() {
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-blue-600 bg-clip-text text-transparent mb-2">
-              Invoice History
+              Proforma Invoice History
             </h1>
             <p className="text-gray-600 text-lg">Track and manage all your invoices efficiently</p>
           </div>
@@ -1393,7 +1137,7 @@ export default function InvoiceHistory() {
             <CardContent className="relative z-10">
               <div className="text-2xl font-bold text-orange-600">{formatCurrency(pendingAmount)}</div>
               <p className="text-xs text-gray-600 mt-1">
-                {invoices.filter(i => !i.is_paid).length} invoices pending
+                {invoices.filter(i => i.status !== 'converted').length} invoices pending
               </p>
             </CardContent>
           </Card>
@@ -1464,8 +1208,7 @@ export default function InvoiceHistory() {
                     <TableHead className="font-semibold text-gray-700">Invoice Date</TableHead>
                     <TableHead className="font-semibold text-gray-700">Due Date</TableHead>
                     <TableHead className="font-semibold text-gray-700">Amount</TableHead>
-                    <TableHead className="font-semibold text-gray-700">Delivery Status</TableHead>
-                    <TableHead className="font-semibold text-gray-700">Payment Status</TableHead>
+                    <TableHead className="font-semibold text-gray-700">Status</TableHead>
                     <TableHead className="font-semibold text-gray-700 text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1493,20 +1236,20 @@ export default function InvoiceHistory() {
                     invoices.map((invoice) => (
                       <TableRow key={invoice.id} className="border-white/20 hover:bg-white/50 transition-colors">
                         <TableCell>
-                          <div className="font-semibold text-gray-900">{invoice.invoice_number}</div>
+                          <div className="font-semibold text-gray-900">{invoice.proforma_number}</div>
                           <div className="text-sm text-gray-500">{invoice.items?.length || 0} items</div>
                         </TableCell>
                         <TableCell>
                           <div className="font-medium text-gray-800">{getCustomerName(invoice.customer_id)}</div>
                         </TableCell>
                         <TableCell>
-                          <div className="text-gray-700">{formatDate(new Date(invoice.invoice_date), "MMM dd, yyyy")}</div>
+                          <div className="text-gray-700">{formatDate(new Date(invoice.proforma_date), "MMM dd, yyyy")}</div>
                         </TableCell>
                         <TableCell>
                           <div className="text-gray-700">
-                            {invoice.due_date ? formatDate(new Date(invoice.due_date), "MMM dd, yyyy") : 'No due date'}
-                            {invoice.due_date && new Date(invoice.due_date) < new Date() && !invoice.is_paid && (
-                              <span className="block text-xs text-red-600 font-medium">Overdue</span>
+                            {invoice.valid_until ? formatDate(new Date(invoice.valid_until), "MMM dd, yyyy") : 'No due date'}
+                            {invoice.valid_until && new Date(invoice.valid_until) < new Date() && invoice.status !== 'converted' && (
+                              <span className="block text-xs text-red-600 font-medium">Expired</span>
                             )}
                           </div>
                         </TableCell>
@@ -1514,13 +1257,8 @@ export default function InvoiceHistory() {
                           <div className="font-semibold text-gray-900">{formatCurrency(invoice.total_amount)}</div>
                         </TableCell>
                         <TableCell>
-                          <Badge className={`${getDeliveryStatusColor(getDeliveryStatus(invoice.id))} font-medium`}>
-                            {getDeliveryStatus(invoice.id)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getPaymentStatusColor(getPaymentStatus(invoice.id))}>
-                            {getPaymentStatus(invoice.id)}
+                          <Badge className={`${getStatusColor(invoice.status)} font-medium`}>
+                            {invoice.status || 'draft'}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -1533,7 +1271,7 @@ export default function InvoiceHistory() {
                                     className="hover:bg-green-50 hover:border-green-300">
                               <Download className="w-3 h-3" />
                             </Button>
-                            {!invoice.is_paid && (
+                            {invoice.status !== 'converted' && (
                               <Button size="sm" variant="outline" onClick={() => handleSendReminder(invoice.id)}
                                       className="hover:bg-orange-50 hover:border-orange-300">
                                 <Send className="w-3 h-3" />

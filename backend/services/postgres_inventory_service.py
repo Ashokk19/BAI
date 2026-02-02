@@ -9,32 +9,86 @@ from database.postgres_db import postgres_db
 
 class PostgresInventoryService:
     """Inventory operations using direct PostgreSQL queries."""
+
+    @staticmethod
+    def _ensure_items_hsn_code_column() -> None:
+        try:
+            with postgres_db.get_cursor() as cursor:
+                cursor.execute(
+                    """
+                    ALTER TABLE public.items
+                    ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(50)
+                    """
+                )
+        except Exception as e:
+            print(f"Error ensuring items.hsn_code column: {e}")
+
+    @staticmethod
+    def _ensure_inventory_logs_quantity_columns() -> None:
+        """Ensure inventory_logs table has quantity_before and quantity_after columns."""
+        try:
+            with postgres_db.get_cursor() as cursor:
+                cursor.execute(
+                    """
+                    ALTER TABLE public.inventory_logs
+                    ADD COLUMN IF NOT EXISTS quantity_before NUMERIC(10, 3)
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.inventory_logs
+                    ADD COLUMN IF NOT EXISTS quantity_after NUMERIC(10, 3)
+                    """
+                )
+        except Exception as e:
+            print(f"Error ensuring inventory_logs quantity columns: {e}")
     
     @staticmethod
     def create_item(item_data: Dict, account_id: str) -> Optional[Dict]:
         """Create a new inventory item using direct PostgreSQL."""
+
+        PostgresInventoryService._ensure_items_hsn_code_column()
         
         insert_query = """
         INSERT INTO items (
             account_id, item_code, name, selling_price, description, category, 
             unit, purchase_price, tax_rate, stock_quantity, reorder_level, 
             is_active, current_stock, cost_price, minimum_stock, maximum_stock, 
-            sku, barcode, category_account_id, category_id, mrp, weight, 
+            sku, barcode, hsn_code, category_account_id, category_id, mrp, weight, 
             dimensions, is_service, track_inventory, has_expiry, shelf_life_days, expiry_date,
             created_at, updated_at
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         ) RETURNING id, created_at
         """
         
+        # Resolve category name from categories table when category_id is provided
+        category_name = item_data.get('category')
+        if not category_name:
+            try:
+                cat_id = item_data.get('category_id')
+                if cat_id is not None:
+                    with postgres_db.get_cursor() as cursor:
+                        cursor.execute(
+                            "SELECT name FROM categories WHERE account_id = %s AND id = %s",
+                            (account_id, cat_id),
+                        )
+                        row = cursor.fetchone()
+                        if row:
+                            category_name = row.get("name") if isinstance(row, dict) else row[0]
+            except Exception:
+                category_name = None
+        if not category_name:
+            category_name = 'General'
+
         params = (
             account_id,
             item_data.get('item_code'),
             item_data.get('name'),
             item_data.get('selling_price'),
             item_data.get('description', ''),
-            item_data.get('category', 'General'),
+            category_name,
             item_data.get('unit', 'pcs'),
             item_data.get('purchase_price'),
             item_data.get('tax_rate', 18.0),
@@ -47,6 +101,7 @@ class PostgresInventoryService:
             item_data.get('maximum_stock'),
             item_data.get('sku'),
             item_data.get('barcode'),
+            item_data.get('hsn_code'),
             item_data.get('category_account_id'),
             item_data.get('category_id'),
             item_data.get('mrp'),
@@ -110,8 +165,12 @@ class PostgresInventoryService:
     @staticmethod
     def get_inventory_logs(account_id: str, limit: int = 50, offset: int = 0, item_id: Optional[int] = None, transaction_type: Optional[str] = None) -> List[Dict]:
         """Fetch inventory logs with optional filters and join item info."""
+        # Ensure quantity columns exist
+        PostgresInventoryService._ensure_inventory_logs_quantity_columns()
+        
         base = """
         SELECT il.id, il.item_id, il.item_account_id, il.action, il.notes, il.recorded_by, il.created_at,
+               il.quantity_before, il.quantity_after,
                i.name AS item_name, i.item_code AS item_sku,
                COALESCE(u.full_name, u.username, 'User #' || il.recorded_by::text) AS user_name
         FROM inventory_logs il
@@ -160,9 +219,26 @@ class PostgresInventoryService:
                     "deleted": "removed",
                     "delete": "removed",
                     "remove": "removed",
+                    "sold": "stock_out",
+                    "sale": "stock_out",
+                    "invoice": "stock_out",
+                    "purchase_received": "stock_in",
+                    "purchase": "stock_in",
+                    "received": "stock_in",
+                    "receipt": "stock_in",
                 }
                 action_val = synonyms.get(norm, norm)
 
+                # Get quantity values from database
+                qty_before = r.get("quantity_before")
+                qty_after = r.get("quantity_after")
+                
+                # Convert Decimal to float if needed
+                if qty_before is not None:
+                    qty_before = float(qty_before) if hasattr(qty_before, '__float__') else qty_before
+                if qty_after is not None:
+                    qty_after = float(qty_after) if hasattr(qty_after, '__float__') else qty_after
+                
                 logs.append({
                     "id": r.get("id"),
                     "item_id": r.get("item_id"),
@@ -171,8 +247,8 @@ class PostgresInventoryService:
                     "action": action_val,
                     "user_id": r.get("recorded_by"),
                     "user_name": r.get("user_name") or (f"User #{r.get('recorded_by')}" if r.get('recorded_by') is not None else "Unknown"),
-                    "quantity_before": None,
-                    "quantity_after": None,
+                    "quantity_before": qty_before,
+                    "quantity_after": qty_after,
                     "notes": r.get("notes"),
                     "created_at": created_iso,
                 })
@@ -239,7 +315,24 @@ class PostgresInventoryService:
     @staticmethod
     def update_item(item_id: int, item_data: Dict, account_id: str) -> Optional[Dict]:
         """Update item using direct PostgreSQL."""
+
+        PostgresInventoryService._ensure_items_hsn_code_column()
         
+        # Keep category text in sync with category_id if provided
+        try:
+            if 'category_id' in item_data and item_data['category_id'] is not None:
+                with postgres_db.get_cursor() as cursor:
+                    cursor.execute(
+                        "SELECT name FROM categories WHERE account_id = %s AND id = %s",
+                        (account_id, item_data['category_id']),
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        cat_name = row.get('name') if isinstance(row, dict) else row[0]
+                        item_data['category'] = cat_name
+        except Exception:
+            pass
+
         # Build dynamic UPDATE query based on provided fields
         set_clauses = []
         params = []
@@ -340,11 +433,12 @@ class PostgresInventoryService:
             stock_value_result = postgres_db.execute_single(stock_value_query, (account_id,))
             total_stock_value = float(stock_value_result['total_value']) if stock_value_result and stock_value_result['total_value'] else 0.0
             
-            # Get active categories count (assuming categories table exists)
+            # Get active categories count from categories table
+            PostgresInventoryService._ensure_categories_table()
             categories_query = """
-            SELECT COUNT(DISTINCT category) as count 
-            FROM items 
-            WHERE account_id = %s AND category IS NOT NULL
+                SELECT COUNT(*) as count 
+                FROM categories 
+                WHERE account_id = %s AND COALESCE(is_active, TRUE) = TRUE
             """
             categories_result = postgres_db.execute_single(categories_query, (account_id,))
             active_categories = categories_result['count'] if categories_result else 0
@@ -366,13 +460,16 @@ class PostgresInventoryService:
             }
 
     @staticmethod
-    def log_inventory_action(item_id: int, account_id: str, action: str, notes: str = None, user_id: int = None) -> bool:
+    def log_inventory_action(item_id: int, account_id: str, action: str, notes: str = None, user_id: int = None, quantity_before: float = None, quantity_after: float = None) -> bool:
         """Log an inventory action using direct PostgreSQL."""
+        
+        # Ensure quantity columns exist
+        PostgresInventoryService._ensure_inventory_logs_quantity_columns()
         
         insert_query = """
         INSERT INTO inventory_logs (
-            item_id, item_account_id, action, notes, recorded_by, recorded_by_account_id, created_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            item_id, item_account_id, action, notes, recorded_by, recorded_by_account_id, quantity_before, quantity_after, created_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         
         params = (
@@ -382,6 +479,8 @@ class PostgresInventoryService:
             notes,
             user_id,
             account_id,
+            quantity_before,
+            quantity_after,
             datetime.now()
         )
         
@@ -395,167 +494,96 @@ class PostgresInventoryService:
 
     @staticmethod
     def get_categories(account_id: str) -> List[Dict]:
-        """Return categories for an account.
-
-        Merges explicitly created categories (categories table) with
-        distinct category names derived from items.
-        """
+        """Return categories for an account from categories table only, with per-account display sequence."""
         try:
-            # 1) Fetch explicit categories (ensure table exists)
             PostgresInventoryService._ensure_categories_table()
-            cat_rows = postgres_db.execute_query(
+            rows = postgres_db.execute_query(
                 """
                 SELECT id, name, description, COALESCE(is_active, TRUE) AS is_active, created_at
                 FROM categories
                 WHERE account_id = %s
-                ORDER BY name
+                ORDER BY created_at ASC, id ASC
                 """,
                 (account_id,)
             )
-
-            categories_by_name: Dict[str, Dict[str, Any]] = {}
-            for r in cat_rows:
-                key = (r.get("name") or "General").strip().lower()
-                categories_by_name[key] = {
+            # Compute per-account display_id (1..n in created order)
+            categories: List[Dict[str, Any]] = []
+            for idx, r in enumerate(rows, start=1):
+                categories.append({
                     "id": r.get("id"),
-                    "name": r.get("name") or "General",
+                    "name": r.get("name") or "",
                     "description": r.get("description") or "",
                     "is_active": bool(r.get("is_active", True)),
                     "created_at": r.get("created_at"),
-                }
-
-            # 2) Add derived names from items (that don't already exist)
-            derived_rows = postgres_db.execute_query(
-                """
-                SELECT DISTINCT category AS name
-                FROM items
-                WHERE account_id = %s AND category IS NOT NULL
-                """,
-                (account_id,)
-            )
-            for r in derived_rows:
-                name = (r.get("name") or "General").strip()
-                key = name.lower()
-                if key not in categories_by_name:
-                    categories_by_name[key] = {
-                        "id": 0,
-                        "name": name,
-                        "description": "",
-                        "is_active": True,
-                        "created_at": datetime.now().isoformat(),
-                    }
-
-            categories = list(categories_by_name.values())
-            if not categories:
-                categories = [{
-                    "id": 1,
-                    "name": "General",
-                    "description": "",
-                    "is_active": True,
-                    "created_at": datetime.now().isoformat(),
-                }]
-            # Sort by name
-            categories.sort(key=lambda c: (c.get("name") or "").lower())
+                    "display_id": idx,
+                })
             return categories
         except Exception as e:
             print(f"Error getting categories: {e}")
-            return [{
-                "id": 1,
-                "name": "General",
-                "description": "",
-                "is_active": True,
-                "created_at": datetime.now().isoformat(),
-            }]
+            return []
 
     @staticmethod
     def get_categories_with_stats(account_id: str) -> List[Dict]:
-        """Return categories with aggregated stats. Include explicit categories with zero items."""
+        """Return categories with aggregated stats based on category_id join; include per-account display_id."""
         try:
-            # Aggregated stats from items by category name
-            stats_rows = postgres_db.execute_query(
-                """
-                SELECT 
-                    category AS name,
-                    COUNT(*) AS total_items,
-                    SUM(CASE WHEN COALESCE(is_active, TRUE) THEN 1 ELSE 0 END) AS active_items,
-                    COALESCE(SUM(COALESCE(current_stock,0) * COALESCE(cost_price,0)), 0) AS total_stock_value,
-                    COALESCE(SUM(COALESCE(current_stock,0)), 0) AS total_current_stock,
-                    SUM(CASE WHEN COALESCE(current_stock,0) <= COALESCE(minimum_stock,0) THEN 1 ELSE 0 END) AS low_stock_items,
-                    SUM(CASE WHEN COALESCE(current_stock,0) = 0 THEN 1 ELSE 0 END) AS out_of_stock_items,
-                    SUM(CASE WHEN COALESCE(has_expiry, FALSE) THEN 1 ELSE 0 END) AS expiry_items,
-                    MAX(created_at) AS created_at
-                FROM items
-                WHERE account_id = %s AND category IS NOT NULL
-                GROUP BY category
-                """,
-                (account_id,)
-            )
-
-            stats_by_name: Dict[str, Dict[str, Any]] = {}
-            for r in stats_rows:
-                name = (r.get("name") or "General").strip()
-                stats_by_name[name.lower()] = {
-                    "id": 0,
-                    "name": name,
-                    "description": "",
-                    "is_active": True,
-                    "created_at": r.get("created_at"),
-                    "total_items": int(r.get("total_items", 0) or 0),
-                    "active_items": int(r.get("active_items", 0) or 0),
-                    "total_stock_value": float(r.get("total_stock_value", 0) or 0),
-                    "total_current_stock": float(r.get("total_current_stock", 0) or 0),
-                    "low_stock_items": int(r.get("low_stock_items", 0) or 0),
-                    "out_of_stock_items": int(r.get("out_of_stock_items", 0) or 0),
-                    "expiry_items": int(r.get("expiry_items", 0) or 0),
-                }
-
-            # Bring in explicit categories; if missing in stats, add zeros
             PostgresInventoryService._ensure_categories_table()
+            # Fetch categories to compute display sequence
             cat_rows = postgres_db.execute_query(
                 """
                 SELECT id, name, description, COALESCE(is_active, TRUE) AS is_active, created_at
                 FROM categories
                 WHERE account_id = %s
+                ORDER BY created_at ASC, id ASC
                 """,
                 (account_id,)
             )
-            for r in cat_rows:
-                name = (r.get("name") or "General").strip()
-                key = name.lower()
-                if key not in stats_by_name:
-                    stats_by_name[key] = {
-                        "id": r.get("id"),
-                        "name": name,
-                        "description": r.get("description") or "",
-                        "is_active": bool(r.get("is_active", True)),
-                        "created_at": r.get("created_at"),
-                        "total_items": 0,
-                        "active_items": 0,
-                        "total_stock_value": 0.0,
-                        "total_current_stock": 0.0,
-                        "low_stock_items": 0,
-                        "out_of_stock_items": 0,
-                        "expiry_items": 0,
-                    }
+            display_map: Dict[int, int] = {r.get('id'): idx for idx, r in enumerate(cat_rows, start=1)}
 
-            result = list(stats_by_name.values())
-            if not result:
-                result = [{
-                    "id": 1,
-                    "name": "General",
-                    "description": "",
-                    "is_active": True,
-                    "created_at": datetime.now().isoformat(),
-                    "total_items": 0,
-                    "active_items": 0,
-                    "total_stock_value": 0.0,
-                    "total_current_stock": 0.0,
-                    "low_stock_items": 0,
-                    "out_of_stock_items": 0,
-                    "expiry_items": 0,
-                }]
-            # Sort by name
-            result.sort(key=lambda c: (c.get("name") or "").lower())
+            # Aggregate stats by category_id with left join so categories with zero items are included
+            stats_rows = postgres_db.execute_query(
+                """
+                SELECT 
+                    c.id AS id,
+                    c.name AS name,
+                    c.description AS description,
+                    COALESCE(c.is_active, TRUE) AS is_active,
+                    c.created_at AS created_at,
+                    COUNT(i.id) AS total_items,
+                    SUM(CASE WHEN COALESCE(i.is_active, TRUE) THEN 1 ELSE 0 END) AS active_items,
+                    COALESCE(SUM(COALESCE(i.current_stock,0) * COALESCE(i.cost_price,0)), 0) AS total_stock_value,
+                    COALESCE(SUM(COALESCE(i.current_stock,0)), 0) AS total_current_stock,
+                    SUM(CASE WHEN COALESCE(i.current_stock,0) <= COALESCE(i.minimum_stock,0) THEN 1 ELSE 0 END) AS low_stock_items,
+                    SUM(CASE WHEN COALESCE(i.current_stock,0) = 0 THEN 1 ELSE 0 END) AS out_of_stock_items,
+                    SUM(CASE WHEN COALESCE(i.has_expiry, FALSE) THEN 1 ELSE 0 END) AS expiry_items
+                FROM categories c
+                LEFT JOIN items i
+                    ON i.account_id = c.account_id AND i.category_id = c.id
+                WHERE c.account_id = %s
+                GROUP BY c.id, c.name, c.description, c.is_active, c.created_at
+                ORDER BY c.created_at ASC, c.id ASC
+                """,
+                (account_id,)
+            )
+
+            result: List[Dict[str, Any]] = []
+            for r in stats_rows:
+                cid = r.get('id')
+                result.append({
+                    "id": cid,
+                    "name": r.get('name') or "",
+                    "description": r.get('description') or "",
+                    "is_active": bool(r.get('is_active', True)),
+                    "created_at": r.get('created_at'),
+                    "total_items": int(r.get('total_items') or 0),
+                    "active_items": int(r.get('active_items') or 0),
+                    "total_stock_value": float(r.get('total_stock_value') or 0),
+                    "total_current_stock": float(r.get('total_current_stock') or 0),
+                    "low_stock_items": int(r.get('low_stock_items') or 0),
+                    "out_of_stock_items": int(r.get('out_of_stock_items') or 0),
+                    "expiry_items": int(r.get('expiry_items') or 0),
+                    "display_id": display_map.get(cid, 0),
+                })
+
             return result
         except Exception as e:
             print(f"Error getting categories with stats: {e}")

@@ -7,6 +7,7 @@ export interface Item {
   description?: string;
   sku: string;
   barcode?: string;
+  hsn_code?: string;
   category_id: number;
   unit_price: number;
   cost_price?: number;
@@ -58,6 +59,7 @@ export interface ItemCreate {
   description?: string;
   sku: string;
   barcode?: string;
+  hsn_code?: string;
   category_id: number;
   unit_price: number;
   cost_price?: number;
@@ -82,6 +84,7 @@ export interface ItemUpdate {
   description?: string;
   sku?: string;
   barcode?: string;
+  hsn_code?: string;
   category_id?: number;
   unit_price?: number;
   cost_price?: number;
@@ -164,9 +167,10 @@ const normalizeItem = (raw: any): Item => {
   return {
     id: raw?.id,
     name: raw?.name ?? '',
-    description: raw?.description ?? '',
-    sku,
+    description: raw?.description ?? undefined,
+    sku: raw?.sku ?? raw?.item_code ?? '',
     barcode: raw?.barcode ?? undefined,
+    hsn_code: raw?.hsn_code ?? undefined,
     category_id: raw?.category_id ?? 1,
     unit_price: unitPrice,
     cost_price: raw?.cost_price !== undefined ? toNumber(raw?.cost_price) : toNumber(raw?.purchase_price) || unitPrice,

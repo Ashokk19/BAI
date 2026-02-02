@@ -58,6 +58,7 @@ export default function ItemList() {
     setFormData({
       name: '',
       sku: '',
+      hsn_code: '',
       category_id: undefined,
       unit_price: undefined,
       selling_price: undefined,
@@ -194,6 +195,7 @@ export default function ItemList() {
       const itemData: ItemCreate = {
         name: formData.name!,
         sku: formData.sku!,
+        hsn_code: (formData as any).hsn_code || undefined,
         category_id: formData.category_id!,
         unit_price: formData.unit_price!,
         selling_price: formData.selling_price || formData.unit_price!,
@@ -236,6 +238,7 @@ export default function ItemList() {
       const updateData: ItemUpdate = {
         name: formData.name,
         sku: formData.sku,
+        hsn_code: (formData as any).hsn_code || undefined,
         category_id: formData.category_id,
         unit_price: formData.unit_price,
         selling_price: formData.selling_price,
@@ -366,6 +369,7 @@ export default function ItemList() {
     setFormData({
       name: item.name,
       sku: item.sku,
+      hsn_code: (item as any).hsn_code || '',
       category_id: item.category_id,
       unit_price: item.unit_price,
       selling_price: item.selling_price,
@@ -377,13 +381,13 @@ export default function ItemList() {
       is_serialized: item.is_serialized,
       tax_rate: item.tax_rate,
       tax_type: item.tax_type,
-      description: item.description || '',
+      description: item.description,
       cost_price: item.cost_price,
       maximum_stock: item.maximum_stock,
       weight: item.weight,
       dimensions: item.dimensions,
       shelf_life_days: item.shelf_life_days,
-      expiry_date: item.expiry_date || '',
+      expiry_date: item.expiry_date,
       barcode: item.barcode
     })
     setIsEditDialogOpen(true)
@@ -490,6 +494,15 @@ export default function ItemList() {
                     value={formData.sku || ''}
                     onChange={(e) => setFormData({...formData, sku: e.target.value})}
                     placeholder="Stock keeping unit"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="hsn_code">HSN Code</Label>
+                  <Input
+                    id="hsn_code"
+                    value={(formData as any).hsn_code || ''}
+                    onChange={(e) => setFormData({ ...formData, hsn_code: e.target.value } as any)}
+                    placeholder="HSN / SAC"
                   />
                 </div>
                 <div className="space-y-2">
@@ -779,6 +792,9 @@ export default function ItemList() {
                       SKU
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      HSN
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Unit Price
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
@@ -816,6 +832,9 @@ export default function ItemList() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {item.sku || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {(item as any).hsn_code || '—'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
                           ₹{(item.unit_price || 0).toFixed(2)}
@@ -927,6 +946,15 @@ export default function ItemList() {
                 value={formData.sku || ''}
                 onChange={(e) => setFormData({...formData, sku: e.target.value})}
                 placeholder="Stock keeping unit"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-hsn_code">HSN Code</Label>
+              <Input
+                id="edit-hsn_code"
+                value={(formData as any).hsn_code || ''}
+                onChange={(e) => setFormData({ ...formData, hsn_code: e.target.value } as any)}
+                placeholder="HSN / SAC"
               />
             </div>
             <div className="space-y-2">

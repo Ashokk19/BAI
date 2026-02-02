@@ -332,6 +332,15 @@ async def create_purchase_receipt(
 
                 # Add accepted stock to inventory items and log movement.
                 if item.quantity_accepted and item.quantity_accepted > 0:
+                    # Get current stock before update
+                    cursor.execute(
+                        "SELECT COALESCE(current_stock, 0) as current_stock FROM items WHERE id = %s AND account_id = %s",
+                        (item.item_id, account_id)
+                    )
+                    stock_row = cursor.fetchone()
+                    current_stock_before = float(stock_row.get("current_stock") or 0) if stock_row else 0
+                    current_stock_after = current_stock_before + float(item.quantity_accepted)
+                    
                     cursor.execute(
                         """
                         UPDATE items
@@ -360,16 +369,20 @@ async def create_purchase_receipt(
                             notes,
                             recorded_by,
                             recorded_by_account_id,
+                            quantity_before,
+                            quantity_after,
                             created_at
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             item.item_id,
                             account_id,
-                            "purchase_received",
+                            "stock_in",
                             f"Stock added for receipt {receipt_number} (PO {po.get('po_number')})",
                             current_user.get("id"),
                             account_id,
+                            current_stock_before,
+                            current_stock_after,
                             created_at,
                         ),
                     )

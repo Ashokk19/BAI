@@ -54,27 +54,27 @@ interface InvoiceItem {
   line_total: number;
 }
 
-interface Invoice {
+interface ProformaInvoiceData {
   customer_id: number;
-  invoice_date: string;
-  due_date: string;
+  proforma_date: string;
+  valid_until: string;
   customer_state: string;
   company_state: string;
   notes: string;
   items: InvoiceItem[];
 }
 
-const TaxInvoice: React.FC = () => {
+const ProformaInvoice: React.FC = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [gstSlabs, setGstSlabs] = useState<GSTSlab[]>([]);
   const [organization, setOrganization] = useState<OrganizationProfile | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
-  const [invoice, setInvoice] = useState<Invoice>({
+  const [invoiceItems, setProformaInvoiceItems] = useState<InvoiceItem[]>([]);
+  const [proformaInvoice, setProformaInvoice] = useState<ProformaInvoiceData>({
     customer_id: 0,
-    invoice_date: new Date().toISOString().split('T')[0],
-    due_date: new Date().toISOString().split('T')[0],
+    proforma_date: new Date().toISOString().split('T')[0],
+    valid_until: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days validity
     customer_state: '',
     company_state: 'Tamil Nadu',
     notes: '',
@@ -83,18 +83,7 @@ const TaxInvoice: React.FC = () => {
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [whatsAppMessage, setWhatsAppMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
-  const [showCreditPaymentDialog, setShowCreditPaymentDialog] = useState(false);
-  const [customerCreditInfo, setCustomerCreditInfo] = useState<any>(null);
-  const [paymentFormData, setPaymentFormData] = useState({
-    payment_date: new Date().toISOString().split('T')[0],
-    payment_method: 'Bank Transfer',
-    payment_status: 'completed',
-    reference_number: '',
-    notes: '',
-    amount: 0
-  });
-  const [customerSearch, setCustomerSearch] = useState('');
+    const [customerSearch, setCustomerSearch] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [itemSearches, setItemSearches] = useState<{[key: number]: string}>({});
   const [showItemDropdowns, setShowItemDropdowns] = useState<{[key: number]: boolean}>({});
@@ -209,7 +198,6 @@ const TaxInvoice: React.FC = () => {
         id: item.id,
         name: item.name,
         sku: item.sku,
-        hsn_code: item.hsn_code,
         selling_price: item.selling_price,
         current_stock: item.current_stock,
         unit_of_measure: item.unit_of_measure,
@@ -279,7 +267,7 @@ const TaxInvoice: React.FC = () => {
   const handleCustomerSelect = (customer: Customer) => {
     console.log('handleCustomerSelect called with:', customer.email);
     setSelectedCustomer(customer);
-    setInvoice(prev => ({
+    setProformaInvoice(prev => ({
       ...prev,
       customer_id: customer.id,
       customer_state: customer.state || ''
@@ -329,7 +317,7 @@ const TaxInvoice: React.FC = () => {
       tax_amount: 0,
       line_total: 0
     };
-    setInvoiceItems([...invoiceItems, newItem]);
+    setProformaInvoiceItems([...invoiceItems, newItem]);
     // Initialize search states for the new item
     setItemSearches(prev => ({ ...prev, [newIndex]: '' }));
     setShowItemDropdowns(prev => ({ ...prev, [newIndex]: false }));
@@ -337,7 +325,7 @@ const TaxInvoice: React.FC = () => {
 
   const removeInvoiceItem = (index: number) => {
     const newItems = invoiceItems.filter((_, i) => i !== index);
-    setInvoiceItems(newItems);
+    setProformaInvoiceItems(newItems);
     
     // Clean up search states
     const newItemSearches = { ...itemSearches };
@@ -421,7 +409,7 @@ const TaxInvoice: React.FC = () => {
     item.tax_amount = (baseAmount * item.gst_rate) / 100;
     item.line_total = baseAmount + item.tax_amount;
     
-    setInvoiceItems(newItems);
+    setProformaInvoiceItems(newItems);
   };
 
   const calculateTotals = () => {
@@ -463,7 +451,7 @@ const TaxInvoice: React.FC = () => {
     if (!hasValidCustomer || invoiceItems.length === 0) {
       notifications.warning(
         'Incomplete Invoice',
-        'Please select a customer and add at least one item before generating the invoice.',
+        'Please select a customer and add at least one item before generating the proformaInvoice.',
         {
           autoClose: true,
           autoCloseDelay: 4000
@@ -477,15 +465,15 @@ const TaxInvoice: React.FC = () => {
       const invoiceData = {
         account_id: user?.account_id || 'TestAccount', // Use current user's account_id
         customer_id: selectedCustomer?.id || 0,
-        invoice_date: new Date(invoice.invoice_date).toISOString(),
-        due_date: invoice.due_date ? new Date(invoice.due_date).toISOString() : undefined,
+        invoice_date: new Date(proformaInvoice.proforma_date).toISOString(),
+        due_date: proformaInvoice.valid_until ? new Date(proformaInvoice.valid_until).toISOString() : undefined,
         status: 'sent',
         invoice_type: 'sale',
         payment_terms: selectedCustomer?.payment_terms || adhocCustomer.payment_terms || 'immediate',
         currency: 'INR',
         billing_address: selectedCustomer?.billing_address || adhocCustomer.billing_address || undefined,
         shipping_address: selectedCustomer?.shipping_address,
-        notes: invoice.notes,
+        notes: proformaInvoice.notes,
         terms_conditions: undefined,
         customer_state: selectedCustomer?.state || adhocCustomer.state,
         company_state: organization?.state || 'Tamil Nadu',
@@ -494,7 +482,6 @@ const TaxInvoice: React.FC = () => {
           item_name: item.item_name,
           item_description: undefined,
           item_sku: item.item_sku,
-          hsn_code: item.hsn_code,
           quantity: item.quantity,
           unit_price: item.unit_price,
           discount_rate: 0,
@@ -506,9 +493,38 @@ const TaxInvoice: React.FC = () => {
         }))
       };
       
-      // Import invoiceApi dynamically to avoid circular imports
-      const { invoiceApi } = await import('../../services/invoiceApi');
-      const savedInvoice = await invoiceApi.createInvoice(invoiceData);
+      // Import proformaInvoiceApi dynamically to avoid circular imports
+      const { proformaInvoiceApi } = await import('../../services/proformaInvoiceApi');
+      const savedInvoice = await proformaInvoiceApi.createProformaInvoice({
+        account_id: invoiceData.account_id,
+        customer_id: invoiceData.customer_id,
+        proforma_date: invoiceData.invoice_date,
+        valid_until: invoiceData.due_date,
+        status: 'draft',
+        payment_terms: invoiceData.payment_terms,
+        currency: invoiceData.currency,
+        billing_address: invoiceData.billing_address,
+        shipping_address: invoiceData.shipping_address,
+        notes: invoiceData.notes,
+        terms_conditions: invoiceData.terms_conditions,
+        customer_state: invoiceData.customer_state,
+        company_state: invoiceData.company_state,
+        items: invoiceData.items.map(item => ({
+          item_id: item.item_id,
+          item_name: item.item_name,
+          item_description: item.item_description,
+          item_sku: item.item_sku,
+          hsn_code: (item as any).hsn_code,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          discount_rate: item.discount_rate,
+          discount_amount: item.discount_amount,
+          gst_rate: item.gst_rate,
+          cgst_rate: item.cgst_rate,
+          sgst_rate: item.sgst_rate,
+          igst_rate: item.igst_rate
+        }))
+      });
       
       setGeneratedInvoice(savedInvoice);
       
@@ -521,14 +537,6 @@ const TaxInvoice: React.FC = () => {
         }
       );
       
-      // Auto-open payment dialog after invoice generation
-      setPaymentFormData(prev => ({
-        ...prev,
-        amount: totals.totalAmount,
-        payment_date: new Date().toISOString().split('T')[0]
-      }));
-      setShowPaymentDialog(true);
-      
       // Don't clear form data here - keep it for download/sending functionality
       
     } catch (error: any) {
@@ -536,7 +544,7 @@ const TaxInvoice: React.FC = () => {
       
       // Parse error message from backend
       let errorTitle = 'Generation Failed';
-      let errorMessage = 'Unable to generate invoice. Please check your connection and try again.';
+      let errorMessage = 'Unable to generate proformaInvoice. Please check your connection and try again.';
       
       if (error?.response?.data?.detail) {
         const detail = error.response.data.detail;
@@ -565,210 +573,7 @@ const TaxInvoice: React.FC = () => {
     }
   };
 
-  const handleCreditPurchaseClick = async () => {
-    if (!selectedCustomer) {
-      notifications.error(
-        'No Customer Selected',
-        'Please select a customer first.',
-        {
-          autoClose: true,
-          autoCloseDelay: 4000
-        }
-      );
-      return;
-    }
-
-    if (!generatedInvoice) {
-      notifications.error(
-        'No Invoice Generated',
-        'Please generate an invoice first.',
-        {
-          autoClose: true,
-          autoCloseDelay: 4000
-        }
-      );
-      return;
-    }
-
-    try {
-      const creditInfo = await customerApi.getCustomerCreditInfo(selectedCustomer.id);
-      setCustomerCreditInfo(creditInfo);
-      
-      // Set the payment amount to the invoice total for credit purchase
-      const invoiceTotal = calculateTotals().totalAmount;
-      setPaymentFormData(prev => ({ ...prev, amount: invoiceTotal }));
-      
-      setShowCreditPaymentDialog(true);
-    } catch (error) {
-      console.error('Error fetching credit info:', error);
-      notifications.error(
-        'Error',
-        'Failed to fetch customer credit information.',
-        {
-          autoClose: true,
-          autoCloseDelay: 4000
-        }
-      );
-    }
-  };
-
-  const handleConfirmCreditPurchase = async () => {
-    if (!generatedInvoice || !customerCreditInfo) return;
-
-    const invoiceTotal = calculateTotals().totalAmount;
-    
-    // Check if customer has sufficient credit
-    if (customerCreditInfo.total_available_credit < invoiceTotal) {
-      notifications.error(
-        'Insufficient Credit',
-        `Customer has $${customerCreditInfo.total_available_credit.toFixed(2)} available credit, but invoice total is $${invoiceTotal.toFixed(2)}.`,
-        {
-          autoClose: true,
-          autoCloseDelay: 5000
-        }
-      );
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const { paymentApi } = await import('../../services/paymentApi');
-      
-      const paymentData = {
-        payment_date: new Date().toISOString(),
-        payment_type: 'customer',
-        payment_direction: 'incoming', // No actual payment direction since it's credit
-        amount: invoiceTotal,
-        payment_method: 'credit', // Method is credit
-        payment_status: 'credit', // Status is credit (not completed)
-        reference_number: `Credit-${generatedInvoice.invoice_number}`,
-        notes: `Purchase on credit - Amount: $${invoiceTotal}, Available credit before: $${customerCreditInfo.total_available_credit}`,
-        invoice_id: generatedInvoice.id,
-        customer_id: selectedCustomer?.id || 0
-      };
-      
-      await paymentApi.createPayment(paymentData);
-      
-      setShowCreditPaymentDialog(false);
-      setShowPaymentDialog(false);
-      
-      notifications.success(
-        'Credit Purchase Recorded!',
-        `Invoice of $${invoiceTotal.toFixed(2)} has been recorded as credit purchase. Customer's available credit will be reduced.`,
-        {
-          autoClose: true,
-          autoCloseDelay: 5000
-        }
-      );
-      
-    } catch (error) {
-      console.error('Error recording credit purchase:', error);
-      notifications.error(
-        'Credit Purchase Failed',
-        'Failed to record credit purchase. Please try again.',
-        {
-          autoClose: true,
-          autoCloseDelay: 4000
-        }
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleCreateInvoiceWithPayment = async (isPending = false) => {
-    if (!generatedInvoice) {
-      notifications.error(
-        'No Invoice Found',
-        'Please generate an invoice first before recording payment.',
-        {
-          autoClose: true,
-          autoCloseDelay: 4000
-        }
-      );
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      // Create payment record only - no new invoice
-      const { paymentApi } = await import('../../services/paymentApi');
-      const invoiceTotal = calculateTotals().totalAmount;
-      const amountPaid = isPending ? 0 : paymentFormData.amount;
-      
-      // Determine payment status based on amount
-      let status = 'pending';
-      if (isPending) {
-        status = 'pending';
-      } else if (amountPaid >= invoiceTotal) {
-        status = 'paid';
-      } else if (amountPaid > 0) {
-        status = 'partial';
-      } else {
-        status = 'pending';
-      }
-      
-      const paymentData = {
-        payment_date: new Date(paymentFormData.payment_date).toISOString(),
-        payment_type: 'customer',
-        payment_direction: 'received',
-        amount: amountPaid,
-        payment_method: paymentFormData.payment_method,
-        payment_status: status,
-        reference_number: paymentFormData.reference_number,
-        notes: isPending ? 'Payment marked as pending' : paymentFormData.notes,
-        invoice_id: generatedInvoice.id,
-        customer_id: selectedCustomer?.id || 0
-      };
-      
-      await paymentApi.createPayment(paymentData);
-      
-      setShowPaymentDialog(false);
-      
-      notifications.success(
-        isPending ? 'Payment Marked as Pending!' : 'Payment Recorded!',
-        isPending ? 'Payment has been marked as pending for the invoice.' : 'Payment has been recorded for the invoice.',
-        {
-          autoClose: true,
-          autoCloseDelay: 3000
-        }
-      );
-      
-    } catch (error: any) {
-      console.error('Error recording payment:', error);
-      
-      // Parse error message from backend
-      let errorTitle = 'Payment Recording Failed';
-      let errorMessage = 'Unable to record payment. Please check your connection and try again.';
-      
-      if (error?.response?.data?.detail) {
-        const detail = error.response.data.detail;
-        if (detail.includes('Stock validation failed')) {
-          errorTitle = 'Insufficient Stock';
-          errorMessage = detail.replace('Stock validation failed: ', '');
-        } else if (detail.includes('Insufficient stock')) {
-          errorTitle = 'Insufficient Stock';
-          errorMessage = detail;
-        } else {
-          errorMessage = detail;
-        }
-      } else if (error?.message) {
-        errorMessage = error.message;
-      }
-      
-      notifications.error(
-        errorTitle,
-        errorMessage,
-        {
-          autoClose: false
-        }
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-    const handleDownloadInvoice = async () => {
+      const handleDownloadInvoice = async () => {
     if (!generatedInvoice) {
       notifications.warning(
         'Invoice Not Generated',
@@ -860,7 +665,7 @@ const TaxInvoice: React.FC = () => {
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Tax Invoice - ${customerName}</title>
+          <title>Proforma Invoice - ${customerName}</title>
           <style>
             * {
               margin: 0;
@@ -1256,7 +1061,7 @@ const TaxInvoice: React.FC = () => {
               </div>
               
               <div class="invoice-title">
-                <h2>TAX INVOICE</h2>
+                <h2>PROFORMA INVOICE</h2>
                 <div class="invoice-number">${invoiceNumber}</div>
               </div>
             </div>
@@ -1265,7 +1070,7 @@ const TaxInvoice: React.FC = () => {
             <div class="invoice-details">
               <div class="detail-group">
                 <div class="detail-label">Invoice Date</div>
-                <div class="detail-value">${new Date(invoice.invoice_date).toLocaleDateString('en-IN', { 
+                <div class="detail-value">${new Date(proformaInvoice.proforma_date).toLocaleDateString('en-IN', { 
                   day: '2-digit', 
                   month: 'short', 
                   year: 'numeric' 
@@ -1273,7 +1078,7 @@ const TaxInvoice: React.FC = () => {
               </div>
               <div class="detail-group">
                 <div class="detail-label">Due Date</div>
-                <div class="detail-value">${new Date(invoice.due_date).toLocaleDateString('en-IN', { 
+                <div class="detail-value">${new Date(proformaInvoice.valid_until).toLocaleDateString('en-IN', { 
                   day: '2-digit', 
                   month: 'short', 
                   year: 'numeric' 
@@ -1407,10 +1212,10 @@ const TaxInvoice: React.FC = () => {
               </table>
             </div>
             
-                          ${invoice.notes ? `
+                          ${proformaInvoice.notes ? `
              <div style="background: #f8f9fa; padding: 8px; border-radius: 4px; border-left: 2px solid #4c1d95; margin-bottom: 12px;">
                <div style="font-weight: bold; margin-bottom: 3px; color: #4c1d95; font-size: 11px;">Notes:</div>
-               <div style="color: #555; font-size: 11px; line-height: 1.3;">${invoice.notes}</div>
+               <div style="color: #555; font-size: 11px; line-height: 1.3;">${proformaInvoice.notes}</div>
              </div>
              ` : ''}
             
@@ -1611,7 +1416,7 @@ const TaxInvoice: React.FC = () => {
       console.log('Sending WhatsApp message:', {
         phone: customerMobile,
         message: whatsAppMessage,
-        invoice: invoice
+        invoice: proformaInvoice
       });
       
       notifications.success(
@@ -1659,9 +1464,9 @@ const TaxInvoice: React.FC = () => {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
             <FileText className="w-8 h-8 text-purple-600" />
-            Tax Invoice
+            Proforma Invoice
           </h1>
-          <p className="text-gray-600">Create GST compliant invoices with automatic calculations</p>
+          <p className="text-gray-600">Create proforma invoices for quotations and estimates</p>
         </div>
         <div className="flex gap-3">
           {!generatedInvoice ? (
@@ -1678,13 +1483,13 @@ const TaxInvoice: React.FC = () => {
               onClick={() => {
                 setGeneratedInvoice(null);
                 // Clear all form data for new invoice
-                setInvoiceItems([]);
+                setProformaInvoiceItems([]);
                 setSelectedCustomer(null);
                 setCustomerSearch('');
-                setInvoice({
+                setProformaInvoice({
                   customer_id: 0,
-                  invoice_date: new Date().toISOString().split('T')[0],
-                  due_date: new Date().toISOString().split('T')[0],
+                  proforma_date: new Date().toISOString().split('T')[0],
+                  valid_until: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
                   customer_state: '',
                   company_state: 'Tamil Nadu',
                   notes: '',
@@ -1942,8 +1747,8 @@ const TaxInvoice: React.FC = () => {
               </label>
               <input
                 type="date"
-                value={invoice.invoice_date || ''}
-                onChange={(e) => setInvoice(prev => ({ ...prev, invoice_date: e.target.value }))}
+                value={proformaInvoice.proforma_date || ''}
+                onChange={(e) => setProformaInvoice(prev => ({ ...prev, proforma_date: e.target.value }))}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               />
             </div>
@@ -2213,261 +2018,14 @@ const TaxInvoice: React.FC = () => {
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <h2 className="text-xl font-semibold mb-4">Notes</h2>
           <textarea
-            value={invoice.notes}
-            onChange={(e) => setInvoice(prev => ({ ...prev, notes: e.target.value }))}
+            value={proformaInvoice.notes}
+            onChange={(e) => setProformaInvoice(prev => ({ ...prev, notes: e.target.value }))}
             className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
             rows={3}
             placeholder="Add any additional notes or terms..."
           />
         </div>
       </div>
-
-      {/* Payment Dialog */}
-      {showPaymentDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg max-w-2xl w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">Record Payment Transaction</h3>
-            
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Invoice
-                  </label>
-                  <input
-                    type="text"
-                    value={generatedInvoice ? `${generatedInvoice.invoice_number} - ${selectedCustomer ? (selectedCustomer.company_name || `${selectedCustomer.first_name} ${selectedCustomer.last_name}`) : getAdhocCustomerDisplayName()}` : 'No invoice generated'}
-                    className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100"
-                    readOnly
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Customer
-                  </label>
-                  <input
-                    type="text"
-                    value={selectedCustomer ? (selectedCustomer.company_name || `${selectedCustomer.first_name} ${selectedCustomer.last_name}`) : getAdhocCustomerDisplayName()}
-                    className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100"
-                    readOnly
-                  />
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Invoice Amount
-                  </label>
-                  <input
-                    type="number"
-                    value={calculateTotals().totalAmount}
-                    className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100"
-                    readOnly
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Amount Paid
-                  </label>
-                  <input
-                    type="number"
-                    value={paymentFormData.amount}
-                    onChange={(e) => setPaymentFormData(prev => ({ ...prev, amount: parseFloat(e.target.value) || 0 }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Payment Method
-                  </label>
-                  <select
-                    value={paymentFormData.payment_method}
-                    onChange={(e) => setPaymentFormData(prev => ({ ...prev, payment_method: e.target.value }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  >
-                    <option value="Bank Transfer">Bank Transfer</option>
-                    <option value="Cash">Cash</option>
-                    <option value="Check">Check</option>
-                    <option value="Credit Card">Credit Card</option>
-                    <option value="UPI">UPI</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Payment Status
-                  </label>
-                  <div className="flex items-center h-12 px-3 bg-gray-100 border border-gray-300 rounded-lg">
-                    <span className={`px-2 py-1 rounded text-sm font-medium ${
-                      paymentFormData.amount >= calculateTotals().totalAmount 
-                        ? 'bg-green-100 text-green-800' 
-                        : paymentFormData.amount > 0 
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'bg-red-100 text-red-800'
-                    }`}>
-                      {paymentFormData.amount >= calculateTotals().totalAmount 
-                        ? 'Paid' 
-                        : paymentFormData.amount > 0 
-                          ? 'Partial'
-                          : 'Unpaid'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Payment Date
-                </label>
-                <input
-                  type="date"
-                  value={paymentFormData.payment_date || ''}
-                  onChange={(e) => setPaymentFormData(prev => ({ ...prev, payment_date: e.target.value }))}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Reference Number
-                </label>
-                <input
-                  type="text"
-                  value={paymentFormData.reference_number}
-                  onChange={(e) => setPaymentFormData(prev => ({ ...prev, reference_number: e.target.value }))}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  placeholder="Transaction/Reference number"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Notes
-                </label>
-                <textarea
-                  value={paymentFormData.notes}
-                  onChange={(e) => setPaymentFormData(prev => ({ ...prev, notes: e.target.value }))}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  rows={3}
-                  placeholder="Additional payment notes..."
-                />
-              </div>
-            </div>
-            
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => handleCreateInvoiceWithPayment(false)}
-                disabled={isLoading}
-                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50"
-              >
-                {isLoading ? 'Recording...' : 'Record Payment'}
-              </button>
-              <button
-                onClick={handleCreditPurchaseClick}
-                disabled={isLoading || !selectedCustomer || !generatedInvoice}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
-              >
-                Buy on Credit
-              </button>
-              <button
-                onClick={() => handleCreateInvoiceWithPayment(true)}
-                disabled={isLoading}
-                className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 disabled:opacity-50"
-              >
-                {isLoading ? 'Recording...' : 'Mark as Pending'}
-              </button>
-              <button
-                onClick={() => setShowPaymentDialog(false)}
-                className="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Credit Purchase Confirmation Dialog */}
-      {showCreditPaymentDialog && customerCreditInfo && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4 text-orange-600">Credit Purchase Confirmation</h3>
-            
-            <div className="space-y-4 mb-6">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h4 className="font-medium text-blue-800 mb-2">Customer Credit Information</h4>
-                <p className="text-sm text-blue-700">
-                  <strong>Customer:</strong> {customerCreditInfo.customer_name}
-                </p>
-                <p className="text-sm text-blue-700">
-                  <strong>Available Credit:</strong> ${customerCreditInfo.total_available_credit.toFixed(2)}
-                </p>
-                <p className="text-sm text-blue-700">
-                  <strong>Active Credits:</strong> {customerCreditInfo.number_of_active_credits}
-                </p>
-              </div>
-              
-              <div className="bg-orange-50 p-4 rounded-lg">
-                <h4 className="font-medium text-orange-800 mb-2">Purchase Details</h4>
-                <p className="text-sm text-orange-700">
-                  <strong>Invoice Total:</strong> ${calculateTotals().totalAmount.toFixed(2)}
-                </p>
-                <p className="text-sm text-orange-700">
-                  <strong>Purchase Type:</strong> Credit Purchase (No payment made)
-                </p>
-                <p className="text-sm text-orange-700">
-                  <strong>Invoice:</strong> {generatedInvoice?.invoice_number || 'N/A'}
-                </p>
-              </div>
-              
-              <div className={`p-4 rounded-lg ${
-                customerCreditInfo.total_available_credit >= calculateTotals().totalAmount 
-                  ? 'bg-green-50' 
-                  : 'bg-red-50'
-              }`}>
-                {customerCreditInfo.total_available_credit >= calculateTotals().totalAmount ? (
-                  <>
-                    <p className="text-sm text-green-700 font-medium">
-                      ✓ Customer has sufficient credit for this purchase.
-                    </p>
-                    <p className="text-sm text-green-600 mt-1">
-                      Remaining credit after purchase: ${(customerCreditInfo.total_available_credit - calculateTotals().totalAmount).toFixed(2)}
-                    </p>
-                    <p className="text-sm text-green-600 mt-1">
-                      <strong>Note:</strong> No payment will be recorded - this is a credit purchase (loan).
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-sm text-red-700 font-medium">
-                    ❌ Insufficient credit. Customer needs ${(calculateTotals().totalAmount - customerCreditInfo.total_available_credit).toFixed(2)} more credit.
-                  </p>
-                )}
-              </div>
-            </div>
-            
-            <div className="flex gap-3">
-              <button
-                onClick={handleConfirmCreditPurchase}
-                disabled={isLoading || customerCreditInfo.total_available_credit < calculateTotals().totalAmount}
-                className="flex-1 bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50"
-              >
-                {isLoading ? 'Processing...' : 'Confirm Credit Purchase'}
-              </button>
-              <button
-                onClick={() => setShowCreditPaymentDialog(false)}
-                className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* WhatsApp Modal */}
       {showWhatsAppModal && (
@@ -2537,4 +2095,4 @@ const TaxInvoice: React.FC = () => {
   );
 };
 
-export default TaxInvoice; 
+export default ProformaInvoice; 

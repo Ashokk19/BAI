@@ -74,11 +74,6 @@ async def shutdown_event():
     """Application shutdown event."""
     print("🛑 BAI PostgreSQL API shutting down...")
 
-@app.options("/{path:path}")
-async def options_handler(path: str):
-    """Handle CORS preflight requests."""
-    return {"message": "OK"}
-
 @app.get("/")
 async def root():
     """Root endpoint that returns API information."""

@@ -36,7 +36,7 @@ class PaymentBase(BaseModel):
     payment_date: datetime = Field(..., description="Payment date")
     payment_type: str = Field(..., max_length=20, description="Payment type")
     payment_direction: str = Field(..., max_length=20, description="Payment direction")
-    amount: Decimal = Field(..., gt=0, description="Payment amount")
+    amount: Decimal = Field(..., ge=0, description="Payment amount")
     currency: str = Field(default="INR", max_length=10, description="Currency")
     payment_method: str = Field(..., max_length=50, description="Payment method")
     payment_status: str = Field(default="pending", max_length=20, description="Payment status")

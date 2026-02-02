@@ -21,6 +21,7 @@ from routers import (
     organization_pg,
     user_management_pg,
     sales_invoices_pg,
+    proforma_invoices_pg,
     payments_pg,
     shipments_pg,
     sales_returns_pg,
@@ -31,9 +32,12 @@ from routers import (
     vendor_payments_pg,
     vendor_credits_pg,
     purchase_receipts_pg,
+    accounts_pg,
+    demo_requests,
 )
 from database.postgres_db import postgres_db
 from config.settings import settings
+from services.postgres_accounts_service import PostgresAccountsService
 
 # Initialize PostgreSQL connection
 print("🐘 Initializing PostgreSQL connection...")
@@ -50,7 +54,7 @@ app = FastAPI(
 # Configure CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"] if settings.DEBUG else settings.ALLOWED_ORIGINS,
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
@@ -61,9 +65,11 @@ app.add_middleware(
 # Include routers (PostgreSQL versions)
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
+app.include_router(accounts_pg.router, prefix="/api/accounts", tags=["Accounts (PostgreSQL)"])
 app.include_router(customers.router, prefix="/api/customers", tags=["Customers"])
 app.include_router(sales.router, prefix="/api/sales", tags=["Sales"])
 app.include_router(sales_invoices_pg.router, prefix="/api/sales/invoices", tags=["Invoices (PostgreSQL)"])
+app.include_router(proforma_invoices_pg.router, prefix="/api/sales/proforma-invoices", tags=["Proforma Invoices (PostgreSQL)"])
 app.include_router(payments_pg.router, prefix="/api/sales/payments", tags=["Payments (PostgreSQL)"])
 app.include_router(shipments_pg.router, prefix="/api/sales/shipments", tags=["Shipments (PostgreSQL)"])
 app.include_router(sales_returns_pg.router, prefix="/api/sales/returns", tags=["Sales Returns (PostgreSQL)"])
@@ -78,11 +84,13 @@ app.include_router(purchase_receipts_pg.router, prefix="/api/purchases/receipts"
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(organization_pg.router, prefix="/api/organization", tags=["Organization"])
 app.include_router(user_management_pg.router, prefix="/api/user-management", tags=["User Management"])
+app.include_router(demo_requests.router, prefix="/api/demo-requests", tags=["Demo Requests"])
 
-@app.options("/{path:path}")
-async def options_handler(path: str):
-    """Handle CORS preflight requests."""
-    return {"message": "OK"}
+# Ensure accounts table exists and seed default accounts
+try:
+    PostgresAccountsService.ensure_seed_accounts()
+except Exception as e:
+    print(f"Warning: failed to seed accounts: {e}")
 
 @app.get("/")
 async def root():

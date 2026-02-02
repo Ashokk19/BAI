@@ -44,9 +44,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       path: '/sales',
       subItems: [
         { title: 'Customers List', path: '/sales/customers' },
+        { title: 'Proforma Invoice', path: '/sales/proforma-invoices' },
         { title: 'Tax Invoice', path: '/sales/invoices' },
         { title: 'Delivery Note', path: '/sales/delivery-notes' },
         { title: 'Invoice History', path: '/sales/invoice-history' },
+        { title: 'Proforma History', path: '/sales/proforma-history' },
         { title: 'Sales Return', path: '/sales/returns' },
         { title: 'Credits', path: '/sales/credits' },
         { title: 'Payment Log', path: '/sales/payments' },

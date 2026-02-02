@@ -32,6 +32,14 @@ const TopNavbar: React.FC<TopNavbarProps> = ({ onMenuClick }) => {
     setShowUserMenu(false);
   };
 
+  const handleAdminAccountsClick = () => {
+    navigate('/admin/accounts');
+    setShowUserMenu(false);
+  };
+
+  // Check if user is from master account (case-insensitive)
+  const isMasterUser = user?.account_id?.toLowerCase() === 'masteraccount';
+
   return (
     <nav className="bg-white shadow-sm border-b border-gray-200">
       <div className="px-4 sm:px-6 lg:px-8">
@@ -120,6 +128,14 @@ const TopNavbar: React.FC<TopNavbarProps> = ({ onMenuClick }) => {
                     >
                       Organization Settings
                     </button>
+                    {isMasterUser && (
+                      <button
+                        onClick={handleAdminAccountsClick}
+                        className="block w-full text-left px-4 py-2 text-sm text-purple-700 font-medium hover:bg-purple-50"
+                      >
+                        Admin Accounts
+                      </button>
+                    )}
                   </div>
                   <div className="py-1">
                     <button

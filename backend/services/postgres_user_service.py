@@ -207,7 +207,7 @@ class PostgresUserService:
                company, designation, hashed_password, is_active, is_admin, created_at, updated_at, last_login,
                signature_name, signature_style
         FROM users
-        WHERE account_id = %s AND (username = %s OR email = %s)
+        WHERE LOWER(account_id) = LOWER(%s) AND (LOWER(username) = LOWER(%s) OR LOWER(email) = LOWER(%s))
         LIMIT 1
         """
         fallback_query = """
@@ -215,7 +215,7 @@ class PostgresUserService:
                first_name, last_name, phone, mobile, address, city, state, postal_code,
                company, designation, hashed_password, is_active, is_admin, created_at, updated_at, last_login
         FROM users
-        WHERE account_id = %s AND (username = %s OR email = %s)
+        WHERE LOWER(account_id) = LOWER(%s) AND (LOWER(username) = LOWER(%s) OR LOWER(email) = LOWER(%s))
         LIMIT 1
         """
         try:
