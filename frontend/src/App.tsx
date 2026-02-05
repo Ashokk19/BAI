@@ -23,6 +23,7 @@ import InvoiceHistory from './pages/sales/invoice-history';
 import ProformaInvoiceHistory from './pages/sales/proforma-invoice-history';
 import InvoiceCreation from './pages/sales/invoice-creation';
 import ShipmentRecords from './pages/sales/shipment-records';
+import Reports from './pages/sales/Reports';
 import Vendors from './pages/purchases/Vendors';
 import VendorList from './pages/purchases/vendor-list';
 import Bills from './pages/purchases/bills';
@@ -280,6 +281,17 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <ShipmentRecords />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/sales/reports"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Reports />
                   </Layout>
                 </ProtectedRoute>
               }

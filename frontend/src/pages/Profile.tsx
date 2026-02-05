@@ -534,9 +534,9 @@ const Profile: React.FC = () => {
                         <input
                           type="text"
                           value={tempProfile.city || ''}
-                          readOnly
-                          className="w-full p-3 bg-gray-50 border-gray-200 cursor-not-allowed text-gray-900 rounded-lg"
-                          placeholder="Auto-filled from PIN code"
+                          onChange={(e) => setTempProfile({ ...tempProfile, city: e.target.value })}
+                          className="w-full p-3 bg-white border border-gray-200 text-gray-900 rounded-lg"
+                          placeholder="City (auto-filled or enter manually)"
                         />
                       ) : (
                         <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile.city || 'No city'}</p>
@@ -549,9 +549,9 @@ const Profile: React.FC = () => {
                         <input
                           type="text"
                           value={tempProfile.state || ''}
-                          readOnly
-                          className="w-full p-3 bg-gray-50 border-gray-200 cursor-not-allowed text-gray-900 rounded-lg"
-                          placeholder="Auto-filled from PIN code"
+                          onChange={(e) => setTempProfile({ ...tempProfile, state: e.target.value })}
+                          className="w-full p-3 bg-white border border-gray-200 text-gray-900 rounded-lg"
+                          placeholder="State (auto-filled or enter manually)"
                         />
                       ) : (
                         <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile.state || 'No state'}</p>

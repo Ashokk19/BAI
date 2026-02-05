@@ -332,9 +332,9 @@ export default function CustomerList() {
                   <Input
                     id="city"
                     value={formData.city}
-                    readOnly
-                    className="bg-gray-50 border-gray-200 cursor-not-allowed"
-                    placeholder="Auto-filled from PIN code"
+                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                    className="bg-white/50 border-white/20"
+                    placeholder="City (auto-filled or enter manually)"
                   />
                 </div>
                 <div>
@@ -342,9 +342,9 @@ export default function CustomerList() {
                   <Input
                     id="state"
                     value={formData.state}
-                    readOnly
-                    className="bg-gray-50 border-gray-200 cursor-not-allowed"
-                    placeholder="Auto-filled from PIN code"
+                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                    className="bg-white/50 border-white/20"
+                    placeholder="State (auto-filled or enter manually)"
                   />
                 </div>
               </div>

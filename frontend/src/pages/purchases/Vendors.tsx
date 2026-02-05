@@ -469,13 +469,13 @@ const Vendors: React.FC = () => {
               <Label htmlFor="city" className="text-right">
                 City
               </Label>
-              <Input id="city" value={newVendor.city} readOnly className="col-span-3 bg-gray-100" />
+              <Input id="city" value={newVendor.city} onChange={(e) => setNewVendor({...newVendor, city: e.target.value})} className="col-span-3" placeholder="City (auto-filled or enter manually)" />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="state" className="text-right">
                 State
               </Label>
-              <Input id="state" value={newVendor.state} readOnly className="col-span-3 bg-gray-100" />
+              <Input id="state" value={newVendor.state} onChange={(e) => setNewVendor({...newVendor, state: e.target.value})} className="col-span-3" placeholder="State (auto-filled or enter manually)" />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="zip" className="text-right">

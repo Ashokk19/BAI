@@ -53,6 +53,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         { title: 'Credits', path: '/sales/credits' },
         { title: 'Payment Log', path: '/sales/payments' },
         { title: 'Shipments', path: '/sales/shipments' },
+        { title: 'Reports', path: '/sales/reports' },
       ],
     },
     {

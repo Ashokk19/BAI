@@ -197,22 +197,28 @@ export default function SalesReturns() {
       setSelectedInvoice(invoice)
       
       // Convert invoice items to returnable items
-      const returnableItems: ItemToReturn[] = invoice.items.map(item => ({
-        invoice_item_id: item.id,
-        item_id: item.item_id,
-        item_name: item.item_name,
-        item_sku: item.item_sku,
-        original_quantity: item.quantity,
-        return_quantity: 1,
-        unit_price: item.unit_price,
-        return_amount: item.unit_price,
-        refund_amount: item.unit_price,
-        condition_on_return: "good",
-        return_reason: "",
-        restockable: true,
-        notes: "",
-        selected: false
-      }))
+      const returnableItems: ItemToReturn[] = invoice.items.map(item => {
+        // Calculate amount including tax per unit
+        const taxPerUnit = (item.tax_amount || 0) / item.quantity
+        const amountWithTax = item.unit_price + taxPerUnit
+        
+        return {
+          invoice_item_id: item.id,
+          item_id: item.item_id,
+          item_name: item.item_name,
+          item_sku: item.item_sku,
+          original_quantity: item.quantity,
+          return_quantity: 1,
+          unit_price: item.unit_price,
+          return_amount: amountWithTax,  // Include tax
+          refund_amount: amountWithTax,  // Include tax
+          condition_on_return: "good",
+          return_reason: "",
+          restockable: true,
+          notes: "",
+          selected: false
+        }
+      })
       
       setItemsToReturn(returnableItems)
       console.log('Returnable items set:', returnableItems)
@@ -241,7 +247,12 @@ export default function SalesReturns() {
     // Recalculate amounts when quantity changes
     if (field === 'return_quantity') {
       const item = newItems[index]
-      item.return_amount = item.unit_price * value
+      // Get tax per unit from the original invoice item
+      const invoiceItem = selectedInvoice?.items.find(ii => ii.id === item.invoice_item_id)
+      const taxPerUnit = invoiceItem ? (invoiceItem.tax_amount || 0) / invoiceItem.quantity : 0
+      const amountWithTaxPerUnit = item.unit_price + taxPerUnit
+      
+      item.return_amount = amountWithTaxPerUnit * value
       item.refund_amount = item.return_amount // Can be adjusted later
     }
     
@@ -963,7 +974,7 @@ export default function SalesReturns() {
                     <TableCell>{returnItem.customer_name || '-'}</TableCell>
                     <TableCell>{returnItem.invoice_number || '-'}</TableCell>
                     <TableCell>{returnItem.return_date ? format(new Date(returnItem.return_date), 'MMM dd, yyyy') : '-'}</TableCell>
-                    <TableCell>₹{returnItem.total_return_amount ? parseFloat(returnItem.total_return_amount.toString()).toFixed(2) : '0.00'}</TableCell>
+                    <TableCell>₹{(returnItem.calculated_return_amount || returnItem.total_return_amount || returnItem.refund_amount) ? parseFloat((returnItem.calculated_return_amount || returnItem.total_return_amount || returnItem.refund_amount || 0).toString()).toFixed(2) : '0.00'}</TableCell>
                     <TableCell>
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(returnItem.status || 'pending')}`}>
                         {returnItem.status || 'pending'}
