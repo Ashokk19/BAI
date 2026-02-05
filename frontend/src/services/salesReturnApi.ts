@@ -82,6 +82,8 @@ export const salesReturnApi = {
     search?: string;
     status?: string;
     customer_id?: number;
+    date_from?: string;
+    date_to?: string;
   }): Promise<SalesReturnListResponse> {
     const queryParams = new URLSearchParams();
     if (params?.skip !== undefined) queryParams.append('skip', params.skip.toString());
@@ -89,6 +91,8 @@ export const salesReturnApi = {
     if (params?.search) queryParams.append('search', params.search);
     if (params?.status) queryParams.append('status', params.status);
     if (params?.customer_id) queryParams.append('customer_id', params.customer_id.toString());
+    if (params?.date_from) queryParams.append('date_from', params.date_from);
+    if (params?.date_to) queryParams.append('date_to', params.date_to);
 
     const response = await fetch(buildApiUrl(API_ENDPOINTS.sales.returns, Object.fromEntries(queryParams.entries())), {
       headers: getAuthHeaders(),

@@ -242,6 +242,7 @@ class PostgresCustomerService:
                 credit_limit = float(result[0]) if result else 0
                 
                 # Get active credits with remaining balance
+                print(f"🔍 Fetching credits for customer_id={customer_id}, account_id={account_id}")
                 cursor.execute("""
                     SELECT 
                         id,
@@ -266,6 +267,8 @@ class PostgresCustomerService:
                     ORDER BY credit_date ASC
                 """, (customer_id, account_id))
                 
+                print(f"📊 Query executed, fetching results...")
+                
                 credits = []
                 total_available = 0
                 
@@ -284,6 +287,9 @@ class PostgresCustomerService:
                     }
                     credits.append(credit)
                     total_available += float(row[4])
+                    print(f"💳 Credit {row[1]} ({row[2]}): remaining={row[4]}, running_total={total_available}")
+                
+                print(f"💰 Total available credit for customer {customer_id}: {total_available} from {len(credits)} credits")
                 
                 return {
                     "customer_id": customer_id,

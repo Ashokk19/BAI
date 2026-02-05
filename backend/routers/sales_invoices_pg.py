@@ -112,6 +112,8 @@ async def get_invoices(
     sort_order: str = Query("desc"),
     search: Optional[str] = None,
     status: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
 ):
     """Get paginated list of invoices."""
@@ -142,6 +144,14 @@ async def get_invoices(
             if status:
                 where_conditions.append("i.status = %s")
                 params.append(status)
+            
+            if date_from:
+                where_conditions.append("i.invoice_date >= %s")
+                params.append(date_from)
+            
+            if date_to:
+                where_conditions.append("i.invoice_date <= %s")
+                params.append(date_to)
             
             where_clause = " AND ".join(where_conditions)
             

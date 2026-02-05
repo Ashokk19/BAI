@@ -728,6 +728,7 @@ export default function SalesReturns() {
                       <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
                       <SelectItem value="Cash">Cash</SelectItem>
                       <SelectItem value="Original Payment">Original Payment Method</SelectItem>
+                      <SelectItem value="Credit">Store Credit</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

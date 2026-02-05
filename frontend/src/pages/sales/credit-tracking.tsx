@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { DatePopover } from "@/components/ui/date-popover"
-import { CalendarIcon, Plus, Search, CreditCard, DollarSign, TrendingUp, Users, AlertCircle, Eye, Download, ChevronLeft, ChevronRight } from "lucide-react"
+import { CalendarIcon, Plus, Search, CreditCard, DollarSign, TrendingUp, Users, AlertCircle, Eye, Download, ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react"
 import { creditApi, CustomerCredit, CustomerCreditCreate } from "../../services/creditApi"
 import { customerApi, Customer } from "../../services/customerApi"
 import { useNotifications, NotificationContainer } from "../../components/ui/notification"
@@ -68,6 +68,7 @@ export default function CreditTracking() {
   const [totalPages, setTotalPages] = useState(1)
   const [totalRecords, setTotalRecords] = useState(0)
   const recordsPerPage = 10
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [formData, setFormData] = useState({
     customer_id: 0,
     original_amount: 0,
@@ -234,6 +235,37 @@ export default function CreditTracking() {
     setSearchTerm(value)
     setCurrentPage(1)
   }
+
+  // Toggle group expansion
+  const toggleGroupExpansion = (customerId: string) => {
+    const newExpanded = new Set(expandedGroups)
+    if (newExpanded.has(customerId)) {
+      newExpanded.delete(customerId)
+    } else {
+      newExpanded.add(customerId)
+    }
+    setExpandedGroups(newExpanded)
+  }
+
+  // Group credits by customer_id
+  const groupedCredits = credits.reduce((acc, credit) => {
+    const key = credit.customer_id?.toString() || credit.customer_name || 'unknown'
+    if (!acc[key]) {
+      acc[key] = []
+    }
+    acc[key].push(credit)
+    return acc
+  }, {} as Record<string, CustomerCredit[]>)
+
+  // Get sorted group keys
+  const sortedGroupKeys = Object.keys(groupedCredits).sort((a, b) => {
+    const aCredits = groupedCredits[a]
+    const bCredits = groupedCredits[b]
+    // Sort by most recent credit date
+    const aDate = new Date(aCredits[0]?.credit_date || 0).getTime()
+    const bDate = new Date(bCredits[0]?.credit_date || 0).getTime()
+    return bDate - aDate
+  })
 
   // Use allCredits if available, otherwise fall back to credits
   const creditsForCalculation = allCredits.length > 0 ? allCredits : credits
@@ -465,64 +497,107 @@ export default function CreditTracking() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Credit Number</TableHead>
                 <TableHead>Customer</TableHead>
-                <TableHead>Credit Date</TableHead>
-                <TableHead>Type</TableHead>
+                <TableHead>Total Credits</TableHead>
                 <TableHead>Total Amount</TableHead>
                 <TableHead>Used Amount</TableHead>
                 <TableHead>Remaining</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Active Credits</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8">
+                  <TableCell colSpan={7} className="text-center py-8">
                     <div className="flex items-center justify-center">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-violet-600"></div>
                       <span className="ml-2">Loading credits...</span>
                     </div>
                   </TableCell>
                 </TableRow>
-              ) : credits.length === 0 ? (
+              ) : sortedGroupKeys.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8">
+                  <TableCell colSpan={7} className="text-center py-8">
                     <div className="text-gray-500">No credits found</div>
                   </TableCell>
                 </TableRow>
               ) : (
-                credits.map((credit) => (
-                  <TableRow key={credit.id}>
-                    <TableCell>
-                      <div className="font-medium">{credit.credit_number}</div>
-                    </TableCell>
-                    <TableCell>{getCustomerName(credit.customer_id)}</TableCell>
-                    <TableCell>{formatDate(new Date(credit.credit_date), "MMM dd, yyyy")}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{credit.credit_type}</Badge>
-                    </TableCell>
-                    <TableCell>₹{credit.original_amount.toLocaleString()}</TableCell>
-                    <TableCell>₹{credit.used_amount.toLocaleString()}</TableCell>
-                    <TableCell>
-                      <span className="font-medium text-green-600">₹{credit.remaining_amount.toLocaleString()}</span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={getStatusColor(credit.status)}>{credit.status}</Badge>
-                    </TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline">
-                        <Eye className="w-3 h-3" />
-                      </Button>
-                      <Button size="sm" variant="outline">
-                        <Download className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-                ))
+                sortedGroupKeys.map((customerId) => {
+                  const customerCredits = groupedCredits[customerId]
+                  const customerName = customerCredits[0]?.customer_name || getCustomerName(parseInt(customerId)) || 'Unknown'
+                  const totalAmount = customerCredits.reduce((sum, c) => sum + (c.original_amount || 0), 0)
+                  const usedAmount = customerCredits.reduce((sum, c) => sum + (c.used_amount || 0), 0)
+                  const remainingAmount = customerCredits.reduce((sum, c) => sum + (c.remaining_amount || 0), 0)
+                  const activeCount = customerCredits.filter(c => c.status === 'active').length
+                  const isExpanded = expandedGroups.has(customerId)
+
+                  return (
+                    <React.Fragment key={customerId}>
+                      {/* Customer Summary Row */}
+                      <TableRow 
+                        className="bg-white hover:bg-gray-50 cursor-pointer border-b-2"
+                        onClick={() => toggleGroupExpansion(customerId)}
+                      >
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            {customerName}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{customerCredits.length} credits</Badge>
+                        </TableCell>
+                        <TableCell>₹{totalAmount.toLocaleString()}</TableCell>
+                        <TableCell>₹{usedAmount.toLocaleString()}</TableCell>
+                        <TableCell>
+                          <span className="font-medium text-green-600">₹{remainingAmount.toLocaleString()}</span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className="bg-green-100 text-green-800">{activeCount} active</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline">
+                              <Eye className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Expanded Credit Rows */}
+                      {isExpanded && customerCredits.map((credit) => (
+                        <TableRow key={credit.id} className="bg-gray-50 border-l-4 border-l-violet-200">
+                          <TableCell className="pl-8">
+                            <div className="font-medium text-sm">{credit.credit_number}</div>
+                            <div className="text-xs text-gray-500">{formatDate(new Date(credit.credit_date), "MMM dd, yyyy")}</div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{credit.credit_type}</Badge>
+                          </TableCell>
+                          <TableCell>₹{credit.original_amount.toLocaleString()}</TableCell>
+                          <TableCell>₹{credit.used_amount.toLocaleString()}</TableCell>
+                          <TableCell>
+                            <span className="font-medium text-green-600">₹{credit.remaining_amount.toLocaleString()}</span>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={getStatusColor(credit.status)}>{credit.status}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline">
+                                <Eye className="w-3 h-3" />
+                              </Button>
+                              <Button size="sm" variant="outline">
+                                <Download className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </React.Fragment>
+                  )
+                })
               )}
             </TableBody>
           </Table>

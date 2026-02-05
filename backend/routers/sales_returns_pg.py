@@ -49,6 +49,8 @@ async def get_sales_returns(
     search: Optional[str] = None,
     status: Optional[str] = None,
     customer_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
     """Get paginated list of sales returns"""
@@ -80,6 +82,14 @@ async def get_sales_returns(
             if customer_id:
                 where_clauses.append("sr.customer_id = %s")
                 params.append(customer_id)
+            
+            if date_from:
+                where_clauses.append("sr.return_date >= %s")
+                params.append(date_from)
+            
+            if date_to:
+                where_clauses.append("sr.return_date <= %s")
+                params.append(date_to)
             
             where_sql = " AND ".join(where_clauses)
             
@@ -334,6 +344,59 @@ async def update_sales_return(
                     ))
                     
                     print(f"📦 Restored {quantity} units of {item_name}: {current_stock} -> {new_stock}")
+            
+            # If refund_status changed to 'approved' and refund_method is 'Credit', create Return Credit
+            new_refund_status = return_data.get("refund_status")
+            if new_refund_status and new_refund_status.lower() == 'completed':
+                # Get current return details including refund_method
+                cur.execute("""
+                    SELECT sr.refund_method, sr.refund_amount, sr.total_return_amount, sr.customer_id, sr.return_number,
+                           COALESCE(c.company_name, c.first_name || ' ' || c.last_name) as customer_name
+                    FROM sales_returns sr
+                    LEFT JOIN customers c ON c.id = sr.customer_id AND c.account_id = sr.account_id
+                    WHERE sr.id = %s AND sr.account_id = %s
+                """, (return_id, account_id))
+                return_details = cur.fetchone()
+                
+                if return_details and return_details.get('refund_method', '').lower() == 'credit':
+                    customer_id = return_details.get('customer_id')
+                    refund_amount = float(return_details.get('refund_amount') or return_details.get('total_return_amount') or 0)
+                    return_num = return_details.get('return_number')
+                    customer_name = return_details.get('customer_name', 'Unknown')
+                    
+                    if customer_id and refund_amount > 0:
+                        # Generate credit number
+                        cur.execute("""
+                            SELECT COUNT(*) + 1 as next_num FROM customer_credits WHERE account_id = %s
+                        """, (account_id,))
+                        credit_count = cur.fetchone()['next_num']
+                        credit_number = f"CR-JK-{datetime.now().year}-{str(credit_count).zfill(3)}"
+                        
+                        # Create customer credit with no expiry date (Return Credits don't expire)
+                        cur.execute("""
+                            INSERT INTO customer_credits (
+                                account_id, customer_id, credit_number, credit_date, credit_type,
+                                credit_reason, original_amount, remaining_amount, used_amount,
+                                status, expiry_date, sales_return_id, created_by, updated_by, created_at, updated_at
+                            ) VALUES (
+                                %s, %s, %s, CURRENT_DATE, %s, %s, %s, %s, 0, %s, NULL, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                            )
+                            RETURNING id
+                        """, (
+                            account_id,
+                            customer_id,
+                            credit_number,
+                            'Return Credit',
+                            f"Refund for sales return {return_num}",
+                            refund_amount,
+                            refund_amount,
+                            'active',
+                            return_id,
+                            user_id,
+                            user_id
+                        ))
+                        new_credit = cur.fetchone()
+                        print(f"💳 Created Return Credit {credit_number} for ₹{refund_amount} for customer {customer_name}")
             
             conn.commit()
             print(f"✅ Successfully updated sales return {return_id}")
