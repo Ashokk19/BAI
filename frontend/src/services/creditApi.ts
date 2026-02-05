@@ -24,6 +24,7 @@ export interface CreditTransaction {
 export interface CustomerCredit {
   id: number;
   credit_number: string;
+  customer_id: number;
   customer_name: string;
   credit_type: string;
   original_amount: number;

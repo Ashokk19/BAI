@@ -592,6 +592,9 @@ const TaxInvoice: React.FC = () => {
 
     try {
       const creditInfo = await customerApi.getCustomerCreditInfo(selectedCustomer.id);
+      console.log('💳 Fetched credit info:', creditInfo);
+      console.log('💰 Total available credit:', creditInfo.total_available_credit);
+      console.log('📋 Credits array:', creditInfo.credits);
       setCustomerCreditInfo(creditInfo);
       
       // Set the payment amount to the invoice total for credit purchase
@@ -2418,7 +2421,7 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
                   <strong>Customer:</strong> {customerCreditInfo.customer_name}
                 </p>
                 <p className="text-sm text-blue-700">
-                  <strong>Available Credit:</strong> ${customerCreditInfo.total_available_credit.toFixed(2)}
+                  <strong>Available Credit:</strong> ₹{customerCreditInfo.total_available_credit.toFixed(2)}
                 </p>
                 <p className="text-sm text-blue-700">
                   <strong>Active Credits:</strong> {customerCreditInfo.number_of_active_credits}

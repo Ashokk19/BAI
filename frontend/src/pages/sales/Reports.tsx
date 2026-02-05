@@ -143,16 +143,14 @@ export default function Reports() {
       
       setInvoices(filteredInvoices)
       
-      // Load sales returns
-      const returnsResponse = await salesReturnApi.getSalesReturns({ limit: 10000 })
+      // Load sales returns with date filter
+      const returnsResponse = await salesReturnApi.getSalesReturns({ 
+        limit: 10000,
+        date_from: format(start, 'yyyy-MM-dd'),
+        date_to: format(end, 'yyyy-MM-dd'),
+        customer_id: selectedCustomer !== "all" ? parseInt(selectedCustomer) : undefined
+      })
       let filteredReturns = returnsResponse.returns || []
-      
-      // Filter by customer if selected
-      if (selectedCustomer !== "all") {
-        filteredReturns = filteredReturns.filter(
-          ret => ret.customer_name !== undefined // Returns don't have customer_id, filter by name if needed
-        )
-      }
       
       setSalesReturns(filteredReturns)
       
@@ -714,8 +712,17 @@ export default function Reports() {
                             <TableCell className="text-right">₹{(invoice.tax_amount || 0).toFixed(2)}</TableCell>
                             <TableCell className="text-right font-semibold">₹{(invoice.total_amount || 0).toFixed(2)}</TableCell>
                             <TableCell>
-                              <Badge variant={invoice.status === 'paid' ? 'default' : 'secondary'}>
-                                {invoice.status}
+                              <Badge 
+                                variant={invoice.status?.toLowerCase() === 'paid' ? 'default' : 'outline'}
+                                className={
+                                  invoice.status?.toLowerCase() === 'paid' 
+                                    ? 'bg-green-100 text-green-800 border-green-300' 
+                                    : invoice.status?.toLowerCase() === 'pending' 
+                                      ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
+                                      : 'bg-gray-100 text-gray-800 border-gray-300'
+                                }
+                              >
+                                {invoice.status || 'pending'}
                               </Badge>
                             </TableCell>
                           </TableRow>

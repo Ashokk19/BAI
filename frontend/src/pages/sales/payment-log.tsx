@@ -1152,6 +1152,12 @@ export default function PaymentLog() {
                 const balanceAmount = Math.max(0, invoiceAmount - paidAmount)
                 const paymentStatus = isNoInvoiceGroup ? 'N/A' : getPaymentStatus(invoiceIdNum)
                 const isExpanded = expandedGroups.has(invoiceId)
+                
+                // Check if any payment was made with credit
+                const hasCreditPayment = groupPayments.some(payment => 
+                  payment.payment_method?.toLowerCase() === 'credit' || 
+                  payment.payment_status?.toLowerCase() === 'credit'
+                )
 
                 return (
                   <React.Fragment key={invoiceId}>
@@ -1191,7 +1197,8 @@ export default function PaymentLog() {
                               setIsDialogOpen(true)
                             }
                           }}
-                          disabled={isNoInvoiceGroup || paymentStatus === "Completed"}
+                          disabled={isNoInvoiceGroup || paymentStatus === "Completed" || hasCreditPayment}
+                          title={hasCreditPayment ? "Invoice paid with credit - no additional payment needed" : ""}
                         >
                           Add Payment
                         </Button>
