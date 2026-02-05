@@ -1204,6 +1204,10 @@ const TaxInvoice: React.FC = () => {
             
             /* Print Styles */
             @media print {
+              @page {
+                margin: 10mm;
+                margin-bottom: 15mm;
+              }
               body { 
                 margin: 0; 
                 padding: 6mm; 
@@ -1235,6 +1239,15 @@ const TaxInvoice: React.FC = () => {
               }
               .bank-details .title {
                 color: #4c1d95 !important;
+              }
+              .footer-info {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                background: white;
+                padding: 8px 10mm;
+                border-top: 2px solid #e9ecef;
               }
             }
           </style>
@@ -1452,7 +1465,7 @@ const TaxInvoice: React.FC = () => {
               <div style="border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px;">
                 <div style="font-weight: 700; color: #4c1d95; margin-bottom: 6px;">Terms and Conditions :</div>
                 <div style="font-style: italic; color: #555; white-space: pre-wrap; line-height: 1.35; font-size: 12px; text-align: left;">
-                  ${orgForPdf?.terms_and_conditions || ''}
+${(orgForPdf?.terms_and_conditions || '').trim()}
                 </div>
               </div>
               <div style="border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between;">

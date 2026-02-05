@@ -577,9 +577,9 @@ const Customers: React.FC = () => {
                   <Input
                     id="city"
                     value={formData.city}
-                    readOnly
-                    className="bg-gray-50 border-gray-200 cursor-not-allowed"
-                    placeholder="Auto-filled from PIN code"
+                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                    className="bg-white border-gray-200"
+                    placeholder="City (auto-filled or enter manually)"
                   />
                 </div>
                 <div>
@@ -587,9 +587,9 @@ const Customers: React.FC = () => {
                   <Input
                     id="state"
                     value={formData.state}
-                    readOnly
-                    className="bg-gray-50 border-gray-200 cursor-not-allowed"
-                    placeholder="Auto-filled from PIN code"
+                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                    className="bg-white border-gray-200"
+                    placeholder="State (auto-filled or enter manually)"
                   />
                 </div>
                 <div>

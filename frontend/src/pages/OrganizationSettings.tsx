@@ -1377,9 +1377,9 @@ const OrganizationSettings: React.FC = () => {
                         {isEditing ? (
                           <Input
                             value={tempProfile.city || profile?.city || ''}
-                            readOnly
-                            className="w-full p-3 bg-gray-50 border-gray-200 cursor-not-allowed text-gray-900 rounded-lg"
-                            placeholder="Auto-filled from PIN code"
+                            onChange={(e) => setTempProfile({ ...tempProfile, city: e.target.value })}
+                            className="w-full p-3 bg-white border-gray-200 text-gray-900 rounded-lg"
+                            placeholder="City (auto-filled or enter manually)"
                           />
                         ) : (
                           <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile?.city || 'Not specified'}</p>
@@ -1391,9 +1391,9 @@ const OrganizationSettings: React.FC = () => {
                         {isEditing ? (
                           <Input
                             value={tempProfile.state || profile?.state || ''}
-                            readOnly
-                            className="w-full p-3 bg-gray-50 border-gray-200 cursor-not-allowed text-gray-900 rounded-lg"
-                            placeholder="Auto-filled from PIN code"
+                            onChange={(e) => setTempProfile({ ...tempProfile, state: e.target.value })}
+                            className="w-full p-3 bg-white border-gray-200 text-gray-900 rounded-lg"
+                            placeholder="State (auto-filled or enter manually)"
                           />
                         ) : (
                           <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile?.state || 'Not specified'}</p>

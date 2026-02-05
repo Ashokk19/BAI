@@ -32,6 +32,7 @@ export interface SalesReturn {
   return_date: string;
   total_return_amount: number;
   refund_amount: number;
+  calculated_return_amount?: number;
   status: string;
   refund_status: string;
   return_reason: string;
