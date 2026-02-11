@@ -104,7 +104,7 @@ const KPICard: React.FC<KPICardProps> = ({ kpi, index }) => {
   return (
     <Card 
       className={`
-        relative overflow-hidden border-0 shadow-lg bg-white
+        relative overflow-hidden border-0 shadow-lg bg-white dark:bg-gray-800
         transform transition-all duration-500 hover:scale-105 hover:shadow-2xl
         ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}
       `}
@@ -113,13 +113,13 @@ const KPICard: React.FC<KPICardProps> = ({ kpi, index }) => {
       <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full -mr-16 -mt-16"></div>
       
       <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 relative z-10">
-        <CardTitle className="text-sm font-semibold text-gray-700">{kpi.title}</CardTitle>
+        <CardTitle className="text-sm font-semibold text-gray-700 dark:text-gray-300">{kpi.title}</CardTitle>
         <div className={`p-3 rounded-xl bg-gradient-to-br ${gradient} shadow-lg`}>
           <Icon className="h-5 w-5 text-white" />
         </div>
       </CardHeader>
       <CardContent className="relative z-10">
-        <div className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+        <div className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">
           {kpi.value}
         </div>
         {kpi.change && (
@@ -138,7 +138,7 @@ const KPICard: React.FC<KPICardProps> = ({ kpi, index }) => {
             </p>
           </div>
         )}
-        <p className="text-xs text-gray-500 mt-1">{kpi.description}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{kpi.description}</p>
       </CardContent>
     </Card>
   )
@@ -237,7 +237,7 @@ const Dashboard: React.FC = () => {
             <Sparkles className="h-8 w-8 text-purple-600" />
             Dashboard
           </h2>
-          <p className="text-sm text-gray-600 mt-1 font-medium">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 font-medium">
             Last updated: {lastUpdated.toLocaleTimeString()}
           </p>
         </div>
@@ -292,7 +292,7 @@ const Dashboard: React.FC = () => {
 
       {/* Charts Section - Enhanced */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4 border-0 shadow-lg overflow-hidden bg-white">
+        <Card className="col-span-4 border-0 shadow-lg overflow-hidden bg-white dark:bg-gray-800">
           <CardHeader className="relative z-10">
             <div className="flex items-center justify-between">
               <div>
@@ -378,7 +378,7 @@ const Dashboard: React.FC = () => {
           </CardContent>
         </Card>
 
-        <Card className="col-span-3 border-0 shadow-lg overflow-hidden bg-white">
+        <Card className="col-span-3 border-0 shadow-lg overflow-hidden bg-white dark:bg-gray-800">
           <CardHeader className="relative z-10">
             <CardTitle className="text-xl font-bold flex items-center gap-2">
               <Package className="h-5 w-5 text-emerald-600" />
@@ -396,7 +396,7 @@ const Dashboard: React.FC = () => {
                   return (
                     <div key={`${item.name}-${index}`} className="group">
                       <div className="flex justify-between items-center mb-1">
-                        <span className="font-semibold text-gray-700 group-hover:text-emerald-600 transition-colors">
+                        <span className="font-semibold text-gray-700 dark:text-gray-300 group-hover:text-emerald-600 transition-colors">
                           {item.name}
                         </span>
                         <span className="text-sm font-bold text-emerald-600">
@@ -424,7 +424,7 @@ const Dashboard: React.FC = () => {
       </div>
       
       {/* Recent Activity - Enhanced */}
-      <Card className="border-0 shadow-lg overflow-hidden bg-white">
+      <Card className="border-0 shadow-lg overflow-hidden bg-white dark:bg-gray-800">
         <CardHeader className="relative z-10">
           <div className="flex items-center justify-between">
             <div>
@@ -457,14 +457,14 @@ const Dashboard: React.FC = () => {
                 return (
                   <div 
                     key={`activity-${index}`} 
-                    className="flex items-start gap-4 p-4 bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100"
+                    className="flex items-start gap-4 p-4 bg-white dark:bg-gray-700 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 dark:border-gray-600"
                   >
                     <div className={`p-3 rounded-lg bg-gradient-to-br ${gradient} shrink-0`}>
                       <Icon className="h-4 w-4 text-white" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm text-gray-900">{activity.action}</p>
-                      <p className="text-xs text-gray-600 mt-1 truncate">{activity.details}</p>
+                      <p className="font-semibold text-sm text-gray-900 dark:text-white">{activity.action}</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 truncate">{activity.details}</p>
                     </div>
                     <span className="text-xs text-gray-500 whitespace-nowrap shrink-0">{activity.time}</span>
                   </div>

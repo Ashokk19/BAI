@@ -87,18 +87,18 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
       {/* Sidebar */}
       <div
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200 flex-shrink-0">
+        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="flex items-center">
             <div className={`w-8 h-8 ${APP_CONFIG.logo.bgColor} rounded-lg flex items-center justify-center mr-3`}>
               <span className="text-lg">{APP_CONFIG.logo.icon}</span>
             </div>
             <div>
-              <span className="text-xl font-bold text-gray-900">{APP_CONFIG.name}</span>
-              <p className="text-xs text-gray-600 font-medium">{APP_CONFIG.fullName}</p>
+              <span className="text-xl font-bold text-gray-900 dark:text-white">{APP_CONFIG.name}</span>
+              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">{APP_CONFIG.fullName}</p>
             </div>
           </div>
           <button
@@ -120,8 +120,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   className={({ isActive }) =>
                     `flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200 ${
                       isActive
-                        ? 'bg-purple-100 text-purple-700'
-                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
                     }`
                   }
                 >
@@ -138,8 +138,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                         className={({ isActive }) =>
                           `block px-3 py-2 text-sm rounded-md transition-colors duration-200 ${
                             isActive
-                              ? 'bg-purple-50 text-purple-700'
-                              : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                              ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300'
+                              : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200'
                           }`
                         }
                       >

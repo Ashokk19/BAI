@@ -802,6 +802,26 @@ const TaxInvoice: React.FC = () => {
     const currentCustomer = selectedCustomer || adhocCustomer;
     const invoiceNumber = `INV-${Date.now().toString().slice(-8)}`;
     const currentDate = new Date();
+
+    // Fetch logo as base64 from DB for reliable PDF embedding
+    let logoSrc = '';
+    try {
+      const logoResult = await organizationService.getLogo();
+      if (logoResult.logo_data) logoSrc = logoResult.logo_data;
+    } catch (e) {
+      console.warn('Failed to load logo:', e);
+    }
+
+    // Dynamic accent color from organization settings
+    const accentColor = (organization as any)?.tax_invoice_color || '#4c1d95';
+    // Derive a darker border shade by reducing brightness
+    const darkerBorder = (() => {
+      const hex = accentColor.replace('#', '');
+      const r = Math.max(0, parseInt(hex.substring(0, 2), 16) - 30);
+      const g = Math.max(0, parseInt(hex.substring(2, 4), 16) - 30);
+      const b = Math.max(0, parseInt(hex.substring(4, 6), 16) - 30);
+      return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+    })();
     
     // Determine GST type based on customer and organization states
     const customerState = currentCustomer.state || '';
@@ -893,7 +913,7 @@ const TaxInvoice: React.FC = () => {
               display: flex;
               justify-content: space-between;
               align-items: center;
-              border-bottom: 2px solid #4c1d95;
+              border-bottom: 2px solid ${accentColor};
               padding-bottom: 12px;
               margin-bottom: 15px;
             }
@@ -901,7 +921,7 @@ const TaxInvoice: React.FC = () => {
             .company-info h1 {
               font-size: 24px;
               font-weight: bold;
-              color: #4c1d95;
+              color: ${accentColor};
               margin-bottom: 4px;
             }
             
@@ -925,7 +945,7 @@ const TaxInvoice: React.FC = () => {
             
             .invoice-number {
               font-size: 15px;
-              color: #4c1d95;
+              color: ${accentColor};
               font-weight: bold;
             }
             
@@ -985,7 +1005,7 @@ const TaxInvoice: React.FC = () => {
             .section-title {
               font-size: 12px;
               font-weight: bold;
-              color: #4c1d95;
+              color: ${accentColor};
               text-transform: uppercase;
               margin-bottom: 6px;
               border-bottom: 1px solid #e9ecef;
@@ -1015,13 +1035,13 @@ const TaxInvoice: React.FC = () => {
               width: 100%;
               border-collapse: collapse;
               margin-bottom: 15px;
-              border: 2px solid #4c1d95;
+              border: 2px solid ${accentColor};
               border-radius: 4px;
               overflow: hidden;
             }
             
             .items-table thead {
-              background: #4c1d95;
+              background: ${accentColor};
             }
             
             .items-table th {
@@ -1031,7 +1051,7 @@ const TaxInvoice: React.FC = () => {
               font-size: 12px;
               color: white;
               text-transform: uppercase;
-              border: 1px solid #3730a3;
+              border: 1px solid ${darkerBorder};
               vertical-align: middle;
             }
             
@@ -1062,7 +1082,7 @@ const TaxInvoice: React.FC = () => {
             }
             
             .items-table tbody tr:last-child {
-              border-bottom: 2px solid #4c1d95;
+              border-bottom: 2px solid ${accentColor};
               background-color: #f1f5f9;
               font-weight: bold;
             }
@@ -1089,7 +1109,7 @@ const TaxInvoice: React.FC = () => {
             .summary-table {
               width: 280px;
               border-collapse: collapse;
-              border: 2px solid #4c1d95;
+              border: 2px solid ${accentColor};
               border-radius: 4px;
               overflow: hidden;
             }
@@ -1124,7 +1144,7 @@ const TaxInvoice: React.FC = () => {
             }
             
             .total-row {
-              background: #4c1d95;
+              background: ${accentColor};
             }
             
             .total-row .label,
@@ -1133,7 +1153,7 @@ const TaxInvoice: React.FC = () => {
               font-size: 14px;
               font-weight: bold;
               padding: 8px 10px;
-              border: 1px solid #3730a3;
+              border: 1px solid ${darkerBorder};
             }
             
 
@@ -1171,7 +1191,7 @@ const TaxInvoice: React.FC = () => {
             .bank-details .title {
               font-size: 12px;
               font-weight: bold;
-              color: #4c1d95;
+              color: ${accentColor};
               margin-bottom: 4px;
               text-transform: uppercase;
             }
@@ -1222,26 +1242,26 @@ const TaxInvoice: React.FC = () => {
                 max-width: 100%;
               }
               .items-table thead {
-                background: #4c1d95 !important;
+                background: ${accentColor} !important;
                 -webkit-print-color-adjust: exact;
                 color-adjust: exact;
               }
               .total-row {
-                background: #4c1d95 !important;
+                background: ${accentColor} !important;
                 -webkit-print-color-adjust: exact;
                 color-adjust: exact;
               }
               .company-info h1 {
-                color: #4c1d95 !important;
+                color: ${accentColor} !important;
               }
               .invoice-number {
-                color: #4c1d95 !important;
+                color: ${accentColor} !important;
               }
               .section-title {
-                color: #4c1d95 !important;
+                color: ${accentColor} !important;
               }
               .bank-details .title {
-                color: #4c1d95 !important;
+                color: ${accentColor} !important;
               }
               .footer-info {
                 position: fixed;
@@ -1260,7 +1280,10 @@ const TaxInvoice: React.FC = () => {
             <!-- Header -->
             <div class="header">
               <div class="company-info">
-                <h1>${organization?.company_name || 'Your Company Name'}</h1>
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 4px;">
+                  ${logoSrc ? `<img src="${logoSrc}" alt="Logo" style="height: 50px; width: auto; object-fit: contain;" crossorigin="anonymous" />` : ''}
+                  <h1 style="margin-bottom: 0;">${organization?.company_name || 'Your Company Name'}</h1>
+                </div>
                 <p>${[
                   organization?.address,
                   organization?.city,
@@ -1269,6 +1292,7 @@ const TaxInvoice: React.FC = () => {
                 ].filter(Boolean).join(', ') || 'Address Line 1, City, State - PIN'}</p>
                 <p>Phone: ${organization?.phone || '+91 XXXXX-XXXXX'} | Email: ${organization?.email || 'contact@yourcompany.com'}</p>
                 <p>GST: ${organization?.gst_number || 'XXAXXXXXXXX'} | PAN: ${organization?.pan_number || 'XXXXXXXXXX'}</p>
+                ${organization?.state ? `<p><strong>Place of Supply:</strong> ${organization.state}</p>` : ''}
               </div>
               
               <div class="invoice-title">
@@ -1322,6 +1346,7 @@ const TaxInvoice: React.FC = () => {
                     currentCustomer.billing_address ? `<p><strong>Address:</strong> ${currentCustomer.billing_address}</p>` : 
                     '<p><strong>Address:</strong> Same as billing address</p>'}
                   ${currentCustomer.city || currentCustomer.state ? `<p><strong>Location:</strong> ${[currentCustomer.city, currentCustomer.state, currentCustomer.postal_code].filter(Boolean).join(', ')}</p>` : ''}
+                  ${currentCustomer.gst_number ? `<p><strong>GST:</strong> ${currentCustomer.gst_number}</p>` : ''}
                 </div>
               </div>
             </div>
@@ -1417,15 +1442,20 @@ const TaxInvoice: React.FC = () => {
                   <td class="value">₹${totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 <tr class="total-row">
-                  <td class="label">Total Amount After Tax</td>
-                  <td class="value">₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  <td class="label" style="padding: 8px 10px;">Total Amount After Tax</td>
+                  <td class="value" style="vertical-align: middle;">₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr>
+                  <td colspan="2" style="padding: 6px 10px; font-size: 11px; color: #333; background: #f8f9fa; border-top: 1px solid #e5e7eb;">
+                    <strong>Whether tax is payable on reverse charge:</strong> ${(organization as any)?.rcm_applicable ? 'Yes' : 'No'}
+                  </td>
                 </tr>
               </table>
             </div>
             
                           ${invoice.notes ? `
-             <div style="background: #f8f9fa; padding: 8px; border-radius: 4px; border-left: 2px solid #4c1d95; margin-bottom: 12px;">
-               <div style="font-weight: bold; margin-bottom: 3px; color: #4c1d95; font-size: 11px;">Notes:</div>
+             <div style="background: #f8f9fa; padding: 8px; border-radius: 4px; border-left: 2px solid ${accentColor}; margin-bottom: 12px;">
+               <div style="font-weight: bold; margin-bottom: 3px; color: ${accentColor}; font-size: 11px;">Notes:</div>
                <div style="color: #555; font-size: 11px; line-height: 1.3;">${invoice.notes}</div>
              </div>
              ` : ''}
@@ -1466,7 +1496,7 @@ const TaxInvoice: React.FC = () => {
 
             <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-top: 10px;">
               <div style="border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px;">
-                <div style="font-weight: 700; color: #4c1d95; margin-bottom: 6px;">Terms and Conditions :</div>
+                <div style="font-weight: 700; color: ${accentColor}; margin-bottom: 6px;">Terms and Conditions :</div>
                 <div style="font-style: italic; color: #555; white-space: pre-wrap; line-height: 1.35; font-size: 12px; text-align: left;">
 ${(orgForPdf?.terms_and_conditions || '').trim()}
                 </div>
@@ -1501,8 +1531,30 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
     if (newWindow) {
       newWindow.document.write(invoiceContent);
       newWindow.document.close();
-      newWindow.print();
-      newWindow.close();
+      // Wait for images to load before printing
+      const images = newWindow.document.images;
+      if (images.length > 0) {
+        let loaded = 0;
+        const tryPrint = () => {
+          loaded++;
+          if (loaded >= images.length) {
+            newWindow.print();
+          }
+        };
+        for (let i = 0; i < images.length; i++) {
+          if (images[i].complete) {
+            loaded++;
+          } else {
+            images[i].addEventListener('load', tryPrint);
+            images[i].addEventListener('error', tryPrint);
+          }
+        }
+        if (loaded >= images.length) {
+          newWindow.print();
+        }
+      } else {
+        newWindow.print();
+      }
       
       // Show success notification
       notifications.success(

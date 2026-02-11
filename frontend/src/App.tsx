@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './utils/AuthContext';
@@ -48,7 +48,12 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     );
   }
 
-  return user ? <>{children}</> : <Navigate to="/login" replace />;
+  if (!user) {
+    const lastAccount = localStorage.getItem('last_account_id') || '';
+    const loginPath = lastAccount ? `/login?account=${encodeURIComponent(lastAccount)}` : '/login';
+    return <Navigate to={loginPath} replace />;
+  }
+  return <>{children}</>;
 };
 
 // Public Route component (redirects to dashboard if already logged in)
@@ -67,6 +72,24 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 function App() {
+  // Apply saved theme on initial app load
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('app_theme') || 'light';
+    const root = document.documentElement;
+    if (savedTheme === 'dark') {
+      root.classList.add('dark');
+    } else if (savedTheme === 'auto') {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (prefersDark) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    } else {
+      root.classList.remove('dark');
+    }
+  }, []);
+
   return (
     <AuthProvider>
       <Router>

@@ -222,6 +222,7 @@ CREATE TABLE IF NOT EXISTS public.organizations (
   bank_swift_code            VARCHAR(20),
   description                TEXT,
   logo_url                   VARCHAR(500),
+  logo_data                  TEXT,
   is_verified                BOOLEAN      DEFAULT FALSE,
   created_at                 TIMESTAMPTZ  DEFAULT NOW(),
   updated_at                 TIMESTAMPTZ

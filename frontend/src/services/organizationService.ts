@@ -35,8 +35,13 @@ export interface OrganizationProfile {
   bank_swift_code?: string;
   description?: string;
   logo_url?: string;
+  logo_data?: string;
   is_verified: boolean;
   terms_and_conditions?: string;
+  rcm_applicable?: boolean;
+  tax_invoice_color?: string;
+  proforma_invoice_color?: string;
+  sales_return_color?: string;
   created_at: string;
   updated_at?: string;
 }
@@ -75,6 +80,10 @@ export interface OrganizationCreate {
   logo_url?: string;
   is_verified?: boolean;
   terms_and_conditions?: string;
+  rcm_applicable?: boolean;
+  tax_invoice_color?: string;
+  proforma_invoice_color?: string;
+  sales_return_color?: string;
 }
 
 export interface OrganizationUpdate {
@@ -111,6 +120,10 @@ export interface OrganizationUpdate {
   logo_url?: string;
   is_verified?: boolean;
   terms_and_conditions?: string;
+  rcm_applicable?: boolean;
+  tax_invoice_color?: string;
+  proforma_invoice_color?: string;
+  sales_return_color?: string;
 }
 
 class OrganizationService {
@@ -119,6 +132,13 @@ class OrganizationService {
     return {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
+    };
+  }
+
+  private getAuthHeadersMultipart() {
+    const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+    return {
+      'Authorization': `Bearer ${token}`,
     };
   }
 
@@ -179,6 +199,52 @@ class OrganizationService {
     } catch (error) {
       console.error('Error deleting organization profile:', error);
       throw new Error('Failed to delete organization profile');
+    }
+  }
+  /**
+   * Upload organization logo file (stored as base64 in DB)
+   */
+  async uploadLogo(file: File): Promise<{ message: string; logo_data: string }> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await axios.post(`${API_BASE_URL}/api/organization/logo`, formData, {
+        headers: this.getAuthHeadersMultipart(),
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error uploading logo:', error);
+      throw new Error('Failed to upload logo');
+    }
+  }
+
+  /**
+   * Get organization logo base64 data
+   */
+  async getLogo(): Promise<{ logo_data: string | null }> {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/organization/logo`, {
+        headers: this.getAuthHeaders(),
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching logo:', error);
+      throw new Error('Failed to fetch logo');
+    }
+  }
+
+  /**
+   * Delete organization logo
+   */
+  async deleteLogo(): Promise<{ message: string }> {
+    try {
+      const response = await axios.delete(`${API_BASE_URL}/api/organization/logo`, {
+        headers: this.getAuthHeaders(),
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting logo:', error);
+      throw new Error('Failed to delete logo');
     }
   }
 }

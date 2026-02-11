@@ -76,6 +76,10 @@ def fix_dashboard_columns():
                 "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS bank_swift_code VARCHAR(20)",
                 "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS description TEXT",
                 "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS logo_data TEXT",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS tax_invoice_color VARCHAR(10) DEFAULT '#4c1d95'",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS proforma_invoice_color VARCHAR(10) DEFAULT '#4c1d95'",
+                "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS sales_return_color VARCHAR(10) DEFAULT '#dc2626'",
                 
                 # Add missing invoice columns
                 "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS invoice_type VARCHAR(20) DEFAULT 'sale'",

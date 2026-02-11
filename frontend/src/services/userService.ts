@@ -96,7 +96,7 @@ class UserService {
       return response.data;
     } catch (error) {
       console.error('Error changing password:', error);
-      throw new Error('Failed to change password');
+      throw error;
     }
   }
 

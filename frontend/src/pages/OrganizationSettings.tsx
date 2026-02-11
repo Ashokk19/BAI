@@ -40,6 +40,8 @@ const OrganizationSettings: React.FC = () => {
   });
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [isLoadingPincode, setIsLoadingPincode] = useState(false);
+  const [logoData, setLogoData] = useState<string | null>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   // Function to open create user dialog with organization company name
   const openCreateUserDialog = () => {
@@ -130,6 +132,7 @@ const OrganizationSettings: React.FC = () => {
     if (authUser) {
       loadOrganizationProfile();
       loadOrganizationUsers();
+      loadLogo();
     }
   }, [authUser]);
 
@@ -144,6 +147,49 @@ const OrganizationSettings: React.FC = () => {
       // Profile doesn't exist yet, that's okay
     } finally {
       setIsInitialLoading(false);
+    }
+  };
+
+  const loadLogo = async () => {
+    try {
+      const result = await organizationService.getLogo();
+      setLogoData(result.logo_data);
+    } catch (error) {
+      console.error('Error loading logo:', error);
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      notifications.error('File Too Large', 'Logo must be less than 2MB.', { autoClose: true, autoCloseDelay: 4000 });
+      return;
+    }
+    setIsUploadingLogo(true);
+    try {
+      const result = await organizationService.uploadLogo(file);
+      setLogoData(result.logo_data);
+      notifications.success('Logo Uploaded', 'Company logo has been saved successfully.', { autoClose: true, autoCloseDelay: 3000 });
+    } catch (error) {
+      console.error('Error uploading logo:', error);
+      notifications.error('Upload Failed', 'Failed to upload logo. Please try again.', { autoClose: true, autoCloseDelay: 4000 });
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
+  const handleLogoDelete = async () => {
+    setIsUploadingLogo(true);
+    try {
+      await organizationService.deleteLogo();
+      setLogoData(null);
+      notifications.success('Logo Removed', 'Company logo has been removed.', { autoClose: true, autoCloseDelay: 3000 });
+    } catch (error) {
+      console.error('Error deleting logo:', error);
+      notifications.error('Delete Failed', 'Failed to remove logo.', { autoClose: true, autoCloseDelay: 4000 });
+    } finally {
+      setIsUploadingLogo(false);
     }
   };
 
@@ -340,6 +386,10 @@ const OrganizationSettings: React.FC = () => {
         logo_url: profile.logo_url,
         is_verified: profile.is_verified,
         terms_and_conditions: (profile as any).terms_and_conditions,
+        rcm_applicable: (profile as any).rcm_applicable,
+        tax_invoice_color: profile.tax_invoice_color || '#4c1d95',
+        proforma_invoice_color: profile.proforma_invoice_color || '#4c1d95',
+        sales_return_color: profile.sales_return_color || '#dc2626',
       });
     }
     setIsEditing(true);
@@ -387,6 +437,10 @@ const OrganizationSettings: React.FC = () => {
         logo_url: tempProfile.logo_url,
         is_verified: tempProfile.is_verified,
         terms_and_conditions: (tempProfile as any).terms_and_conditions,
+        rcm_applicable: (tempProfile as any).rcm_applicable,
+        tax_invoice_color: tempProfile.tax_invoice_color || '#4c1d95',
+        proforma_invoice_color: tempProfile.proforma_invoice_color || '#4c1d95',
+        sales_return_color: tempProfile.sales_return_color || '#dc2626',
       };
       const newProfile = await organizationService.createOrganizationProfile(createData);
       setProfile(newProfile);
@@ -454,6 +508,10 @@ const OrganizationSettings: React.FC = () => {
           logo_url: tempProfile.logo_url,
           is_verified: tempProfile.is_verified,
           terms_and_conditions: (tempProfile as any).terms_and_conditions,
+          rcm_applicable: (tempProfile as any).rcm_applicable,
+          tax_invoice_color: tempProfile.tax_invoice_color || '#4c1d95',
+          proforma_invoice_color: tempProfile.proforma_invoice_color || '#4c1d95',
+          sales_return_color: tempProfile.sales_return_color || '#dc2626',
         };
         const newProfile = await organizationService.createOrganizationProfile(createData);
         setProfile(newProfile);
@@ -1549,6 +1607,148 @@ const OrganizationSettings: React.FC = () => {
                     ) : (
                       <p className="p-3 bg-gray-50 rounded-lg text-gray-900 whitespace-pre-wrap">{(profile as any)?.terms_and_conditions || 'Not specified'}</p>
                     )}
+                  </div>
+                </div>
+
+                {/* Company Logo Section */}
+                <div className="mt-8 space-y-4">
+                  <h4 className="font-medium text-gray-900 border-b border-gray-200 pb-2 flex items-center gap-2">
+                    Company Logo
+                  </h4>
+                  <div>
+                    {logoData ? (
+                      <div className="flex items-center gap-4">
+                        <img src={logoData} alt="Company Logo" className="h-16 w-auto object-contain border rounded p-1" />
+                        <div className="flex flex-col gap-2">
+                          <span className="text-sm text-green-600 font-medium">Logo uploaded</span>
+                          <div className="flex gap-2">
+                            <label className="cursor-pointer">
+                              <input type="file" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,image/svg+xml" className="hidden" onChange={handleLogoUpload} disabled={isUploadingLogo} />
+                              <span className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 transition-colors">
+                                {isUploadingLogo ? 'Uploading...' : 'Change Logo'}
+                              </span>
+                            </label>
+                            <Button variant="outline" size="sm" onClick={handleLogoDelete} disabled={isUploadingLogo} className="text-xs text-red-600 border-red-200 hover:bg-red-50">
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-4">
+                        <div className="w-16 h-16 border-2 border-dashed border-gray-300 rounded flex items-center justify-center text-gray-400 text-xs">
+                          No Logo
+                        </div>
+                        <label className="cursor-pointer">
+                          <input type="file" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,image/svg+xml" className="hidden" onChange={handleLogoUpload} disabled={isUploadingLogo} />
+                          <span className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 transition-colors shadow-sm">
+                            {isUploadingLogo ? 'Uploading...' : 'Upload Logo'}
+                          </span>
+                        </label>
+                        <span className="text-xs text-gray-500">PNG, JPG, GIF, WebP (max 2MB)</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* RCM (Reverse Charge Mechanism) Section */}
+                <div className="mt-8 space-y-4">
+                  <h4 className="font-medium text-gray-900 border-b border-gray-200 pb-2 flex items-center gap-2">
+                    Reverse Charge Mechanism (RCM)
+                  </h4>
+                  <div>
+                    {isEditing ? (
+                      <Select
+                        value={(tempProfile as any).rcm_applicable === true ? 'Yes' : (tempProfile as any).rcm_applicable === false ? 'No' : ((profile as any)?.rcm_applicable ? 'Yes' : 'No')}
+                        onValueChange={(value) => handleInputChange('rcm_applicable' as any, value === 'Yes')}
+                      >
+                        <SelectTrigger className="w-full p-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-lg">
+                          <SelectValue placeholder="Select RCM applicability" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Yes">Yes</SelectItem>
+                          <SelectItem value="No">No</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{(profile as any)?.rcm_applicable ? 'Yes' : 'No'}</p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">Whether tax is payable on reverse charge basis. This will be printed on invoices.</p>
+                  </div>
+                </div>
+
+                {/* Invoice Color Settings Section */}
+                <div className="mt-8 space-y-4">
+                  <h4 className="font-medium text-gray-900 border-b border-gray-200 pb-2 flex items-center gap-2">
+                    Invoice PDF Color Settings
+                  </h4>
+                  <p className="text-xs text-gray-500">Choose accent colors for your PDF invoices. These colors are used for headers, table headings, totals, and other highlighted elements.</p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Tax Invoice Color */}
+                    {(() => {
+                      const PRESET_COLORS = [
+                        { label: 'Deep Purple', value: '#4c1d95' },
+                        { label: 'Indigo', value: '#3730a3' },
+                        { label: 'Blue', value: '#1e40af' },
+                        { label: 'Teal', value: '#0f766e' },
+                        { label: 'Green', value: '#15803d' },
+                        { label: 'Orange', value: '#c2410c' },
+                        { label: 'Red', value: '#b91c1c' },
+                        { label: 'Pink', value: '#be185d' },
+                        { label: 'Slate', value: '#334155' },
+                        { label: 'Black', value: '#111827' },
+                      ];
+                      const renderColorPicker = (label: string, field: 'tax_invoice_color' | 'proforma_invoice_color' | 'sales_return_color', defaultColor: string) => {
+                        const currentColor = (isEditing ? tempProfile[field] : profile?.[field]) || defaultColor;
+                        return (
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-gray-700">{label}</label>
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-lg border-2 border-gray-200 shadow-sm" style={{ backgroundColor: currentColor }}></div>
+                              <span className="text-sm font-mono text-gray-600">{currentColor}</span>
+                            </div>
+                            {isEditing && (
+                              <div className="space-y-2">
+                                <div className="flex flex-wrap gap-2">
+                                  {PRESET_COLORS.map((c) => (
+                                    <button
+                                      key={c.value}
+                                      type="button"
+                                      title={c.label}
+                                      onClick={() => handleInputChange(field, c.value)}
+                                      className={`w-7 h-7 rounded-md border-2 transition-all duration-150 ${currentColor === c.value ? 'border-gray-900 scale-110 ring-2 ring-offset-1 ring-gray-400' : 'border-gray-200 hover:border-gray-400'}`}
+                                      style={{ backgroundColor: c.value }}
+                                    />
+                                  ))}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="color"
+                                    value={currentColor}
+                                    onChange={(e) => handleInputChange(field, e.target.value)}
+                                    className="w-8 h-8 rounded cursor-pointer border border-gray-300"
+                                    title="Custom color"
+                                  />
+                                  <Input
+                                    value={currentColor}
+                                    onChange={(e) => handleInputChange(field, e.target.value)}
+                                    placeholder="#4c1d95"
+                                    className="w-28 h-8 text-xs font-mono p-2 bg-white/80 border border-white/90 text-gray-900 focus:border-violet-500 rounded-md"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      };
+                      return (
+                        <>
+                          {renderColorPicker('Tax Invoice', 'tax_invoice_color', '#4c1d95')}
+                          {renderColorPicker('Proforma Invoice', 'proforma_invoice_color', '#4c1d95')}
+                          {renderColorPicker('Sales Return / Credit Note', 'sales_return_color', '#dc2626')}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
 
