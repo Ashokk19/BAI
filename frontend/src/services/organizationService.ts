@@ -42,6 +42,8 @@ export interface OrganizationProfile {
   tax_invoice_color?: string;
   proforma_invoice_color?: string;
   sales_return_color?: string;
+  last_invoice_number?: number;
+  last_proforma_number?: number;
   created_at: string;
   updated_at?: string;
 }
@@ -84,6 +86,8 @@ export interface OrganizationCreate {
   tax_invoice_color?: string;
   proforma_invoice_color?: string;
   sales_return_color?: string;
+  last_invoice_number?: number;
+  last_proforma_number?: number;
 }
 
 export interface OrganizationUpdate {
@@ -124,6 +128,8 @@ export interface OrganizationUpdate {
   tax_invoice_color?: string;
   proforma_invoice_color?: string;
   sales_return_color?: string;
+  last_invoice_number?: number;
+  last_proforma_number?: number;
 }
 
 class OrganizationService {

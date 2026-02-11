@@ -800,7 +800,7 @@ const TaxInvoice: React.FC = () => {
     const totals = calculateTotals();
     const customerName = selectedCustomer ? getCustomerDisplayName(selectedCustomer) : getAdhocCustomerDisplayName();
     const currentCustomer = selectedCustomer || adhocCustomer;
-    const invoiceNumber = `INV-${Date.now().toString().slice(-8)}`;
+    const invoiceNumber = generatedInvoice?.invoice_number || `INV-${Date.now().toString().slice(-8)}`;
     const currentDate = new Date();
 
     // Fetch logo as base64 from DB for reliable PDF embedding
@@ -813,7 +813,7 @@ const TaxInvoice: React.FC = () => {
     }
 
     // Dynamic accent color from organization settings
-    const accentColor = (organization as any)?.tax_invoice_color || '#4c1d95';
+    const accentColor = (orgForPdf as any)?.tax_invoice_color || '#4c1d95';
     // Derive a darker border shade by reducing brightness
     const darkerBorder = (() => {
       const hex = accentColor.replace('#', '');
@@ -866,14 +866,22 @@ const TaxInvoice: React.FC = () => {
     const signatureStyleCss = (() => {
       switch (signatureStyle) {
         case 'cursive':
-          return "font-family: cursive; font-size: 18px;";
+          return "font-family: cursive; font-size: 26px;";
         case 'print':
-          return "font-family: 'Times New Roman', Times, serif; font-size: 16px; font-weight: 600;";
+          return "font-family: 'Times New Roman', Times, serif; font-size: 24px; font-weight: 600;";
         case 'mono':
-          return "font-family: 'Courier New', monospace; font-size: 16px; font-weight: 600;";
+          return "font-family: 'Courier New', monospace; font-size: 22px; font-weight: 600;";
+        case 'elegant':
+          return "font-family: 'Georgia', 'Palatino Linotype', 'Book Antiqua', Palatino, serif; font-size: 26px; font-style: italic; font-weight: 500;";
+        case 'calligraphy':
+          return "font-family: 'Segoe Script', 'Apple Chancery', 'Comic Sans MS', cursive; font-size: 28px; font-weight: 400;";
+        case 'bold-script':
+          return "font-family: 'Brush Script MT', 'Segoe Script', cursive; font-size: 28px; font-weight: 700;";
+        case 'italic-serif':
+          return "font-family: 'Georgia', 'Times New Roman', serif; font-size: 24px; font-style: italic; font-weight: 600;";
         case 'handwritten':
         default:
-          return "font-family: 'Brush Script MT', 'Segoe Script', 'Lucida Handwriting', cursive; font-size: 20px; font-weight: 500;";
+          return "font-family: 'Brush Script MT', 'Segoe Script', 'Lucida Handwriting', cursive; font-size: 28px; font-weight: 500;";
       }
     })();
     
@@ -1501,13 +1509,12 @@ const TaxInvoice: React.FC = () => {
 ${(orgForPdf?.terms_and_conditions || '').trim()}
                 </div>
               </div>
-              <div style="border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between;">
-                <div style="text-align: right; font-size: 12px; color: #444;">For <strong>${orgForPdf?.company_name || ''}</strong></div>
-                <div style="height: 46px;"></div>
-                <div style="text-align: right;">
+              <div style="border: 1px solid #ddd; border-radius: 6px; padding: 10px 14px; display: flex; flex-direction: column; justify-content: space-between; min-height: 130px;">
+                <div style="text-align: center; font-size: 12px; color: #444;">For <strong>${orgForPdf?.company_name || ''}</strong></div>
+                <div style="text-align: center; padding: 8px 0; flex: 1; display: flex; align-items: center; justify-content: center;">
                   <div style="${signatureStyleCss}">${signatureName}</div>
-                  <div style="font-size: 11px; color: #666;">Authorized Signatory</div>
                 </div>
+                <div style="text-align: center; font-size: 11px; color: #666; border-top: 1px solid #ccc; padding-top: 4px;">Authorized Signatory</div>
               </div>
             </div>
 

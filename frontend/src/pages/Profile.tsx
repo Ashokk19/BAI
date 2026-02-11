@@ -470,6 +470,10 @@ const Profile: React.FC = () => {
                               <option value="cursive">Cursive</option>
                               <option value="print">Print</option>
                               <option value="mono">Monospace</option>
+                              <option value="elegant">Elegant Serif</option>
+                              <option value="calligraphy">Calligraphy</option>
+                              <option value="bold-script">Bold Script</option>
+                              <option value="italic-serif">Italic Serif</option>
                             </select>
                           ) : (
                             <p className="p-3 bg-gray-50 rounded-lg text-gray-900 capitalize">{profile.signature_style || 'handwritten'}</p>
@@ -479,10 +483,14 @@ const Profile: React.FC = () => {
                           <label className="block text-sm font-medium text-gray-700 mb-1">Preview</label>
                           {(() => {
                             const styleMap: Record<string, React.CSSProperties> = {
-                              handwritten: { fontFamily: 'Brush Script MT, Segoe Script, Lucida Handwriting, cursive', fontSize: '20px', fontWeight: 500 },
-                              cursive: { fontFamily: 'cursive', fontSize: '20px' },
-                              print: { fontFamily: 'Times New Roman, Times, serif', fontSize: '16px', fontWeight: 600 },
-                              mono: { fontFamily: 'Courier New, monospace', fontSize: '16px', fontWeight: 600 },
+                              handwritten: { fontFamily: 'Brush Script MT, Segoe Script, Lucida Handwriting, cursive', fontSize: '28px', fontWeight: 500 },
+                              cursive: { fontFamily: 'cursive', fontSize: '26px' },
+                              print: { fontFamily: 'Times New Roman, Times, serif', fontSize: '24px', fontWeight: 600 },
+                              mono: { fontFamily: 'Courier New, monospace', fontSize: '22px', fontWeight: 600 },
+                              elegant: { fontFamily: 'Georgia, Palatino Linotype, Book Antiqua, Palatino, serif', fontSize: '26px', fontStyle: 'italic', fontWeight: 500 },
+                              calligraphy: { fontFamily: 'Segoe Script, Apple Chancery, Comic Sans MS, cursive', fontSize: '28px', fontWeight: 400 },
+                              'bold-script': { fontFamily: 'Brush Script MT, Segoe Script, cursive', fontSize: '28px', fontWeight: 700 },
+                              'italic-serif': { fontFamily: 'Georgia, Times New Roman, serif', fontSize: '24px', fontStyle: 'italic', fontWeight: 600 },
                             };
                             const s = (isEditing ? tempProfile.signature_style : profile.signature_style) || 'handwritten';
                             const name = (isEditing ? tempProfile.signature_name : profile.signature_name) || `${profile.first_name} ${profile.last_name}`;

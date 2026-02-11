@@ -31,7 +31,20 @@ def _ensure_invoice_items_hsn_code_column() -> None:
 
 
 def _generate_invoice_number(cursor: RealDictCursor, account_id: str) -> str:
-    """Generate the next invoice number for an account."""
+    """Generate the next invoice number for an account.
+    
+    Uses last_invoice_number from organizations table as the authoritative source.
+    Falls back to scanning invoices table if org setting is 0 or missing.
+    """
+    # First check the organization's last_invoice_number
+    cursor.execute(
+        "SELECT last_invoice_number FROM organizations WHERE account_id = %s LIMIT 1",
+        (account_id,),
+    )
+    org_row = cursor.fetchone()
+    org_last = (org_row.get("last_invoice_number") or 0) if org_row else 0
+
+    # Also check the last invoice in the invoices table
     cursor.execute(
         """
         SELECT invoice_number
@@ -43,15 +56,22 @@ def _generate_invoice_number(cursor: RealDictCursor, account_id: str) -> str:
         (account_id,),
     )
     row = cursor.fetchone()
-    if not row or not row.get("invoice_number"):
-        return f"INV-{account_id}-{datetime.now().year}-001"
+    db_suffix = 0
+    if row and row.get("invoice_number"):
+        try:
+            db_suffix = int(str(row["invoice_number"]).split("-")[-1])
+        except ValueError:
+            db_suffix = 0
 
-    last_number = row["invoice_number"]
-    try:
-        suffix = int(str(last_number).split("-")[-1])
-    except ValueError:
-        suffix = 0
-    next_suffix = suffix + 1
+    # Use whichever is higher
+    next_suffix = max(org_last, db_suffix) + 1
+
+    # Update the organization's last_invoice_number
+    cursor.execute(
+        "UPDATE organizations SET last_invoice_number = %s, updated_at = NOW() WHERE account_id = %s",
+        (next_suffix, account_id),
+    )
+
     return f"INV-{account_id}-{datetime.now().year}-{next_suffix:03d}"
 
 

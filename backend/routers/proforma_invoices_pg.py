@@ -226,25 +226,46 @@ def _ensure_proforma_tables_exist():
 
 
 def _generate_proforma_number(account_id: str, cursor) -> str:
-    """Generate next proforma invoice number for the account."""
+    """Generate next proforma invoice number for the account.
+    
+    Uses last_proforma_number from organizations table as the authoritative source.
+    Falls back to scanning proforma_invoices table if org setting is 0 or missing.
+    """
+    # First check the organization's last_proforma_number
+    cursor.execute(
+        "SELECT last_proforma_number FROM organizations WHERE account_id = %s LIMIT 1",
+        (account_id,),
+    )
+    org_row = cursor.fetchone()
+    org_last = (org_row.get("last_proforma_number") or 0) if org_row else 0
+
+    # Also check the last proforma in the proforma_invoices table
     cursor.execute(
         """
         SELECT proforma_number FROM proforma_invoices 
         WHERE account_id = %s 
         ORDER BY id DESC LIMIT 1
         """,
-        (account_id,)
+        (account_id,),
     )
     result = cursor.fetchone()
-    
+    db_last = 0
     if result:
         try:
-            last_num = int(result["proforma_number"].replace("PI-", ""))
-            return f"PI-{last_num + 1:06d}"
+            db_last = int(result["proforma_number"].replace("PI-", ""))
         except (ValueError, AttributeError):
-            pass
-    
-    return "PI-000001"
+            db_last = 0
+
+    # Use whichever is higher
+    next_num = max(org_last, db_last) + 1
+
+    # Update the organization's last_proforma_number
+    cursor.execute(
+        "UPDATE organizations SET last_proforma_number = %s, updated_at = NOW() WHERE account_id = %s",
+        (next_num, account_id),
+    )
+
+    return f"PI-{next_num:06d}"
 
 
 def _calculate_gst_amounts(item_data: dict, customer_state: str, company_state: str) -> dict:

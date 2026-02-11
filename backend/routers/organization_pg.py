@@ -45,6 +45,8 @@ class OrganizationCreate(BaseModel):
     tax_invoice_color: Optional[str] = '#4c1d95'
     proforma_invoice_color: Optional[str] = '#4c1d95'
     sales_return_color: Optional[str] = '#dc2626'
+    last_invoice_number: Optional[int] = 0
+    last_proforma_number: Optional[int] = 0
 
 class OrganizationUpdate(BaseModel):
     company_name: Optional[str] = None
@@ -83,6 +85,8 @@ class OrganizationUpdate(BaseModel):
     tax_invoice_color: Optional[str] = None
     proforma_invoice_color: Optional[str] = None
     sales_return_color: Optional[str] = None
+    last_invoice_number: Optional[int] = None
+    last_proforma_number: Optional[int] = None
 
 @router.get("/profile")
 async def get_organization_profile(current_user: Dict[str, Any] = Depends(get_current_user)):
@@ -93,7 +97,8 @@ async def get_organization_profile(current_user: Dict[str, Any] = Depends(get_cu
            bank_name, bank_account_number, bank_account_holder_name, bank_ifsc_code,
            bank_branch_name, bank_branch_address, bank_account_type, bank_swift_code,
            description, logo_url, is_verified, terms_and_conditions, rcm_applicable,
-           tax_invoice_color, proforma_invoice_color, sales_return_color, created_at, updated_at
+           tax_invoice_color, proforma_invoice_color, sales_return_color,
+           last_invoice_number, last_proforma_number, created_at, updated_at
     FROM organizations
     WHERE account_id = %s
     LIMIT 1
@@ -115,7 +120,8 @@ async def create_organization_profile(data: OrganizationCreate, current_user: Di
         "bank_name", "bank_account_number", "bank_account_holder_name", "bank_ifsc_code",
         "bank_branch_name", "bank_branch_address", "bank_account_type", "bank_swift_code",
         "description", "logo_url", "is_verified", "terms_and_conditions", "rcm_applicable",
-        "tax_invoice_color", "proforma_invoice_color", "sales_return_color"
+        "tax_invoice_color", "proforma_invoice_color", "sales_return_color",
+        "last_invoice_number", "last_proforma_number"
     ]
     values = [current_user["account_id"], data.company_name, data.business_type, data.industry, data.founded_year, data.employee_count,
               data.registration_number, data.tax_id, data.gst_number, data.pan_number, data.phone, data.email, data.website,
@@ -123,7 +129,8 @@ async def create_organization_profile(data: OrganizationCreate, current_user: Di
               data.bank_name, data.bank_account_number, data.bank_account_holder_name, data.bank_ifsc_code,
               data.bank_branch_name, data.bank_branch_address, data.bank_account_type, data.bank_swift_code,
               data.description, data.logo_url, data.is_verified, data.terms_and_conditions, data.rcm_applicable,
-              data.tax_invoice_color, data.proforma_invoice_color, data.sales_return_color]
+              data.tax_invoice_color, data.proforma_invoice_color, data.sales_return_color,
+              data.last_invoice_number, data.last_proforma_number]
     placeholders = ",".join(["%s"] * len(values))
     insert_q = f"INSERT INTO organizations ({','.join(fields)}) VALUES ({placeholders}) RETURNING *"
     created = postgres_db.execute_single(insert_q, tuple(values))
