@@ -390,6 +390,8 @@ const OrganizationSettings: React.FC = () => {
         tax_invoice_color: profile.tax_invoice_color || '#4c1d95',
         proforma_invoice_color: profile.proforma_invoice_color || '#4c1d95',
         sales_return_color: profile.sales_return_color || '#dc2626',
+        last_invoice_number: profile.last_invoice_number || 0,
+        last_proforma_number: profile.last_proforma_number || 0,
       });
     }
     setIsEditing(true);
@@ -441,6 +443,8 @@ const OrganizationSettings: React.FC = () => {
         tax_invoice_color: tempProfile.tax_invoice_color || '#4c1d95',
         proforma_invoice_color: tempProfile.proforma_invoice_color || '#4c1d95',
         sales_return_color: tempProfile.sales_return_color || '#dc2626',
+        last_invoice_number: tempProfile.last_invoice_number || 0,
+        last_proforma_number: tempProfile.last_proforma_number || 0,
       };
       const newProfile = await organizationService.createOrganizationProfile(createData);
       setProfile(newProfile);
@@ -537,7 +541,7 @@ const OrganizationSettings: React.FC = () => {
     }
   };
 
-  const handleInputChange = (field: keyof OrganizationProfile, value: string | boolean) => {
+  const handleInputChange = (field: keyof OrganizationProfile, value: string | boolean | number) => {
     setTempProfile(prev => ({ ...prev, [field]: value }));
   };
 
@@ -1590,8 +1594,59 @@ const OrganizationSettings: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Invoice PDF Details Section */}
+                <div className="mt-8 space-y-2">
+                  <h3 className="text-lg font-semibold text-gray-900 border-b-2 border-violet-300 pb-2 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-violet-600" />
+                    Invoice PDF Details
+                  </h3>
+                  <p className="text-xs text-gray-500">These settings control what appears on your generated invoice PDFs.</p>
+                </div>
+
+                {/* Last Used Invoice Numbers */}
+                <div className="mt-6 space-y-4">
+                  <h4 className="font-medium text-gray-900 border-b border-gray-200 pb-2 flex items-center gap-2">
+                    Invoice Number Tracking
+                  </h4>
+                  <p className="text-xs text-gray-500">Set the last used invoice/proforma number. New invoices will increment from this number. These values are also auto-updated when new invoices are created.</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Last Used Invoice Number</label>
+                      {isEditing ? (
+                        <Input
+                          type="number"
+                          min={0}
+                          value={tempProfile.last_invoice_number ?? profile?.last_invoice_number ?? 0}
+                          onChange={(e) => handleInputChange('last_invoice_number', parseInt(e.target.value) || 0)}
+                          placeholder="0"
+                          className="w-full p-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-lg"
+                        />
+                      ) : (
+                        <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile?.last_invoice_number || 0}</p>
+                      )}
+                      <p className="text-xs text-gray-500 mt-1">Next invoice will be: INV-...-{String((tempProfile.last_invoice_number ?? profile?.last_invoice_number ?? 0) + 1).padStart(3, '0')}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Last Used Proforma Invoice Number</label>
+                      {isEditing ? (
+                        <Input
+                          type="number"
+                          min={0}
+                          value={tempProfile.last_proforma_number ?? profile?.last_proforma_number ?? 0}
+                          onChange={(e) => handleInputChange('last_proforma_number', parseInt(e.target.value) || 0)}
+                          placeholder="0"
+                          className="w-full p-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-lg"
+                        />
+                      ) : (
+                        <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile?.last_proforma_number || 0}</p>
+                      )}
+                      <p className="text-xs text-gray-500 mt-1">Next proforma will be: PI-{String((tempProfile.last_proforma_number ?? profile?.last_proforma_number ?? 0) + 1).padStart(6, '0')}</p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Terms & Conditions Section */}
-                <div className="mt-8 space-y-4">
+                <div className="mt-6 space-y-4">
                   <h4 className="font-medium text-gray-900 border-b border-gray-200 pb-2 flex items-center gap-2">
                     Terms & Conditions
                   </h4>

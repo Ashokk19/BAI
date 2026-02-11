@@ -51,6 +51,10 @@ class Organization(Base):
     bank_account_type = Column(String(50))  # Savings, Current, etc.
     bank_swift_code = Column(String(20))  # For international transactions
     
+    # Invoice Number Tracking
+    last_invoice_number = Column(Integer, default=0)
+    last_proforma_number = Column(Integer, default=0)
+    
     # Additional Information
     description = Column(Text)
     logo_url = Column(String(500))
