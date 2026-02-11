@@ -312,6 +312,42 @@ async def update_current_user(
         "signature_style": refreshed.get("signature_style"),
     }
 
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+@router.post("/change-password")
+async def change_password(
+    password_data: PasswordChange,
+    current_user: dict = Depends(get_current_user)
+):
+    """Change the current user's password."""
+    # Fetch user with hashed_password
+    user = postgres_db.execute_single(
+        "SELECT id, hashed_password FROM users WHERE id = %s AND account_id = %s",
+        (current_user["id"], current_user["account_id"])
+    )
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Verify current password
+    if not PostgresUserService.verify_password(password_data.current_password, user["hashed_password"]):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+
+    # Validate new password
+    if len(password_data.new_password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be at least 8 characters")
+
+    # Hash and update
+    import bcrypt
+    new_hashed = bcrypt.hashpw(password_data.new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    postgres_db.execute_update(
+        "UPDATE users SET hashed_password = %s, updated_at = NOW() WHERE id = %s AND account_id = %s",
+        (new_hashed, current_user["id"], current_user["account_id"])
+    )
+
+    return {"message": "Password changed successfully"}
+
 @router.get("/users/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: int,

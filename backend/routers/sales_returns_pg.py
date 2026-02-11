@@ -529,6 +529,21 @@ def generate_credit_note_html(sales_return: dict, return_items: list, organizati
             "bank_ifsc_code": "BANK0001234"
         }
     
+    # Dynamic accent color from organization settings
+    accent_color = organization.get('sales_return_color', '#dc2626') or '#dc2626'
+    # Derive a lighter background tint
+    def hex_to_light_bg(hex_color):
+        hex_color = hex_color.lstrip('#')
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        # Mix with white at 95%
+        lr = int(r * 0.05 + 255 * 0.95)
+        lg = int(g * 0.05 + 255 * 0.95)
+        lb = int(b * 0.05 + 255 * 0.95)
+        return f"#{lr:02x}{lg:02x}{lb:02x}"
+    light_bg = hex_to_light_bg(accent_color)
+
     # Customer display name
     customer_name = sales_return.get('customer_company') or f"{sales_return.get('first_name', '')} {sales_return.get('last_name', '')}".strip()
     
@@ -622,14 +637,14 @@ def generate_credit_note_html(sales_return: dict, return_items: list, organizati
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                border-bottom: 2px solid #dc2626;
+                border-bottom: 2px solid {accent_color};
                 padding-bottom: 12px;
                 margin-bottom: 15px;
               }}
               
               .company-info h1 {{
                 font-size: 22px;
-                color: #dc2626;
+                color: {accent_color};
                 margin-bottom: 4px;
               }}
               
@@ -645,7 +660,7 @@ def generate_credit_note_html(sales_return: dict, return_items: list, organizati
               
               .credit-title h2 {{
                 font-size: 24px;
-                color: #dc2626;
+                color: {accent_color};
                 margin-bottom: 4px;
               }}
               
@@ -664,14 +679,14 @@ def generate_credit_note_html(sales_return: dict, return_items: list, organizati
               .party-box {{
                 flex: 1;
                 padding: 10px;
-                background: #fef2f2;
+                background: {light_bg};
                 border-radius: 4px;
-                border-left: 3px solid #dc2626;
+                border-left: 3px solid {accent_color};
               }}
               
               .party-box h3 {{
                 font-size: 11px;
-                color: #dc2626;
+                color: {accent_color};
                 margin-bottom: 6px;
                 text-transform: uppercase;
               }}
@@ -689,7 +704,7 @@ def generate_credit_note_html(sales_return: dict, return_items: list, organizati
               }}
               
               .items-table th {{
-                background: #dc2626;
+                background: {accent_color};
                 color: white;
                 padding: 8px 6px;
                 text-align: left;
@@ -702,7 +717,7 @@ def generate_credit_note_html(sales_return: dict, return_items: list, organizati
               }}
               
               .items-table tr:nth-child(even) {{
-                background: #fef2f2;
+                background: {light_bg};
               }}
               
               .item-name {{
@@ -735,8 +750,8 @@ def generate_credit_note_html(sales_return: dict, return_items: list, organizati
               .summary-row.total {{
                 font-size: 14px;
                 font-weight: bold;
-                color: #dc2626;
-                border-bottom: 2px solid #dc2626;
+                color: {accent_color};
+                border-bottom: 2px solid {accent_color};
                 padding: 8px 0;
               }}
               

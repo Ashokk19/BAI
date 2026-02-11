@@ -41,7 +41,7 @@ const TopNavbar: React.FC<TopNavbarProps> = ({ onMenuClick }) => {
   const isMasterUser = user?.account_id?.toLowerCase() === 'masteraccount';
 
   return (
-    <nav className="bg-white shadow-sm border-b border-gray-200">
+    <nav className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
       <div className="px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
@@ -55,7 +55,7 @@ const TopNavbar: React.FC<TopNavbarProps> = ({ onMenuClick }) => {
             </button>
             
             <div className="ml-4 lg:ml-0">
-              <h1 className="text-lg font-semibold text-gray-900">{APP_CONFIG.fullName}</h1>
+              <h1 className="text-lg font-semibold text-gray-900 dark:text-white">{APP_CONFIG.fullName}</h1>
             </div>
           </div>
 
@@ -95,7 +95,7 @@ const TopNavbar: React.FC<TopNavbarProps> = ({ onMenuClick }) => {
                     {user?.first_name?.[0]}{user?.last_name?.[0]}
                   </span>
                 </div>
-                <span className="ml-3 text-gray-700 text-sm font-medium hidden md:block">
+                <span className="ml-3 text-gray-700 dark:text-gray-300 text-sm font-medium hidden md:block">
                   {user?.first_name} {user?.last_name}
                 </span>
                 <svg className="ml-2 h-4 w-4 text-gray-400 hidden md:block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -104,27 +104,27 @@ const TopNavbar: React.FC<TopNavbarProps> = ({ onMenuClick }) => {
               </button>
 
               {showUserMenu && (
-                <div className="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 divide-y divide-gray-100 focus:outline-none z-50">
+                <div className="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white dark:bg-gray-700 ring-1 ring-black ring-opacity-5 divide-y divide-gray-100 dark:divide-gray-600 focus:outline-none z-50">
                   <div className="px-4 py-3">
-                    <p className="text-sm">Signed in as</p>
-                    <p className="text-sm font-medium text-gray-900 truncate">{user?.email}</p>
+                    <p className="text-sm dark:text-gray-300">Signed in as</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{user?.email}</p>
                   </div>
                   <div className="py-1">
                     <button
                       onClick={handleProfileClick}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
                     >
                       Your Profile
                     </button>
                     <button
                       onClick={handleSettingsClick}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
                     >
                       Settings
                     </button>
                     <button
                       onClick={handleOrganizationSettingsClick}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
                     >
                       Organization Settings
                     </button>
@@ -140,7 +140,7 @@ const TopNavbar: React.FC<TopNavbarProps> = ({ onMenuClick }) => {
                   <div className="py-1">
                     <button
                       onClick={handleLogout}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
                     >
                       Sign out
                     </button>

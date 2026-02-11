@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Shield, Bell, Palette, Globe, Key, Save, Eye, EyeOff } from 'lucide-react';
 import { useNotifications, NotificationContainer } from '../components/ui/notification';
+import { userService } from '../services/userService';
+import { useAuth } from '../utils/AuthContext';
 
 interface UserSettings {
   notifications: {
@@ -67,6 +69,25 @@ const Settings: React.FC = () => {
 
   const notifications = useNotifications();
 
+  // Load persisted settings on mount
+  useEffect(() => {
+    const savedTimeout = localStorage.getItem('session_timeout');
+    const savedTheme = localStorage.getItem('app_theme') || 'light';
+    setSettings(prev => ({
+      ...prev,
+      security: {
+        ...prev.security,
+        sessionTimeout: savedTimeout ? parseInt(savedTimeout, 10) : 30,
+      },
+      appearance: {
+        ...prev.appearance,
+        theme: savedTheme as 'light' | 'dark' | 'auto',
+      },
+    }));
+    // Apply theme on mount
+    applyTheme(savedTheme as 'light' | 'dark' | 'auto');
+  }, []);
+
   const handleNotificationChange = (key: keyof UserSettings['notifications']) => {
     setSettings(prev => ({
       ...prev,
@@ -85,6 +106,26 @@ const Settings: React.FC = () => {
         [key]: value
       }
     }));
+    // Persist session timeout immediately
+    if (key === 'sessionTimeout') {
+      localStorage.setItem('session_timeout', String(value));
+    }
+  };
+
+  const applyTheme = (theme: 'light' | 'dark' | 'auto') => {
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else if (theme === 'auto') {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (prefersDark) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    } else {
+      root.classList.remove('dark');
+    }
   };
 
   const handleAppearanceChange = (key: keyof UserSettings['appearance'], value: string) => {
@@ -95,6 +136,11 @@ const Settings: React.FC = () => {
         [key]: value
       }
     }));
+    // Persist and apply theme immediately
+    if (key === 'theme') {
+      localStorage.setItem('app_theme', value);
+      applyTheme(value as 'light' | 'dark' | 'auto');
+    }
   };
 
   const handlePrivacyChange = (key: keyof UserSettings['privacy']) => {
@@ -154,11 +200,10 @@ const Settings: React.FC = () => {
 
     setIsLoading(true);
     try {
-      // In a real app, this would be an API call
-      // await userApi.changePassword(currentPassword, newPassword);
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await userService.changePassword({
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
       
       setCurrentPassword('');
       setNewPassword('');
@@ -169,11 +214,12 @@ const Settings: React.FC = () => {
         'Your password has been updated successfully.',
         { autoClose: true, autoCloseDelay: 3000 }
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error changing password:', error);
+      const detail = error?.response?.data?.detail || error?.message || 'Unable to change password.';
       notifications.error(
         'Password Change Failed',
-        'Unable to change password. Please check your current password and try again.',
+        typeof detail === 'string' ? detail : 'Unable to change password. Please check your current password and try again.',
         { autoClose: false }
       );
     } finally {
@@ -185,31 +231,31 @@ const Settings: React.FC = () => {
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
           <SettingsIcon className="w-8 h-8 text-purple-600" />
           Settings
         </h1>
-        <p className="text-gray-600 mt-2">Manage your account preferences and security settings</p>
+        <p className="text-gray-600 dark:text-gray-400 mt-2">Manage your account preferences and security settings</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column - Navigation */}
         <div className="lg:col-span-1">
-          <div className="bg-white rounded-lg shadow-sm border p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700 p-4">
             <nav className="space-y-2">
-              <a href="#notifications" className="flex items-center gap-3 p-3 rounded-lg hover:bg-purple-50 text-gray-700 hover:text-purple-700 transition-colors">
+              <a href="#notifications" className="flex items-center gap-3 p-3 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 hover:text-purple-700 transition-colors">
                 <Bell className="w-5 h-5" />
                 <span>Notifications</span>
               </a>
-              <a href="#security" className="flex items-center gap-3 p-3 rounded-lg hover:bg-purple-50 text-gray-700 hover:text-purple-700 transition-colors">
+              <a href="#security" className="flex items-center gap-3 p-3 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 hover:text-purple-700 transition-colors">
                 <Shield className="w-5 h-5" />
                 <span>Security</span>
               </a>
-              <a href="#appearance" className="flex items-center gap-3 p-3 rounded-lg hover:bg-purple-50 text-gray-700 hover:text-purple-700 transition-colors">
+              <a href="#appearance" className="flex items-center gap-3 p-3 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 hover:text-purple-700 transition-colors">
                 <Palette className="w-5 h-5" />
                 <span>Appearance</span>
               </a>
-              <a href="#privacy" className="flex items-center gap-3 p-3 rounded-lg hover:bg-purple-50 text-gray-700 hover:text-purple-700 transition-colors">
+              <a href="#privacy" className="flex items-center gap-3 p-3 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 hover:text-purple-700 transition-colors">
                 <Globe className="w-5 h-5" />
                 <span>Privacy</span>
               </a>
@@ -220,9 +266,9 @@ const Settings: React.FC = () => {
         {/* Right Column - Settings Content */}
         <div className="lg:col-span-2 space-y-6">
           {/* Notifications Settings */}
-          <div id="notifications" className="bg-white rounded-lg shadow-sm border">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <div id="notifications" className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700">
+            <div className="border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <Bell className="w-5 h-5 text-purple-600" />
                 Notification Preferences
               </h3>
@@ -297,9 +343,9 @@ const Settings: React.FC = () => {
           </div>
 
           {/* Security Settings */}
-          <div id="security" className="bg-white rounded-lg shadow-sm border">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <div id="security" className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700">
+            <div className="border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <Shield className="w-5 h-5 text-purple-600" />
                 Security Settings
               </h3>
@@ -324,13 +370,13 @@ const Settings: React.FC = () => {
 
               {/* Session Timeout */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Session Timeout (minutes)
                 </label>
                 <select
                   value={settings.security.sessionTimeout}
                   onChange={(e) => handleSecurityChange('sessionTimeout', parseInt(e.target.value))}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 >
                   <option value={15}>15 minutes</option>
                   <option value={30}>30 minutes</option>
@@ -340,20 +386,20 @@ const Settings: React.FC = () => {
               </div>
 
               {/* Password Change */}
-              <div className="border-t pt-6">
-                <h4 className="font-medium text-gray-900 mb-4 flex items-center gap-2">
+              <div className="border-t dark:border-gray-700 pt-6">
+                <h4 className="font-medium text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                   <Key className="w-4 h-4" />
                   Change Password
                 </h4>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Current Password</label>
                     <div className="relative">
                       <input
                         type={showPassword ? 'text' : 'password'}
                         value={currentPassword}
                         onChange={(e) => setCurrentPassword(e.target.value)}
-                        className="w-full p-3 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        className="w-full p-3 pr-10 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                         placeholder="Enter current password"
                       />
                       <button
@@ -368,22 +414,22 @@ const Settings: React.FC = () => {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New Password</label>
                       <input
                         type="password"
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        className="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                         placeholder="Enter new password"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirm Password</label>
                       <input
                         type="password"
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        className="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                         placeholder="Confirm new password"
                       />
                     </div>
@@ -402,9 +448,9 @@ const Settings: React.FC = () => {
           </div>
 
           {/* Appearance Settings */}
-          <div id="appearance" className="bg-white rounded-lg shadow-sm border">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <div id="appearance" className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700">
+            <div className="border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <Palette className="w-5 h-5 text-purple-600" />
                 Appearance & Language
               </h3>
@@ -412,11 +458,11 @@ const Settings: React.FC = () => {
             <div className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Theme</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Theme</label>
                   <select
                     value={settings.appearance.theme}
                     onChange={(e) => handleAppearanceChange('theme', e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    className="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
                     <option value="light">Light</option>
                     <option value="dark">Dark</option>
@@ -425,11 +471,11 @@ const Settings: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Language</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Language</label>
                   <select
                     value={settings.appearance.language}
                     onChange={(e) => handleAppearanceChange('language', e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    className="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
                     <option value="English">English</option>
                     <option value="Hindi">Hindi</option>
@@ -439,11 +485,11 @@ const Settings: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Timezone</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Timezone</label>
                   <select
                     value={settings.appearance.timezone}
                     onChange={(e) => handleAppearanceChange('timezone', e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    className="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
                     <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
                     <option value="Asia/Dubai">Asia/Dubai (GST)</option>
@@ -452,11 +498,11 @@ const Settings: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Currency</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Currency</label>
                   <select
                     value={settings.appearance.currency}
                     onChange={(e) => handleAppearanceChange('currency', e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    className="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
                     <option value="INR">Indian Rupee (₹)</option>
                     <option value="USD">US Dollar ($)</option>
@@ -469,9 +515,9 @@ const Settings: React.FC = () => {
           </div>
 
           {/* Privacy Settings */}
-          <div id="privacy" className="bg-white rounded-lg shadow-sm border">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <div id="privacy" className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700">
+            <div className="border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <Globe className="w-5 h-5 text-purple-600" />
                 Privacy & Data
               </h3>

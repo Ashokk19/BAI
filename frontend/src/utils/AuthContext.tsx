@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../config/api.config';
 
@@ -54,6 +54,69 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const sessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userRef = useRef<User | null>(null);
+
+  // Keep userRef in sync
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  // Helper: redirect to login with account param
+  const redirectToLogin = useCallback((accountId?: string) => {
+    const acc = accountId || userRef.current?.account_id || localStorage.getItem('last_account_id') || '';
+    if (acc) {
+      localStorage.setItem('last_account_id', acc);
+    }
+    const loginUrl = acc ? `/login?account=${encodeURIComponent(acc)}` : '/login';
+    window.location.href = loginUrl;
+  }, []);
+
+  // Session timeout: reset timer on user activity
+  const resetSessionTimer = useCallback(() => {
+    if (sessionTimerRef.current) {
+      clearTimeout(sessionTimerRef.current);
+    }
+    const timeoutMinutes = parseInt(localStorage.getItem('session_timeout') || '30', 10);
+    const timeoutMs = timeoutMinutes * 60 * 1000;
+    sessionTimerRef.current = setTimeout(() => {
+      if (userRef.current) {
+        console.warn('Session timed out due to inactivity');
+        const accountId = userRef.current.account_id;
+        // Clear auth state
+        localStorage.removeItem('access_token');
+        sessionStorage.removeItem('access_token');
+        delete axios.defaults.headers.common['Authorization'];
+        setUser(null);
+        redirectToLogin(accountId);
+      }
+    }, timeoutMs);
+  }, [redirectToLogin]);
+
+  // Set up activity listeners when user is authenticated
+  useEffect(() => {
+    if (!user) {
+      if (sessionTimerRef.current) {
+        clearTimeout(sessionTimerRef.current);
+        sessionTimerRef.current = null;
+      }
+      return;
+    }
+
+    const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart', 'mousemove'];
+    const handleActivity = () => resetSessionTimer();
+
+    activityEvents.forEach(event => window.addEventListener(event, handleActivity, { passive: true }));
+    resetSessionTimer(); // Start the timer
+
+    return () => {
+      activityEvents.forEach(event => window.removeEventListener(event, handleActivity));
+      if (sessionTimerRef.current) {
+        clearTimeout(sessionTimerRef.current);
+        sessionTimerRef.current = null;
+      }
+    };
+  }, [user, resetSessionTimer]);
 
   useEffect(() => {
     // Check for stored token on app load
@@ -109,6 +172,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Set axios default authorization header
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
 
+      // Save account_id for redirect on logout/timeout
+      localStorage.setItem('last_account_id', account_id);
+
       setUser(userData);
     } catch (error: any) {
       console.error('Login error:', error);
@@ -128,14 +194,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const logout = () => {
+  const logout = useCallback(() => {
+    const accountId = userRef.current?.account_id || '';
+    if (accountId) {
+      localStorage.setItem('last_account_id', accountId);
+    }
     localStorage.removeItem('access_token');
     sessionStorage.removeItem('access_token');
     localStorage.removeItem('remember_me');
     localStorage.removeItem('user_identifier');
     delete axios.defaults.headers.common['Authorization'];
     setUser(null);
-  };
+    redirectToLogin(accountId);
+  }, [redirectToLogin]);
 
   const register = async (userData: RegisterData): Promise<void> => {
     try {
