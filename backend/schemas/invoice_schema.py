@@ -59,6 +59,10 @@ class InvoiceBase(BaseModel):
     notes: Optional[str] = Field(None, description="Additional notes")
     terms_conditions: Optional[str] = Field(None, description="Terms and conditions")
     
+    # Freight charges
+    freight_charges: Optional[Decimal] = Field(default=0.00, ge=0, description="Freight/shipping charges")
+    freight_gst_rate: Optional[Decimal] = Field(default=0.00, ge=0, description="GST rate on freight charges")
+    
     # State information for inter-state GST calculation
     customer_state: Optional[str] = Field(None, description="Customer state for GST calculation")
     company_state: str = Field(default="Tamil Nadu", description="Company state for GST calculation")
@@ -93,6 +97,7 @@ class InvoiceResponse(InvoiceBase):
     total_sgst: Decimal
     total_igst: Decimal
     discount_amount: Decimal
+    freight_charges: Optional[Decimal] = Decimal("0.00")
     total_amount: Decimal
     paid_amount: Decimal
     balance_due: Decimal

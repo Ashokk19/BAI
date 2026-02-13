@@ -508,7 +508,14 @@ export default function InvoiceHistory() {
       }
 
       // Get organization details
-      const organization = await organizationService.getOrganizationProfile();
+      let organization: any = null;
+      try {
+        organization = await organizationService.getOrganizationProfile();
+      } catch (orgError) {
+        console.error('Error fetching organization profile:', orgError);
+        toast.error("Organization profile not found. Please set up your organization profile first.");
+        return;
+      }
 
       const customerName = customer.company_name || `${customer.first_name} ${customer.last_name}`;
       const currentCustomer = customer;
@@ -582,12 +589,29 @@ export default function InvoiceHistory() {
       
       // Calculate totals with GST breakdown
       const subtotal = itemsWithGSTBreakdown.reduce((sum, item) => sum + ((item.quantity * item.unit_price) - (item.discount_amount || 0)), 0);
-      const totalCGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.cgstAmount, 0);
-      const totalSGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.sgstAmount, 0);
-      const totalIGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.igstAmount, 0);
+      const itemCGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.cgstAmount, 0);
+      const itemSGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.sgstAmount, 0);
+      const itemIGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.igstAmount, 0);
+      const freightCharges = invoice.freight_charges || 0;
+      const freightGstRate = (invoice as any).freight_gst_rate || 0;
+      const freightGst = (freightCharges * freightGstRate) / 100;
+      // Add freight GST to the appropriate tax bucket
+      const totalCGST = isInterState ? 0 : itemCGST + (freightGst / 2);
+      const totalSGST = isInterState ? 0 : itemSGST + (freightGst / 2);
+      const totalIGST = isInterState ? itemIGST + freightGst : 0;
       const totalTax = totalCGST + totalSGST + totalIGST;
-      const totalAmount = subtotal + totalTax;
+      const totalAmount = subtotal + freightCharges + totalTax;
+      // Compute effective GST % for display (exclude freight from base when freight GST is 0)
+      const gstBase = subtotal + (freightGstRate > 0 ? freightCharges : 0);
+      const effectiveIgstPct = gstBase > 0 ? ((totalIGST / gstBase) * 100) : 0;
+      const effectiveCgstPct = gstBase > 0 ? ((totalCGST / gstBase) * 100) : 0;
+      const effectiveSgstPct = gstBase > 0 ? ((totalSGST / gstBase) * 100) : 0;
       
+      // Round item-only GST for the items table Total row
+      const roundedItemCGST = Math.round(itemCGST * 100) / 100;
+      const roundedItemSGST = Math.round(itemSGST * 100) / 100;
+      const roundedItemIGST = Math.round(itemIGST * 100) / 100;
+      const roundedItemTotal = Math.round((subtotal + itemCGST + itemSGST + itemIGST) * 100) / 100;
       // Round all totals to 2 decimal places
       const roundedSubtotal = Math.round(subtotal * 100) / 100;
       const roundedTotalCGST = Math.round(totalCGST * 100) / 100;
@@ -837,12 +861,6 @@ export default function InvoiceHistory() {
                 margin-bottom: 1px;
               }
               
-              .item-sku {
-                font-size: 10px;
-                color: #666;
-                font-style: italic;
-              }
-              
               /* Summary Section */
               .summary-section {
                 display: flex;
@@ -1033,7 +1051,7 @@ export default function InvoiceHistory() {
                     organization?.postal_code
                   ].filter(Boolean).join(', ') || 'Address Line 1, City, State - PIN'}</p>
                   <p>Phone: ${organization?.phone || '+91 XXXXX-XXXXX'} | Email: ${organization?.email || 'contact@yourcompany.com'}</p>
-                  <p>GST: ${organization?.gst_number || 'XXAXXXXXXXX'} | PAN: ${organization?.pan_number || 'XXXXXXXXXX'}</p>
+                  <p>GST: ${organization?.gst_number || 'XXAXXXXXXXX'}</p>
                   ${organization?.state ? `<p><strong>Place of Supply:</strong> ${organization.state}</p>` : ''}
                 </div>
                 
@@ -1074,8 +1092,8 @@ export default function InvoiceHistory() {
                   <div class="customer-name">${customerName}</div>
                   <div class="customer-details">
                     ${currentCustomer.billing_address ? `<p><strong>Address:</strong> ${currentCustomer.billing_address}</p>` : ''}
-                    ${currentCustomer.city || currentCustomer.state ? `<p>${[currentCustomer.city, currentCustomer.state].filter(Boolean).join(', ')}</p>` : ''}
-                    <p><strong>Email:</strong> ${currentCustomer.email}</p>
+                    ${currentCustomer.city || currentCustomer.state ? `<p>${[currentCustomer.city, currentCustomer.state, currentCustomer.postal_code].filter(Boolean).join(', ')}</p>` : ''}
+                    ${currentCustomer.email ? `<p><strong>Email:</strong> ${currentCustomer.email}</p>` : ''}
                     ${currentCustomer.gst_number ? `<p><strong>GST:</strong> ${currentCustomer.gst_number}</p>` : ''}
                   </div>
                 </div>
@@ -1098,21 +1116,11 @@ export default function InvoiceHistory() {
                 <thead>
                   <tr>
                     <th style="width: 5%;">SR. NO.</th>
-                    <th style="width: 35%;">NAME OF PRODUCT / SERVICE</th>
-                    <th style="width: 8%;">HSN / SAC</th>
-                    <th style="width: 8%;">QTY</th>
-                    <th style="width: 12%;">RATE</th>
-                    <th style="width: 12%;">TAXABLE VALUE</th>
-                    ${isInterState ? `
-                    <th style="width: 10%;">IGST<br>%</th>
-                    <th style="width: 10%;">IGST<br>AMOUNT</th>
-                    ` : `
-                    <th style="width: 5%;">CGST<br>%</th>
-                    <th style="width: 5%;">CGST<br>AMOUNT</th>
-                    <th style="width: 5%;">SGST<br>%</th>
-                    <th style="width: 5%;">SGST<br>AMOUNT</th>
-                    `}
-                    <th style="width: 10%;">TOTAL</th>
+                    <th style="width: 40%;">NAME OF PRODUCT / SERVICE</th>
+                    <th style="width: 15%;">HSN / SAC</th>
+                    <th style="width: 10%;">QTY</th>
+                    <th style="width: 15%;">RATE</th>
+                    <th style="width: 15%;">TAXABLE VALUE</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1121,38 +1129,17 @@ export default function InvoiceHistory() {
                       <td style="text-align: center;">${index + 1}</td>
                       <td>
                         <div class="item-name">${item.item_name}</div>
-                        <div class="item-sku">${item.item_sku}</div>
                       </td>
                       <td style="text-align: center;">${item.hsn_code || '-'}</td>
                       <td style="text-align: center;">${item.quantity}</td>
                       <td style="text-align: right;">₹${item.unit_price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                       <td style="text-align: right;">₹${((item.quantity * item.unit_price) - (item.discount_amount || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      ${isInterState ? `
-                      <td style="text-align: center;">${item.gstRate || 0}%</td>
-                      <td style="text-align: right;">₹${item.igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      ` : `
-                      <td style="text-align: center;">${((item.gstRate || 0) / 2).toFixed(1)}%</td>
-                      <td style="text-align: right;">₹${item.cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      <td style="text-align: center;">${((item.gstRate || 0) / 2).toFixed(1)}%</td>
-                      <td style="text-align: right;">₹${item.sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      `}
-                      <td style="text-align: right;">₹${(item.line_total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                     </tr>
                   `).join('')}
                   <!-- Total Row -->
                   <tr>
                     <td colspan="5" style="text-align: center; font-weight: bold;">Total</td>
                     <td style="text-align: right; font-weight: bold;">₹${roundedSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    ${isInterState ? `
-                    <td></td>
-                    <td style="text-align: right; font-weight: bold;">₹${roundedTotalIGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    ` : `
-                    <td></td>
-                    <td style="text-align: right; font-weight: bold;">₹${roundedTotalCGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    <td></td>
-                    <td style="text-align: right; font-weight: bold;">₹${roundedTotalSGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    `}
-                    <td style="text-align: right; font-weight: bold;">₹${roundedTotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                   </tr>
                 </tbody>
               </table>
@@ -1160,22 +1147,28 @@ export default function InvoiceHistory() {
               <!-- Summary Section -->
               <div class="summary-section">
                 <table class="summary-table">
+                  ${freightCharges > 0 ? `
+                  <tr>
+                    <td class="label">Freight Charges</td>
+                    <td class="value">₹${freightCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  </tr>
+                  ` : ''}
                   <tr>
                     <td class="label">Taxable Amount</td>
-                    <td class="value">₹${roundedSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td class="value">₹${(roundedSubtotal + freightCharges).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                   </tr>
                   ${isInterState ? `
                   <tr>
-                    <td class="label">Add : IGST</td>
+                    <td class="label">Add : IGST (${effectiveIgstPct % 1 === 0 ? effectiveIgstPct.toFixed(0) : effectiveIgstPct.toFixed(1)}%)</td>
                     <td class="value">₹${roundedTotalIGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                   </tr>
                   ` : `
                   <tr>
-                    <td class="label">Add : CGST</td>
+                    <td class="label">Add : CGST (${effectiveCgstPct % 1 === 0 ? effectiveCgstPct.toFixed(0) : effectiveCgstPct.toFixed(1)}%)</td>
                     <td class="value">₹${roundedTotalCGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                   </tr>
                   <tr>
-                    <td class="label">Add : SGST</td>
+                    <td class="label">Add : SGST (${effectiveSgstPct % 1 === 0 ? effectiveSgstPct.toFixed(0) : effectiveSgstPct.toFixed(1)}%)</td>
                     <td class="value">₹${roundedTotalSGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                   </tr>
                   `}
