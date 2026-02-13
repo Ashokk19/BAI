@@ -7,7 +7,7 @@ export interface Customer {
   contact_person?: string;
   first_name?: string;
   last_name?: string;
-  email: string;
+  email?: string;
   phone?: string;
   mobile?: string;
   website?: string;
@@ -36,7 +36,7 @@ export interface CustomerCreate {
   contact_person?: string;
   first_name?: string;
   last_name?: string;
-  email: string;
+  email?: string;
   phone?: string;
   mobile?: string;
   website?: string;
