@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Mail, Phone, MapPin, Building, Edit, Save, X, Loader2 } from 'lucide-react';
 import { useNotifications, NotificationContainer } from '../components/ui/notification';
 import { userService, UserProfile, UserProfileUpdate } from '../services/userService';
@@ -15,6 +15,7 @@ const Profile: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [tempProfile, setTempProfile] = useState<UserProfileUpdate>({});
   const [isLoadingPincode, setIsLoadingPincode] = useState(false);
+  const pincodeUserChanged = useRef(false);
   const [organization, setOrganization] = useState<OrganizationProfile | null>(null);
 
   const notifications = useNotifications();
@@ -68,6 +69,7 @@ const Profile: React.FC = () => {
         signature_style: profile.signature_style || 'handwritten',
       });
     }
+    pincodeUserChanged.current = false;
     setIsEditing(true);
   };
 
@@ -174,8 +176,9 @@ const Profile: React.FC = () => {
     }
   }
 
-  // Handle PIN code change with debouncing
+  // Handle PIN code change with debouncing - only when user changes the pincode
   useEffect(() => {
+    if (!pincodeUserChanged.current) return;
     const timeoutId = setTimeout(() => {
       if (tempProfile.postal_code && tempProfile.postal_code.length === 6) {
         fetchPincodeDetails(tempProfile.postal_code)
@@ -517,7 +520,7 @@ const Profile: React.FC = () => {
                           <input
                             type="text"
                             value={tempProfile.postal_code || ''}
-                            onChange={(e) => handleInputChange('postal_code', e.target.value)}
+                            onChange={(e) => { pincodeUserChanged.current = true; handleInputChange('postal_code', e.target.value); }}
                             className="w-full p-3 bg-white/80 backdrop-blur-lg border border-white/90 text-gray-900 focus:border-violet-500 focus:ring-violet-500/40 focus:bg-white/90 transition-all duration-200 shadow-lg ring-1 ring-white/50 font-semibold rounded-lg pr-8"
                             placeholder="Enter 6-digit PIN code"
                             maxLength={6}

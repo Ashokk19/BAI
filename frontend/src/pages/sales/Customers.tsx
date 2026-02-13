@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Filter, Download, Upload, User, Building, Users, Edit, Trash2, MessageCircle, Loader2 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +56,7 @@ const Customers: React.FC = () => {
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLoadingPincode, setIsLoadingPincode] = useState(false);
+  const pincodeUserChanged = useRef(false);
   const [formData, setFormData] = useState<CustomerFormData>({
     customer_code: '',
     company_name: '',
@@ -126,8 +127,9 @@ const Customers: React.FC = () => {
     }
   }
 
-  // Handle PIN code change with debouncing
+  // Handle PIN code change with debouncing - only when user changes the pincode
   useEffect(() => {
+    if (!pincodeUserChanged.current) return;
     const timeoutId = setTimeout(() => {
       if (formData.postal_code.length === 6) {
         fetchPincodeDetails(formData.postal_code)
@@ -169,11 +171,6 @@ const Customers: React.FC = () => {
   };
 
   const handleAddCustomer = async () => {
-    if (!formData.email) {
-      toast.error('Please fill in required field: Email');
-      return;
-    }
-
     try {
       setIsSubmitting(true);
       
@@ -224,12 +221,12 @@ const Customers: React.FC = () => {
       notes: customer.notes || '',
       is_active: customer.is_active
     });
+    pincodeUserChanged.current = false;
     setShowEditModal(true);
   };
 
   const handleUpdateCustomer = async () => {
-    if (!formData.email || !editingCustomer) {
-      toast.error('Please fill in required field: Email');
+    if (!editingCustomer) {
       return;
     }
 
@@ -522,13 +519,12 @@ const Customers: React.FC = () => {
               {/* Contact Information */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="email">Email *</Label>
+                  <Label htmlFor="email">Email</Label>
                   <Input
                     id="email"
                     type="email"
                     value={formData.email}
                     onChange={(e) => handleFormChange('email', e.target.value)}
-                    required
                   />
                 </div>
                 <div>
@@ -598,7 +594,7 @@ const Customers: React.FC = () => {
                     <Input
                       id="postal_code"
                       value={formData.postal_code}
-                      onChange={(e) => handleFormChange('postal_code', e.target.value)}
+                      onChange={(e) => { pincodeUserChanged.current = true; handleFormChange('postal_code', e.target.value); }}
                       placeholder="Enter 6-digit PIN code"
                       maxLength={6}
                     />
@@ -801,13 +797,12 @@ const Customers: React.FC = () => {
                {/* Contact Information */}
                <div className="grid grid-cols-2 gap-4">
                  <div>
-                   <Label htmlFor="edit_email">Email *</Label>
+                   <Label htmlFor="edit_email">Email</Label>
                    <Input
                      id="edit_email"
                      type="email"
                      value={formData.email}
                      onChange={(e) => handleFormChange('email', e.target.value)}
-                     required
                    />
                  </div>
                  <div>
@@ -857,7 +852,7 @@ const Customers: React.FC = () => {
                      <Input
                        id="edit_postal_code"
                        value={formData.postal_code}
-                       onChange={(e) => handleFormChange('postal_code', e.target.value)}
+                       onChange={(e) => { pincodeUserChanged.current = true; handleFormChange('postal_code', e.target.value); }}
                        placeholder="Enter 6-digit PIN code"
                        maxLength={6}
                      />
@@ -874,9 +869,9 @@ const Customers: React.FC = () => {
                    <Input
                      id="edit_city"
                      value={formData.city}
-                     readOnly
-                     className="bg-gray-50 border-gray-200 cursor-not-allowed"
-                     placeholder="Auto-filled from PIN code"
+                     onChange={(e) => handleFormChange('city', e.target.value)}
+                     className="bg-white border-gray-200"
+                     placeholder="City (auto-filled or enter manually)"
                    />
                  </div>
                  <div>
@@ -884,9 +879,9 @@ const Customers: React.FC = () => {
                    <Input
                      id="edit_state"
                      value={formData.state}
-                     readOnly
-                     className="bg-gray-50 border-gray-200 cursor-not-allowed"
-                     placeholder="Auto-filled from PIN code"
+                     onChange={(e) => handleFormChange('state', e.target.value)}
+                     className="bg-white border-gray-200"
+                     placeholder="State (auto-filled or enter manually)"
                    />
                  </div>
                </div>
