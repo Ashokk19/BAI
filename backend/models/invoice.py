@@ -40,6 +40,8 @@ class Invoice(Base):
     total_sgst = Column(Decimal(12, 2), default=0.00)
     total_igst = Column(Decimal(12, 2), default=0.00)
     discount_amount = Column(Decimal(12, 2), default=0.00)
+    freight_charges = Column(Decimal(12, 2), default=0.00)
+    freight_gst_rate = Column(Decimal(5, 2), default=0.00)
     total_amount = Column(Decimal(12, 2), default=0.00)
     paid_amount = Column(Decimal(12, 2), default=0.00)
     

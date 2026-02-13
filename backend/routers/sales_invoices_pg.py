@@ -30,6 +30,28 @@ def _ensure_invoice_items_hsn_code_column() -> None:
         print(f"Error ensuring invoice_items.hsn_code column: {e}")
 
 
+def _ensure_invoices_freight_charges_column() -> None:
+    """Ensure invoices table has freight_charges and freight_gst_rate columns."""
+    try:
+        with postgres_db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                ALTER TABLE invoices
+                ADD COLUMN IF NOT EXISTS freight_charges NUMERIC(12,2) DEFAULT 0.00
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE invoices
+                ADD COLUMN IF NOT EXISTS freight_gst_rate NUMERIC(5,2) DEFAULT 0.00
+                """
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"Error ensuring invoices.freight_charges/freight_gst_rate columns: {e}")
+
+
 def _generate_invoice_number(cursor: RealDictCursor, account_id: str) -> str:
     """Generate the next invoice number for an account.
     
@@ -196,7 +218,7 @@ async def get_invoices(
                     i.id, i.account_id, i.invoice_number, i.customer_id,
                     i.invoice_date, i.due_date, i.status, i.invoice_type,
                     i.subtotal, i.tax_amount, i.total_cgst, i.total_sgst, i.total_igst,
-                    i.discount_amount, i.total_amount, i.paid_amount,
+                    i.discount_amount, i.freight_charges, i.freight_gst_rate, i.total_amount, i.paid_amount,
                     i.payment_terms, i.currency, i.created_at, i.updated_at,
                     c.name as customer_name
                 FROM invoices i
@@ -304,8 +326,9 @@ async def create_invoice(
 ):
     """Create an invoice using direct PostgreSQL queries."""
 
-    # Ensure hsn_code column exists in invoice_items table
+    # Ensure required columns exist
     _ensure_invoice_items_hsn_code_column()
+    _ensure_invoices_freight_charges_column()
 
     account_id = current_user["account_id"]
 
@@ -412,6 +435,8 @@ async def create_invoice(
                     total_sgst,
                     total_igst,
                     discount_amount,
+                    freight_charges,
+                    freight_gst_rate,
                     total_amount,
                     paid_amount,
                     payment_terms,
@@ -423,7 +448,7 @@ async def create_invoice(
                     created_by,
                     created_at
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 RETURNING id
                 """,
@@ -441,7 +466,9 @@ async def create_invoice(
                     total_sgst,
                     total_igst,
                     total_discount,
-                    subtotal + total_tax,
+                    Decimal(str(invoice_data.freight_charges or 0)),
+                    Decimal(str(invoice_data.freight_gst_rate or 0)),
+                    subtotal + total_tax + Decimal(str(invoice_data.freight_charges or 0)) + (Decimal(str(invoice_data.freight_charges or 0)) * Decimal(str(invoice_data.freight_gst_rate or 0)) / Decimal('100')),
                     Decimal("0"),
                     invoice_data.payment_terms or "immediate",
                     invoice_data.currency or "INR",
@@ -618,6 +645,8 @@ async def create_invoice(
         "total_sgst": _to_decimal(invoice_record.get("total_sgst")),
         "total_igst": _to_decimal(invoice_record.get("total_igst")),
         "discount_amount": _to_decimal(invoice_record.get("discount_amount")),
+        "freight_charges": _to_decimal(invoice_record.get("freight_charges")),
+        "freight_gst_rate": _to_decimal(invoice_record.get("freight_gst_rate")),
         "total_amount": _to_decimal(invoice_record.get("total_amount")),
         "paid_amount": _to_decimal(invoice_record.get("paid_amount")),
         "payment_terms": invoice_record.get("payment_terms"),

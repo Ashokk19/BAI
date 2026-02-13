@@ -902,12 +902,6 @@ const ProformaInvoice: React.FC = () => {
               margin-bottom: 1px;
             }
             
-            .item-sku {
-              font-size: 10px;
-              color: #666;
-              font-style: italic;
-            }
-            
             /* Summary Section */
             .summary-section {
               display: flex;
@@ -1087,7 +1081,7 @@ const ProformaInvoice: React.FC = () => {
                   organization?.postal_code
                 ].filter(Boolean).join(', ') || 'Address Line 1, City, State - PIN'}</p>
                 <p>Phone: ${organization?.phone || '+91 XXXXX-XXXXX'} | Email: ${organization?.email || 'contact@yourcompany.com'}</p>
-                <p>GST: ${organization?.gst_number || 'XXAXXXXXXXX'} | PAN: ${organization?.pan_number || 'XXXXXXXXXX'}</p>
+                <p>GST: ${organization?.gst_number || 'XXAXXXXXXXX'}</p>
                 ${organization?.state ? `<p><strong>Place of Supply:</strong> ${organization.state}</p>` : ''}
               </div>
               
@@ -1128,8 +1122,8 @@ const ProformaInvoice: React.FC = () => {
                 <div class="customer-name">${customerName}</div>
                                  <div class="customer-details">
                    ${currentCustomer.billing_address ? `<p><strong>Address:</strong> ${currentCustomer.billing_address}</p>` : ''}
-                   ${currentCustomer.city || currentCustomer.state ? `<p>${[currentCustomer.city, currentCustomer.state].filter(Boolean).join(', ')}</p>` : ''}
-                   <p><strong>Email:</strong> ${currentCustomer.email}</p>
+                   ${currentCustomer.city || currentCustomer.state ? `<p>${[currentCustomer.city, currentCustomer.state, currentCustomer.postal_code].filter(Boolean).join(', ')}</p>` : ''}
+                   ${currentCustomer.email ? `<p><strong>Email:</strong> ${currentCustomer.email}</p>` : ''}
                    ${currentCustomer.gst_number ? `<p><strong>GST:</strong> ${currentCustomer.gst_number}</p>` : ''}
                  </div>
               </div>
@@ -1175,7 +1169,6 @@ const ProformaInvoice: React.FC = () => {
                     <td style="text-align: center;">${index + 1}</td>
                     <td>
                       <div class="item-name">${item.item_name}</div>
-                      <div class="item-sku">${item.item_sku}</div>
                     </td>
                     <td style="text-align: center;">${item.hsn_code || '-'}</td>
                     <td style="text-align: center;">${item.quantity}</td>

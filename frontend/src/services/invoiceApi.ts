@@ -16,6 +16,8 @@ export interface Invoice {
   currency: string;
   subtotal: number;
   tax_amount: number;
+  freight_charges?: number;
+  freight_gst_rate?: number;
   total_amount: number;
   paid_amount: number;
   balance_due: number;
@@ -70,6 +72,8 @@ export interface InvoiceCreate {
   shipping_address?: string;
   notes?: string;
   terms_conditions?: string;
+  freight_charges?: number;
+  freight_gst_rate?: number;
   customer_state?: string;
   company_state?: string;
   items: InvoiceItemCreate[];

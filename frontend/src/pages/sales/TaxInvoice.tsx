@@ -61,6 +61,8 @@ interface Invoice {
   customer_state: string;
   company_state: string;
   notes: string;
+  freight_charges: number;
+  freight_gst_rate: number;
   items: InvoiceItem[];
 }
 
@@ -78,6 +80,8 @@ const TaxInvoice: React.FC = () => {
     customer_state: '',
     company_state: 'Tamil Nadu',
     notes: '',
+    freight_charges: 0,
+    freight_gst_rate: 0,
     items: []
   });
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
@@ -426,8 +430,12 @@ const TaxInvoice: React.FC = () => {
 
   const calculateTotals = () => {
     const subtotal = invoiceItems.reduce((sum, item) => sum + ((item.quantity * item.unit_price) - item.discount_amount), 0);
-    const totalTax = invoiceItems.reduce((sum, item) => sum + item.tax_amount, 0);
-    const totalAmount = subtotal + totalTax;
+    const itemTax = invoiceItems.reduce((sum, item) => sum + item.tax_amount, 0);
+    const freightCharges = invoice.freight_charges || 0;
+    const freightGstRate = invoice.freight_gst_rate || 0;
+    const freightGst = (freightCharges * freightGstRate) / 100;
+    const totalTax = itemTax + freightGst;
+    const totalAmount = subtotal + freightCharges + totalTax;
     
     // Calculate GST breakdown for UI display
     const customerState = selectedCustomer?.state || adhocCustomer.state || '';
@@ -439,20 +447,30 @@ const TaxInvoice: React.FC = () => {
     let totalIGST = 0;
     
     if (isInterState) {
-      totalIGST = totalTax;
+      totalIGST = itemTax + freightGst;
     } else {
-      totalCGST = totalTax / 2;
-      totalSGST = totalTax / 2;
+      totalCGST = (itemTax + freightGst) / 2;
+      totalSGST = (itemTax + freightGst) / 2;
     }
+    
+    const gstBase = subtotal + (freightGstRate > 0 ? freightCharges : 0);
+    const uiIgstPct = gstBase > 0 ? ((totalIGST / gstBase) * 100) : 0;
+    const uiCgstPct = gstBase > 0 ? ((totalCGST / gstBase) * 100) : 0;
+    const uiSgstPct = gstBase > 0 ? ((totalSGST / gstBase) * 100) : 0;
     
     return {
       subtotal,
       totalTax,
+      freightCharges,
+      freightGst,
       totalAmount,
       totalCGST,
       totalSGST,
       totalIGST,
-      isInterState
+      isInterState,
+      igstPct: uiIgstPct,
+      cgstPct: uiCgstPct,
+      sgstPct: uiSgstPct
     };
   };
 
@@ -487,6 +505,8 @@ const TaxInvoice: React.FC = () => {
         shipping_address: selectedCustomer?.shipping_address,
         notes: invoice.notes,
         terms_conditions: undefined,
+        freight_charges: invoice.freight_charges || 0,
+        freight_gst_rate: invoice.freight_gst_rate || 0,
         customer_state: selectedCustomer?.state || adhocCustomer.state,
         company_state: organization?.state || 'Tamil Nadu',
         items: invoiceItems.map(item => ({
@@ -854,11 +874,23 @@ const TaxInvoice: React.FC = () => {
     
     // Calculate totals with GST breakdown
     const subtotal = itemsWithGSTBreakdown.reduce((sum, item) => sum + ((item.quantity * item.unit_price) - item.discount_amount), 0);
-    const totalCGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.cgstAmount, 0);
-    const totalSGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.sgstAmount, 0);
-    const totalIGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.igstAmount, 0);
+    const itemCGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.cgstAmount, 0);
+    const itemSGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.sgstAmount, 0);
+    const itemIGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.igstAmount, 0);
+    const freightCharges = invoice.freight_charges || 0;
+    const freightGstRate = invoice.freight_gst_rate || 0;
+    const freightGst = (freightCharges * freightGstRate) / 100;
+    // Add freight GST to the appropriate tax bucket
+    const totalCGST = isInterState ? 0 : itemCGST + (freightGst / 2);
+    const totalSGST = isInterState ? 0 : itemSGST + (freightGst / 2);
+    const totalIGST = isInterState ? itemIGST + freightGst : 0;
     const totalTax = totalCGST + totalSGST + totalIGST;
-    const totalAmount = subtotal + totalTax;
+    const totalAmount = subtotal + freightCharges + totalTax;
+    // Compute effective GST % for display (exclude freight from base when freight GST is 0)
+    const gstBase = subtotal + (freightGstRate > 0 ? freightCharges : 0);
+    const effectiveIgstPct = gstBase > 0 ? ((totalIGST / gstBase) * 100) : 0;
+    const effectiveCgstPct = gstBase > 0 ? ((totalCGST / gstBase) * 100) : 0;
+    const effectiveSgstPct = gstBase > 0 ? ((totalSGST / gstBase) * 100) : 0;
 
     // Signature preferences from current user
     const signatureName = ((user as any)?.signature_name || `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || user?.username || '').toString();
@@ -1101,11 +1133,6 @@ const TaxInvoice: React.FC = () => {
               margin-bottom: 1px;
             }
             
-            .item-sku {
-              font-size: 10px;
-              color: #666;
-              font-style: italic;
-            }
             
             /* Summary Section */
             .summary-section {
@@ -1299,7 +1326,7 @@ const TaxInvoice: React.FC = () => {
                   organization?.postal_code
                 ].filter(Boolean).join(', ') || 'Address Line 1, City, State - PIN'}</p>
                 <p>Phone: ${organization?.phone || '+91 XXXXX-XXXXX'} | Email: ${organization?.email || 'contact@yourcompany.com'}</p>
-                <p>GST: ${organization?.gst_number || 'XXAXXXXXXXX'} | PAN: ${organization?.pan_number || 'XXXXXXXXXX'}</p>
+                <p>GST: ${organization?.gst_number || 'XXAXXXXXXXX'}</p>
                 ${organization?.state ? `<p><strong>Place of Supply:</strong> ${organization.state}</p>` : ''}
               </div>
               
@@ -1340,8 +1367,8 @@ const TaxInvoice: React.FC = () => {
                 <div class="customer-name">${customerName}</div>
                                  <div class="customer-details">
                    ${currentCustomer.billing_address ? `<p><strong>Address:</strong> ${currentCustomer.billing_address}</p>` : ''}
-                   ${currentCustomer.city || currentCustomer.state ? `<p>${[currentCustomer.city, currentCustomer.state].filter(Boolean).join(', ')}</p>` : ''}
-                   <p><strong>Email:</strong> ${currentCustomer.email}</p>
+                   ${currentCustomer.city || currentCustomer.state ? `<p>${[currentCustomer.city, currentCustomer.state, currentCustomer.postal_code].filter(Boolean).join(', ')}</p>` : ''}
+                   ${currentCustomer.email ? `<p><strong>Email:</strong> ${currentCustomer.email}</p>` : ''}
                    ${currentCustomer.gst_number ? `<p><strong>GST:</strong> ${currentCustomer.gst_number}</p>` : ''}
                  </div>
               </div>
@@ -1364,21 +1391,11 @@ const TaxInvoice: React.FC = () => {
               <thead>
                 <tr>
                   <th style="width: 5%;">SR. NO.</th>
-                  <th style="width: 35%;">NAME OF PRODUCT / SERVICE</th>
-                  <th style="width: 8%;">HSN / SAC</th>
-                  <th style="width: 8%;">QTY</th>
-                  <th style="width: 12%;">RATE</th>
-                  <th style="width: 12%;">TAXABLE VALUE</th>
-                  ${isInterState ? `
-                  <th style="width: 10%;">IGST<br>%</th>
-                  <th style="width: 10%;">IGST<br>AMOUNT</th>
-                  ` : `
-                  <th style="width: 5%;">CGST<br>%</th>
-                  <th style="width: 5%;">CGST<br>AMOUNT</th>
-                  <th style="width: 5%;">SGST<br>%</th>
-                  <th style="width: 5%;">SGST<br>AMOUNT</th>
-                  `}
-                  <th style="width: 10%;">TOTAL</th>
+                  <th style="width: 40%;">NAME OF PRODUCT / SERVICE</th>
+                  <th style="width: 15%;">HSN / SAC</th>
+                  <th style="width: 10%;">QTY</th>
+                  <th style="width: 15%;">RATE</th>
+                  <th style="width: 15%;">TAXABLE VALUE</th>
                 </tr>
               </thead>
               <tbody>
@@ -1387,38 +1404,17 @@ const TaxInvoice: React.FC = () => {
                     <td style="text-align: center;">${index + 1}</td>
                     <td>
                       <div class="item-name">${item.item_name}</div>
-                      <div class="item-sku">${item.item_sku}</div>
                     </td>
                     <td style="text-align: center;">${item.hsn_code || '-'}</td>
                     <td style="text-align: center;">${item.quantity}</td>
                     <td style="text-align: right;">₹${item.unit_price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                     <td style="text-align: right;">₹${((item.quantity * item.unit_price) - item.discount_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    ${isInterState ? `
-                    <td style="text-align: center;">${item.gst_rate}%</td>
-                    <td style="text-align: right;">₹${item.igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    ` : `
-                    <td style="text-align: center;">${(item.gst_rate / 2).toFixed(1)}%</td>
-                    <td style="text-align: right;">₹${item.cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    <td style="text-align: center;">${(item.gst_rate / 2).toFixed(1)}%</td>
-                    <td style="text-align: right;">₹${item.sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    `}
-                    <td style="text-align: right;">₹${item.line_total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                   </tr>
                 `).join('')}
                 <!-- Total Row -->
                 <tr>
                   <td colspan="5" style="text-align: center; font-weight: bold;">Total</td>
                   <td style="text-align: right; font-weight: bold;">₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                  ${isInterState ? `
-                  <td></td>
-                  <td style="text-align: right; font-weight: bold;">₹${totalIGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                  ` : `
-                  <td></td>
-                  <td style="text-align: right; font-weight: bold;">₹${totalCGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                  <td></td>
-                  <td style="text-align: right; font-weight: bold;">₹${totalSGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                  `}
-                  <td style="text-align: right; font-weight: bold;">₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 </tr>
               </tbody>
             </table>
@@ -1426,22 +1422,28 @@ const TaxInvoice: React.FC = () => {
             <!-- Summary Section -->
             <div class="summary-section">
               <table class="summary-table">
+                ${freightCharges > 0 ? `
+                <tr>
+                  <td class="label">Freight Charges</td>
+                  <td class="value">₹${freightCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ` : ''}
                 <tr>
                   <td class="label">Taxable Amount</td>
-                  <td class="value">₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  <td class="value">₹${(subtotal + freightCharges).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 ${isInterState ? `
                 <tr>
-                  <td class="label">Add : IGST</td>
+                  <td class="label">Add : IGST (${effectiveIgstPct % 1 === 0 ? effectiveIgstPct.toFixed(0) : effectiveIgstPct.toFixed(1)}%)</td>
                   <td class="value">₹${totalIGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 ` : `
                 <tr>
-                  <td class="label">Add : CGST</td>
+                  <td class="label">Add : CGST (${effectiveCgstPct % 1 === 0 ? effectiveCgstPct.toFixed(0) : effectiveCgstPct.toFixed(1)}%)</td>
                   <td class="value">₹${totalCGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 <tr>
-                  <td class="label">Add : SGST</td>
+                  <td class="label">Add : SGST (${effectiveSgstPct % 1 === 0 ? effectiveSgstPct.toFixed(0) : effectiveSgstPct.toFixed(1)}%)</td>
                   <td class="value">₹${totalSGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 `}
@@ -1763,6 +1765,8 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
                   customer_state: '',
                   company_state: 'Tamil Nadu',
                   notes: '',
+                  freight_charges: 0,
+                  freight_gst_rate: 0,
                   items: []
                 });
                 setIsAdhocCustomer(false);
@@ -2214,24 +2218,31 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
               {/* Amount Breakdown */}
               <div className="bg-gray-50 rounded-lg p-3">
                 <div className="space-y-2 text-sm">
+                  {totals.freightCharges > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Freight Charges:</span>
+                      <span className="font-semibold">₹{totals.freightCharges.toFixed(2)}</span>
+                    </div>
+                  )}
+                  
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Subtotal:</span>
-                    <span className="font-semibold">₹{totals.subtotal.toFixed(2)}</span>
+                    <span className="text-gray-600">Taxable Amount:</span>
+                    <span className="font-semibold">₹{(totals.subtotal + totals.freightCharges).toFixed(2)}</span>
                   </div>
                   
                   {totals.isInterState ? (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">IGST:</span>
+                      <span className="text-gray-600">IGST ({totals.igstPct % 1 === 0 ? totals.igstPct.toFixed(0) : totals.igstPct.toFixed(1)}%):</span>
                       <span className="font-semibold">₹{totals.totalIGST.toFixed(2)}</span>
                     </div>
                   ) : (
                     <>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">CGST:</span>
+                        <span className="text-gray-600">CGST ({totals.cgstPct % 1 === 0 ? totals.cgstPct.toFixed(0) : totals.cgstPct.toFixed(1)}%):</span>
                         <span className="font-semibold">₹{totals.totalCGST.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">SGST:</span>
+                        <span className="text-gray-600">SGST ({totals.sgstPct % 1 === 0 ? totals.sgstPct.toFixed(0) : totals.sgstPct.toFixed(1)}%):</span>
                         <span className="font-semibold">₹{totals.totalSGST.toFixed(2)}</span>
                       </div>
                     </>
@@ -2281,6 +2292,34 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
                 )}
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Freight Charges */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <h2 className="text-xl font-semibold mb-4">Freight / Shipping Charges</h2>
+          <div className="flex items-center gap-3">
+            <span className="text-gray-600 font-medium">₹</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={invoice.freight_charges || ''}
+              onChange={(e) => setInvoice(prev => ({ ...prev, freight_charges: parseFloat(e.target.value) || 0 }))}
+              className="w-full max-w-xs p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              placeholder="0.00"
+            />
+            <select
+              value={invoice.freight_gst_rate}
+              onChange={(e) => setInvoice(prev => ({ ...prev, freight_gst_rate: parseFloat(e.target.value) }))}
+              className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            >
+              <option value={0}>GST 0%</option>
+              <option value={5}>GST 5%</option>
+              <option value={12}>GST 12%</option>
+              <option value={18}>GST 18%</option>
+              <option value={28}>GST 28%</option>
+            </select>
           </div>
         </div>
 
