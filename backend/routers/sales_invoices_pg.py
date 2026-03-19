@@ -185,7 +185,7 @@ async def get_invoices(
     sort_by: str = Query("id"),
     sort_order: str = Query("desc"),
     search: Optional[str] = None,
-    status: Optional[str] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
@@ -215,9 +215,9 @@ async def get_invoices(
                 search_param = f"%{search}%"
                 params.extend([search_param, search_param])
             
-            if status:
+            if status_filter:
                 where_conditions.append("i.status = %s")
-                params.append(status)
+                params.append(status_filter)
             
             if date_from:
                 where_conditions.append("i.invoice_date >= %s")
@@ -252,7 +252,10 @@ async def get_invoices(
                     i.subtotal, i.tax_amount, i.total_cgst, i.total_sgst, i.total_igst,
                     i.discount_amount, i.freight_charges, i.freight_gst_rate, i.total_amount, i.paid_amount,
                     i.payment_terms, i.currency, i.created_at, i.updated_at,
-                    c.name as customer_name
+                    c.name as customer_name,
+                    c.gst_number as customer_gst_number,
+                    c.state as customer_state,
+                    (SELECT MAX(p.payment_date) FROM payments p WHERE p.invoice_id = i.id AND p.account_id = i.account_id AND p.amount > 0) as payment_received_date
                 FROM invoices i
                 LEFT JOIN customers c ON i.customer_id = c.id AND i.account_id = c.account_id
                 WHERE {where_clause}
