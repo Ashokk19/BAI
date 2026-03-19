@@ -16,6 +16,9 @@ export interface Invoice {
   currency: string;
   subtotal: number;
   tax_amount: number;
+  total_cgst?: number;
+  total_sgst?: number;
+  total_igst?: number;
   freight_charges?: number;
   freight_gst_rate?: number;
   total_amount: number;
@@ -28,6 +31,8 @@ export interface Invoice {
   terms_conditions?: string;
   customer_state?: string;
   company_state?: string;
+  customer_gst_number?: string;
+  payment_received_date?: string;
   items: InvoiceItem[];
   created_by: number;
   created_at: string;

@@ -61,7 +61,10 @@ interface ReportSummary {
 interface CustomerSummary {
   customerId: number
   customerName: string
+  customerGstin: string
+  customerState: string
   totalSales: number
+  gstCollected: number
   invoiceCount: number
   lastInvoiceDate: string
 }
@@ -198,6 +201,7 @@ export default function Reports() {
       const existing = customerMap.get(inv.customer_id)
       if (existing) {
         existing.totalSales += inv.total_amount || 0
+        existing.gstCollected += inv.tax_amount || 0
         existing.invoiceCount += 1
         if (new Date(inv.invoice_date) > new Date(existing.lastInvoiceDate)) {
           existing.lastInvoiceDate = inv.invoice_date
@@ -206,7 +210,10 @@ export default function Reports() {
         customerMap.set(inv.customer_id, {
           customerId: inv.customer_id,
           customerName: inv.customer_name || 'Unknown',
+          customerGstin: inv.customer_gst_number || '',
+          customerState: inv.customer_state || '',
           totalSales: inv.total_amount || 0,
+          gstCollected: inv.tax_amount || 0,
           invoiceCount: 1,
           lastInvoiceDate: inv.invoice_date
         })
@@ -258,16 +265,33 @@ export default function Reports() {
 
   const exportSalesReport = () => {
     const { start, end } = getDateRange()
-    const reportData = invoices.map(inv => ({
-      'Invoice Number': inv.invoice_number,
-      'Date': format(new Date(inv.invoice_date), 'dd/MM/yyyy'),
-      'Customer': inv.customer_name,
-      'Subtotal': inv.subtotal?.toFixed(2) || '0.00',
-      'Tax Amount': inv.tax_amount?.toFixed(2) || '0.00',
-      'Total Amount': inv.total_amount?.toFixed(2) || '0.00',
-      'Status': inv.status,
-      'Payment Status': (inv as any).payment_status || inv.status || 'pending'
-    }))
+    const reportData = invoices.map(inv => {
+      const subtotal = inv.subtotal || 0
+      const cgst = inv.total_cgst || 0
+      const sgst = inv.total_sgst || 0
+      const igst = inv.total_igst || 0
+      const cgstPct = subtotal > 0 ? ((cgst / subtotal) * 100) : 0
+      const sgstPct = subtotal > 0 ? ((sgst / subtotal) * 100) : 0
+      const igstPct = subtotal > 0 ? ((igst / subtotal) * 100) : 0
+      const customerState = inv.customer_state || ''
+      const paidAmount = inv.paid_amount || 0
+      const paymentStatus = paidAmount >= (inv.total_amount || 0) ? 'paid' : paidAmount > 0 ? 'partial' : 'pending'
+      return {
+        'Invoice Number': inv.invoice_number,
+        'Date': format(new Date(inv.invoice_date), 'dd/MM/yyyy'),
+        'Customer': inv.customer_name,
+        'Customer-GSTIN': inv.customer_gst_number || '',
+        'Customer-State': customerState,
+        'Subtotal': subtotal.toFixed(2),
+        'CGST %': cgstPct.toFixed(2),
+        'SGST %': sgstPct.toFixed(2),
+        'IGST %': igstPct.toFixed(2),
+        'Tax Amount': (inv.tax_amount || 0).toFixed(2),
+        'Total Amount': (inv.total_amount || 0).toFixed(2),
+        'Payment Received Date': inv.payment_received_date ? format(new Date(inv.payment_received_date), 'dd/MM/yyyy') : '-',
+        'Payment Status': paymentStatus
+      }
+    })
     
     const periodStr = filterType === 'financial_year' 
       ? `FY${selectedYear}-${selectedYear + 1}`
@@ -281,7 +305,10 @@ export default function Reports() {
   const exportCustomerSummary = () => {
     const reportData = customerSummaries.map(cs => ({
       'Customer Name': cs.customerName,
+      'Customer GSTIN': cs.customerGstin,
+      'Customer State': cs.customerState,
       'Total Sales': cs.totalSales.toFixed(2),
+      'GST Collected': cs.gstCollected.toFixed(2),
       'Invoice Count': cs.invoiceCount,
       'Last Invoice Date': cs.lastInvoiceDate ? format(new Date(cs.lastInvoiceDate), 'dd/MM/yyyy') : '-'
     }))
@@ -811,7 +838,10 @@ export default function Reports() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Customer</TableHead>
+                          <TableHead>GSTIN</TableHead>
+                          <TableHead>State</TableHead>
                           <TableHead className="text-right">Total Sales</TableHead>
+                          <TableHead className="text-right">GST Collected</TableHead>
                           <TableHead className="text-right">Invoice Count</TableHead>
                           <TableHead>Last Invoice</TableHead>
                         </TableRow>
@@ -820,8 +850,13 @@ export default function Reports() {
                         {customerSummaries.map((cs) => (
                           <TableRow key={cs.customerId}>
                             <TableCell className="font-medium">{cs.customerName}</TableCell>
+                            <TableCell className="text-sm text-gray-600">{cs.customerGstin || '-'}</TableCell>
+                            <TableCell className="text-sm text-gray-600">{cs.customerState || '-'}</TableCell>
                             <TableCell className="text-right font-semibold text-green-600">
                               ₹{cs.totalSales.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </TableCell>
+                            <TableCell className="text-right text-orange-600">
+                              ₹{cs.gstCollected.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </TableCell>
                             <TableCell className="text-right">{cs.invoiceCount}</TableCell>
                             <TableCell>

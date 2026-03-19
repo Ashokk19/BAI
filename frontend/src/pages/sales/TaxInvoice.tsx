@@ -498,9 +498,36 @@ const TaxInvoice: React.FC = () => {
     
     setIsLoading(true);
     try {
+      // If adhoc customer, create them in the database first
+      let customerId = selectedCustomer?.id || 0;
+      if (isAdhocCustomer && !selectedCustomer) {
+        const customerCode = `ADHOC-${Date.now()}`;
+        const newCustomer = await customerApi.createCustomer({
+          customer_code: customerCode,
+          company_name: adhocCustomer.company_name || undefined,
+          first_name: adhocCustomer.first_name || undefined,
+          last_name: adhocCustomer.last_name || undefined,
+          email: adhocCustomer.email || undefined,
+          phone: adhocCustomer.phone || undefined,
+          mobile: adhocCustomer.mobile || undefined,
+          billing_address: adhocCustomer.billing_address || undefined,
+          city: adhocCustomer.city || undefined,
+          state: adhocCustomer.state || undefined,
+          postal_code: adhocCustomer.postal_code || undefined,
+          gst_number: adhocCustomer.gst_number || undefined,
+          customer_type: adhocCustomer.company_name ? 'business' : 'individual',
+          payment_terms: adhocCustomer.payment_terms || 'immediate',
+          currency: 'INR',
+          country: 'India',
+          is_active: true,
+        });
+        customerId = newCustomer.id;
+        setSelectedCustomer(newCustomer);
+      }
+
       const invoiceData = {
         account_id: user?.account_id || 'TestAccount', // Use current user's account_id
-        customer_id: selectedCustomer?.id || 0,
+        customer_id: customerId,
         invoice_date: new Date(invoice.invoice_date).toISOString(),
         due_date: invoice.due_date ? new Date(invoice.due_date).toISOString() : undefined,
         status: 'sent',
@@ -2003,6 +2030,22 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
                     value={adhocCustomer.state}
                     onChange={(e) => setAdhocCustomer(prev => ({ ...prev, state: e.target.value }))}
                     placeholder="State"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Pin Code
+                  </label>
+                  <input
+                    type="text"
+                    value={adhocCustomer.postal_code}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                      setAdhocCustomer(prev => ({ ...prev, postal_code: val }));
+                    }}
+                    placeholder="Pin Code"
+                    maxLength={6}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
                 </div>
