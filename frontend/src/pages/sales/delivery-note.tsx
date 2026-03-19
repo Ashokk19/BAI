@@ -477,11 +477,11 @@ export default function DeliveryNote() {
   // Build full customer address starting with billing_address
   const buildCustomerAddress = (customer: Customer): string => {
     const parts = []
-    // Start with billing_address if available, otherwise use address
+    // Start with billing_address if available
     if (customer.billing_address) {
       parts.push(customer.billing_address)
-    } else if (customer.address) {
-      parts.push(customer.address)
+    } else if (customer.shipping_address) {
+      parts.push(customer.shipping_address)
     }
     // Add city and postal_code
     if (customer.city) parts.push(customer.city)
@@ -961,7 +961,7 @@ export default function DeliveryNote() {
 
             <div class="delivery-address">
               <h3>Delivery Address</h3>
-              <div>${deliveryNote.delivery_address.replace(/\n/g, '<br>')}</div>
+              <div>${(deliveryNote.delivery_address || 'No address provided').replace(/\n/g, '<br>')}</div>
             </div>
 
             ${deliveryNote.delivery_notes ? `
@@ -1238,7 +1238,7 @@ export default function DeliveryNote() {
 
           <div class="delivery-address">
             <h3>Delivery Address</h3>
-            <div>${deliveryNote.delivery_address.replace(/\n/g, '<br>')}</div>
+            <div>${(deliveryNote.delivery_address || 'No address provided').replace(/\n/g, '<br>')}</div>
           </div>
 
           ${deliveryNote.delivery_notes ? `

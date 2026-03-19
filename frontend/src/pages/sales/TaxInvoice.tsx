@@ -52,6 +52,7 @@ interface InvoiceItem {
   igst_amount: number;
   tax_amount: number;
   line_total: number;
+  is_manual?: boolean;
 }
 
 interface Invoice {
@@ -313,25 +314,26 @@ const TaxInvoice: React.FC = () => {
     return item ? `${item.name} (${item.sku})` : '';
   };
 
-  const addInvoiceItem = () => {
+  const addInvoiceItem = (isManual: boolean = false) => {
     const newIndex = invoiceItems.length;
     const newItem: InvoiceItem = {
       item_id: 0,
       item_name: '',
-      item_sku: '',
+      item_sku: isManual ? 'MANUAL' : '',
       hsn_code: '',
       quantity: 1,
       unit_price: 0,
       discount_amount: 0,
       gst_rate: 18,
-      cgst_rate: 0,
-      sgst_rate: 0,
-      igst_rate: 0,
+      cgst_rate: 9,
+      sgst_rate: 9,
+      igst_rate: 18,
       cgst_amount: 0,
       sgst_amount: 0,
       igst_amount: 0,
       tax_amount: 0,
-      line_total: 0
+      line_total: 0,
+      is_manual: isManual
     };
     setInvoiceItems([...invoiceItems, newItem]);
     // Initialize search states for the new item
@@ -372,22 +374,26 @@ const TaxInvoice: React.FC = () => {
     console.log('updateInvoiceItem called:', { index, field, value });
     const newItems = [...invoiceItems];
     
-    // Validate stock quantity before updating
+    // Validate stock quantity before updating (skip for manual items)
     if (field === 'quantity') {
       const currentItem = newItems[index];
-      const itemData = items.find(i => i.id === currentItem.item_id);
       
-      if (itemData && value > itemData.current_stock) {
-        notifications.warning(
-          'Insufficient Stock',
-          `Cannot order ${value} units. Only ${itemData.current_stock} units available for '${itemData.name}'.`,
-          {
-            autoClose: true,
-            autoCloseDelay: 4000
-          }
-        );
-        // Don't update the value, keep the current quantity
-        return;
+      // Skip stock validation for manual items
+      if (!currentItem.is_manual) {
+        const itemData = items.find(i => i.id === currentItem.item_id);
+        
+        if (itemData && value > itemData.current_stock) {
+          notifications.warning(
+            'Insufficient Stock',
+            `Cannot order ${value} units. Only ${itemData.current_stock} units available for '${itemData.name}'.`,
+            {
+              autoClose: true,
+              autoCloseDelay: 4000
+            }
+          );
+          // Don't update the value, keep the current quantity
+          return;
+        }
       }
     }
     
@@ -510,10 +516,10 @@ const TaxInvoice: React.FC = () => {
         customer_state: selectedCustomer?.state || adhocCustomer.state,
         company_state: organization?.state || 'Tamil Nadu',
         items: invoiceItems.map(item => ({
-          item_id: item.item_id,
+          item_id: item.is_manual ? null : item.item_id,
           item_name: item.item_name,
           item_description: undefined,
-          item_sku: item.item_sku,
+          item_sku: item.is_manual ? null : item.item_sku,
           hsn_code: item.hsn_code,
           quantity: item.quantity,
           unit_price: item.unit_price,
@@ -2054,65 +2060,113 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
               <Package className="w-5 h-5 text-purple-600" />
               Invoice Items
             </h2>
-            <button
-              onClick={addInvoiceItem}
-              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Add Item
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => addInvoiceItem(false)}
+                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Add Item
+              </button>
+              <button
+                onClick={() => addInvoiceItem(true)}
+                className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                title="Add item manually without selecting from inventory"
+              >
+                <Plus className="w-4 h-4" />
+                Manual Entry
+              </button>
+            </div>
           </div>
           
           <div className="space-y-4">
             {invoiceItems.map((item, index) => (
               <div key={index} className="border border-gray-200 rounded-lg p-4">
                 <div className="flex flex-wrap gap-3 items-end">
-                  {/* Item Selection */}
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Item
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={itemSearches[index] || (item.item_id > 0 ? getItemDisplayName(item.item_id) : '')}
-                        onChange={(e) => {
-                          setItemSearches(prev => ({ ...prev, [index]: e.target.value }));
-                          setShowItemDropdowns(prev => ({ ...prev, [index]: true }));
-                        }}
-                        onFocus={() => setShowItemDropdowns(prev => ({ ...prev, [index]: true }))}
-                        onBlur={() => setTimeout(() => setShowItemDropdowns(prev => ({ ...prev, [index]: false })), 500)}
-                        placeholder="Search items..."
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-8"
-                      />
-                      <Search className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      
-                      {showItemDropdowns[index] && (
-                                                 <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                                                     {getFilteredItems(itemSearches[index] || '').slice(0, 10).map(availableItem => (
-                             <div
-                               key={availableItem.id}
-                               onClick={() => {
-                                 console.log('Dropdown item clicked:', availableItem.name);
-                                 handleItemSelect(index, availableItem);
-                               }}
-                               className="p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-                             >
-                               <div className="font-medium text-gray-900 text-sm">
-                                 {availableItem.name}
-                               </div>
-                               <div className="text-xs text-gray-500">
-                                 SKU: {availableItem.sku} • Stock: {availableItem.current_stock} • ₹{availableItem.selling_price}
-                               </div>
-                             </div>
-                           ))}
-                          {getFilteredItems(itemSearches[index] || '').length === 0 && (
-                            <div className="p-2 text-gray-500 text-sm">No items found</div>
-                          )}
-                        </div>
-                      )}
+                  {/* Manual Item Badge */}
+                  {item.is_manual && (
+                    <div className="absolute -top-2 -left-2 px-2 py-0.5 bg-gray-500 text-white text-xs rounded-full">
+                      Manual
                     </div>
-                  </div>
+                  )}
+                  
+                  {/* Item Selection - Different UI for manual vs inventory items */}
+                  {item.is_manual ? (
+                    <>
+                      {/* Manual Item Name */}
+                      <div className="flex-1 min-w-[150px]">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Item Name *
+                        </label>
+                        <input
+                          type="text"
+                          value={item.item_name}
+                          onChange={(e) => updateInvoiceItem(index, 'item_name', e.target.value)}
+                          placeholder="Enter item name"
+                          className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                      </div>
+                      {/* Manual HSN Code */}
+                      <div className="w-28">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          HSN Code
+                        </label>
+                        <input
+                          type="text"
+                          value={item.hsn_code || ''}
+                          onChange={(e) => updateInvoiceItem(index, 'hsn_code', e.target.value)}
+                          placeholder="HSN"
+                          className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex-1 min-w-[200px]">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Item
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={itemSearches[index] || (item.item_id > 0 ? getItemDisplayName(item.item_id) : '')}
+                          onChange={(e) => {
+                            setItemSearches(prev => ({ ...prev, [index]: e.target.value }));
+                            setShowItemDropdowns(prev => ({ ...prev, [index]: true }));
+                          }}
+                          onFocus={() => setShowItemDropdowns(prev => ({ ...prev, [index]: true }))}
+                          onBlur={() => setTimeout(() => setShowItemDropdowns(prev => ({ ...prev, [index]: false })), 500)}
+                          placeholder="Search items..."
+                          className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-8"
+                        />
+                        <Search className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        
+                        {showItemDropdowns[index] && (
+                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {getFilteredItems(itemSearches[index] || '').slice(0, 10).map(availableItem => (
+                              <div
+                                key={availableItem.id}
+                                onClick={() => {
+                                  console.log('Dropdown item clicked:', availableItem.name);
+                                  handleItemSelect(index, availableItem);
+                                }}
+                                className="p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                              >
+                                <div className="font-medium text-gray-900 text-sm">
+                                  {availableItem.name}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  SKU: {availableItem.sku} • Stock: {availableItem.current_stock} • ₹{availableItem.selling_price}
+                                </div>
+                              </div>
+                            ))}
+                            {getFilteredItems(itemSearches[index] || '').length === 0 && (
+                              <div className="p-2 text-gray-500 text-sm">No items found</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Quantity */}
                   <div className="w-20">
@@ -2152,14 +2206,34 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
                     />
                   </div>
                   
-                  {/* GST Rate - Display Only */}
+                  {/* GST Rate - Editable for manual items, display only for inventory items */}
                   <div className="w-24">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       GST Rate
                     </label>
-                    <div className="p-2 bg-gray-50 rounded text-center font-medium">
-                      {item.gst_rate}%
-                    </div>
+                    {item.is_manual ? (
+                      <select
+                        value={item.gst_rate}
+                        onChange={(e) => {
+                          const rate = parseFloat(e.target.value);
+                          updateInvoiceItem(index, 'gst_rate', rate);
+                          updateInvoiceItem(index, 'cgst_rate', rate / 2);
+                          updateInvoiceItem(index, 'sgst_rate', rate / 2);
+                          updateInvoiceItem(index, 'igst_rate', rate);
+                        }}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      >
+                        <option value={0}>0%</option>
+                        <option value={5}>5%</option>
+                        <option value={12}>12%</option>
+                        <option value={18}>18%</option>
+                        <option value={28}>28%</option>
+                      </select>
+                    ) : (
+                      <div className="p-2 bg-gray-50 rounded text-center font-medium">
+                        {item.gst_rate}%
+                      </div>
+                    )}
                   </div>
                   
                   {/* Tax Amount */}

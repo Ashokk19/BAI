@@ -273,11 +273,13 @@ async def get_delivery_notes(
             cursor.execute(f"SELECT COUNT(*) as total FROM delivery_notes WHERE {where_clause}", params)
             total = cursor.fetchone()["total"]
             
-            # Get delivery notes
+            # Get delivery notes with customer_id from related invoice
             query = f"""
-                SELECT * FROM delivery_notes
-                WHERE {where_clause}
-                ORDER BY delivery_date DESC, id DESC
+                SELECT dn.*, i.customer_id
+                FROM delivery_notes dn
+                LEFT JOIN invoices i ON dn.invoice_id = i.id AND dn.account_id = i.account_id
+                WHERE dn.account_id = %s{' AND dn.invoice_id = %s' if invoice_id else ''}
+                ORDER BY dn.delivery_date DESC, dn.id DESC
                 LIMIT %s OFFSET %s
             """
             params.extend([limit, skip])
@@ -293,6 +295,9 @@ async def get_delivery_notes(
                 # Map recipient_name -> received_by
                 if 'recipient_name' in note_dict:
                     note_dict['received_by'] = note_dict.pop('recipient_name')
+                # Ensure customer_id is present (from invoice join)
+                if 'customer_id' not in note_dict or note_dict['customer_id'] is None:
+                    note_dict['customer_id'] = 0
                 mapped_notes.append(note_dict)
             
             return {
