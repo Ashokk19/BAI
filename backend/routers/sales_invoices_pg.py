@@ -30,6 +30,38 @@ def _ensure_invoice_items_hsn_code_column() -> None:
         print(f"Error ensuring invoice_items.hsn_code column: {e}")
 
 
+def _ensure_invoice_items_nullable_item_id() -> None:
+    """Ensure invoice_items.item_id is nullable and FK constraint allows NULL for manual items."""
+    try:
+        with postgres_db.get_connection() as conn:
+            cursor = conn.cursor()
+            # Drop the FK constraint if it exists (it blocks NULL item_id)
+            cursor.execute(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.table_constraints
+                        WHERE constraint_name = 'fk_invoice_items_item'
+                        AND table_name = 'invoice_items'
+                    ) THEN
+                        ALTER TABLE invoice_items DROP CONSTRAINT fk_invoice_items_item;
+                    END IF;
+                END $$;
+                """
+            )
+            # Make item_id nullable
+            cursor.execute(
+                """
+                ALTER TABLE invoice_items ALTER COLUMN item_id DROP NOT NULL
+                """
+            )
+            conn.commit()
+            print("✅ invoice_items.item_id is now nullable (manual items supported)")
+    except Exception as e:
+        print(f"Error ensuring invoice_items.item_id nullable: {e}")
+
+
 def _ensure_invoices_freight_charges_column() -> None:
     """Ensure invoices table has freight_charges and freight_gst_rate columns."""
     try:
@@ -329,6 +361,7 @@ async def create_invoice(
     # Ensure required columns exist
     _ensure_invoice_items_hsn_code_column()
     _ensure_invoices_freight_charges_column()
+    _ensure_invoice_items_nullable_item_id()
 
     account_id = current_user["account_id"]
 
@@ -370,28 +403,43 @@ async def create_invoice(
             item_rows: List[Dict[str, Decimal]] = []
 
             for payload_item in invoice_data.items:
-                cursor.execute(
-                    """
-                    SELECT id, account_id, name, description, sku, current_stock
-                    FROM items
-                    WHERE id = %s AND account_id = %s
-                    """,
-                    (payload_item.item_id, account_id),
-                )
-                db_item = cursor.fetchone()
-                if not db_item:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"Item {payload_item.item_id} not found",
+                # Check if this is a manual/adhoc item (item_id = 0 or None)
+                is_manual_item = not payload_item.item_id or payload_item.item_id == 0
+                
+                if is_manual_item:
+                    # Manual item - use payload data directly, skip DB lookup and stock validation
+                    db_item = {
+                        "id": None,
+                        "account_id": account_id,
+                        "name": payload_item.item_name or "Manual Item",
+                        "description": payload_item.item_description,
+                        "sku": payload_item.item_sku or "MANUAL",
+                        "current_stock": None,  # No stock tracking for manual items
+                    }
+                else:
+                    # Inventory item - lookup from database
+                    cursor.execute(
+                        """
+                        SELECT id, account_id, name, description, sku, current_stock
+                        FROM items
+                        WHERE id = %s AND account_id = %s
+                        """,
+                        (payload_item.item_id, account_id),
                     )
+                    db_item = cursor.fetchone()
+                    if not db_item:
+                        raise HTTPException(
+                            status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"Item {payload_item.item_id} not found",
+                        )
 
-                quantity = Decimal(payload_item.quantity)
-                current_stock = db_item.get("current_stock")
-                if current_stock is not None and Decimal(current_stock) < quantity:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Insufficient stock for item {db_item['name']}",
-                    )
+                    quantity = Decimal(payload_item.quantity)
+                    current_stock = db_item.get("current_stock")
+                    if current_stock is not None and Decimal(current_stock) < quantity:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Insufficient stock for item {db_item['name']}",
+                        )
 
                 item_dict = {
                     "quantity": Decimal(payload_item.quantity),
@@ -541,53 +589,55 @@ async def create_invoice(
                     ),
                 )
 
-                # Get current stock before update
-                current_stock_before = float(db_item.get("current_stock") or 0)
-                current_stock_after = current_stock_before - float(payload.quantity)
-                
-                cursor.execute(
-                    """
-                    UPDATE items
-                    SET current_stock = COALESCE(current_stock, 0) - %s,
-                        stock_quantity = COALESCE(stock_quantity, 0) - %s,
-                        updated_at = %s
-                    WHERE id = %s AND account_id = %s
-                    """,
-                    (
-                        Decimal(payload.quantity),
-                        Decimal(payload.quantity),
-                        created_at,
-                        db_item["id"],
-                        account_id,
-                    ),
-                )
+                # Skip stock deduction for manual items (item_id is None)
+                if db_item["id"] is not None:
+                    # Get current stock before update
+                    current_stock_before = float(db_item.get("current_stock") or 0)
+                    current_stock_after = current_stock_before - float(payload.quantity)
+                    
+                    cursor.execute(
+                        """
+                        UPDATE items
+                        SET current_stock = COALESCE(current_stock, 0) - %s,
+                            stock_quantity = COALESCE(stock_quantity, 0) - %s,
+                            updated_at = %s
+                        WHERE id = %s AND account_id = %s
+                        """,
+                        (
+                            Decimal(payload.quantity),
+                            Decimal(payload.quantity),
+                            created_at,
+                            db_item["id"],
+                            account_id,
+                        ),
+                    )
 
-                cursor.execute(
-                    """
-                    INSERT INTO inventory_logs (
-                        item_id,
-                        item_account_id,
-                        action,
-                        notes,
-                        recorded_by,
-                        recorded_by_account_id,
-                        quantity_before,
-                        quantity_after,
-                        created_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        db_item["id"],
-                        account_id,
-                        "stock_out",
-                        f"Stock reduced for invoice {invoice_number}",
-                        current_user["id"],
-                        account_id,
-                        current_stock_before,
-                        current_stock_after,
-                        created_at,
-                    ),
-                )
+                    cursor.execute(
+                        """
+                        INSERT INTO inventory_logs (
+                            item_id,
+                            item_account_id,
+                            action,
+                            notes,
+                            recorded_by,
+                            recorded_by_account_id,
+                            quantity_before,
+                            quantity_after,
+                            created_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            db_item["id"],
+                            account_id,
+                            "stock_out",
+                            f"Stock reduced for invoice {invoice_number}",
+                            current_user["id"],
+                            account_id,
+                            current_stock_before,
+                            current_stock_after,
+                            created_at,
+                        ),
+                    )
 
             conn.commit()
 

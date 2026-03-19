@@ -37,10 +37,10 @@ export interface Invoice {
 export interface InvoiceItem {
   id: number;
   invoice_id: number;
-  item_id: number;
+  item_id: number | null;
   item_name: string;
   item_description?: string;
-  item_sku: string;
+  item_sku: string | null;
   hsn_code?: string;
   quantity: number;
   unit_price: number;
@@ -80,10 +80,10 @@ export interface InvoiceCreate {
 }
 
 export interface InvoiceItemCreate {
-  item_id: number;
+  item_id: number | null;
   item_name: string;
   item_description?: string;
-  item_sku: string;
+  item_sku: string | null;
   hsn_code?: string;
   quantity: number;
   unit_price: number;

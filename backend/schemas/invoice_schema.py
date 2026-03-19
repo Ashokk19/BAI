@@ -11,10 +11,10 @@ from decimal import Decimal
 
 class InvoiceItemBase(BaseModel):
     """Base invoice item schema."""
-    item_id: int = Field(..., description="Item ID")
+    item_id: Optional[int] = Field(None, description="Item ID (None for manual/adhoc items)")
     item_name: str = Field(..., max_length=200, description="Item name")
     item_description: Optional[str] = Field(None, description="Item description")
-    item_sku: str = Field(..., max_length=50, description="Item SKU")
+    item_sku: Optional[str] = Field(None, max_length=50, description="Item SKU")
     hsn_code: Optional[str] = Field(None, max_length=50, description="HSN/SAC code")
     quantity: Decimal = Field(..., gt=0, description="Quantity")
     unit_price: Decimal = Field(..., ge=0, description="Unit price")
