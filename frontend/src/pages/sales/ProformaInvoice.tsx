@@ -52,6 +52,7 @@ interface InvoiceItem {
   igst_amount: number;
   tax_amount: number;
   line_total: number;
+  is_manual?: boolean;
 }
 
 interface ProformaInvoiceData {
@@ -62,6 +63,66 @@ interface ProformaInvoiceData {
   company_state: string;
   notes: string;
   items: InvoiceItem[];
+}
+
+const convertNumberToWords = (amount: number): string => {
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  
+  const convertLessThanOneThousand = (num: number): string => {
+    if (num === 0) return '';
+    
+    if (num < 10) return ones[num];
+    
+    if (num < 20) return teens[num - 10];
+    
+    if (num < 100) {
+      return tens[Math.floor(num / 10)] + (num % 10 !== 0 ? ' ' + ones[num % 10] : '');
+    }
+    
+    return ones[Math.floor(num / 100)] + ' Hundred' + (num % 100 !== 0 ? ' and ' + convertLessThanOneThousand(num % 100) : '');
+  };
+  
+  const convert = (num: number): string => {
+    if (num === 0) return 'Zero';
+    
+    const crore = Math.floor(num / 10000000);
+    const lakh = Math.floor((num % 10000000) / 100000);
+    const thousand = Math.floor((num % 100000) / 1000);
+    const remainder = num % 1000;
+    
+    let result = '';
+    
+    if (crore > 0) {
+      result += convertLessThanOneThousand(crore) + ' Crore';
+    }
+    
+    if (lakh > 0) {
+      result += (result ? ' ' : '') + convertLessThanOneThousand(lakh) + ' Lakh';
+    }
+    
+    if (thousand > 0) {
+      result += (result ? ' ' : '') + convertLessThanOneThousand(thousand) + ' Thousand';
+    }
+    
+    if (remainder > 0) {
+      result += (result ? ' ' : '') + convertLessThanOneThousand(remainder);
+    }
+    
+    return result;
+  };
+  
+  const rupees = Math.floor(amount);
+  const paise = Math.round((amount - rupees) * 100);
+  
+  let result = convert(rupees) + ' Rupees';
+  
+  if (paise > 0) {
+    result += ' and ' + convert(paise) + ' Paise';
+  }
+  
+  return result;
 }
 
 const ProformaInvoice: React.FC = () => {
@@ -83,7 +144,7 @@ const ProformaInvoice: React.FC = () => {
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [whatsAppMessage, setWhatsAppMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-    const [customerSearch, setCustomerSearch] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [itemSearches, setItemSearches] = useState<{[key: number]: string}>({});
   const [showItemDropdowns, setShowItemDropdowns] = useState<{[key: number]: boolean}>({});
@@ -165,7 +226,6 @@ const ProformaInvoice: React.FC = () => {
       }
       
       const activeCustomers = allCustomers.filter(c => c.is_active);
-      console.log('Loaded customers:', activeCustomers.length);
       setCustomers(activeCustomers);
     } catch (error) {
       console.error('Error loading customers:', error);
@@ -234,7 +294,6 @@ const ProformaInvoice: React.FC = () => {
     try {
       const orgData = await organizationService.getOrganizationProfile();
       setOrganization(orgData);
-      console.log('Organization data loaded:', orgData);
     } catch (error) {
       console.error('Error loading organization:', error);
       // Organization is optional, continue without it
@@ -244,7 +303,6 @@ const ProformaInvoice: React.FC = () => {
 
   const getCustomerDisplayName = (customer: Customer) => {
     const displayName = customer.company_name || `${customer.first_name} ${customer.last_name}`;
-    console.log('getCustomerDisplayName for:', customer.email, 'result:', displayName);
     return displayName;
   };
 
@@ -258,14 +316,10 @@ const ProformaInvoice: React.FC = () => {
     const matches = displayName.toLowerCase().includes(searchLower) ||
            customer.customer_code.toLowerCase().includes(searchLower) ||
            customer.email.toLowerCase().includes(searchLower);
-    if (customerSearch && matches) {
-      console.log('Customer matches search:', customer.email, 'display:', displayName);
-    }
     return matches;
   });
 
   const handleCustomerSelect = (customer: Customer) => {
-    console.log('handleCustomerSelect called with:', customer.email);
     setSelectedCustomer(customer);
     setProformaInvoice(prev => ({
       ...prev,
@@ -274,7 +328,6 @@ const ProformaInvoice: React.FC = () => {
     }));
     setCustomerSearch(getCustomerDisplayName(customer));
     setShowCustomerDropdown(false);
-    console.log('Customer selection completed');
   };
 
   const getFilteredItems = (searchTerm: string) => {
@@ -286,7 +339,6 @@ const ProformaInvoice: React.FC = () => {
   };
 
   const handleItemSelect = (index: number, item: Item) => {
-    console.log('Selecting item:', item.name, 'for index:', index);
     updateInvoiceItem(index, 'item_id', item.id);
     setItemSearches(prev => ({ ...prev, [index]: `${item.name} (${item.sku})` }));
     setShowItemDropdowns(prev => ({ ...prev, [index]: false }));
@@ -297,25 +349,26 @@ const ProformaInvoice: React.FC = () => {
     return item ? `${item.name} (${item.sku})` : '';
   };
 
-  const addInvoiceItem = () => {
+  const addInvoiceItem = (isManual: boolean = false) => {
     const newIndex = invoiceItems.length;
     const newItem: InvoiceItem = {
       item_id: 0,
       item_name: '',
-      item_sku: '',
+      item_sku: isManual ? 'MANUAL' : '',
       hsn_code: '',
       quantity: 1,
       unit_price: 0,
       discount_amount: 0,
       gst_rate: 18,
-      cgst_rate: 0,
-      sgst_rate: 0,
-      igst_rate: 0,
+      cgst_rate: 9,
+      sgst_rate: 9,
+      igst_rate: 18,
       cgst_amount: 0,
       sgst_amount: 0,
       igst_amount: 0,
       tax_amount: 0,
-      line_total: 0
+      line_total: 0,
+      is_manual: isManual
     };
     setProformaInvoiceItems([...invoiceItems, newItem]);
     // Initialize search states for the new item
@@ -353,25 +406,26 @@ const ProformaInvoice: React.FC = () => {
   };
 
   const updateInvoiceItem = (index: number, field: keyof InvoiceItem, value: any) => {
-    console.log('updateInvoiceItem called:', { index, field, value });
     const newItems = [...invoiceItems];
     
-    // Validate stock quantity before updating
+    // Validate stock quantity before updating (skip for manual items)
     if (field === 'quantity') {
       const currentItem = newItems[index];
-      const itemData = items.find(i => i.id === currentItem.item_id);
       
-      if (itemData && value > itemData.current_stock) {
-        notifications.warning(
-          'Insufficient Stock',
-          `Cannot order ${value} units. Only ${itemData.current_stock} units available for '${itemData.name}'.`,
-          {
-            autoClose: true,
-            autoCloseDelay: 4000
-          }
-        );
-        // Don't update the value, keep the current quantity
-        return;
+      if (!currentItem.is_manual) {
+        const itemData = items.find(i => i.id === currentItem.item_id);
+        
+        if (itemData && value > itemData.current_stock) {
+          notifications.warning(
+            'Insufficient Stock',
+            `Cannot order ${value} units. Only ${itemData.current_stock} units available for '${itemData.name}'.`,
+            {
+              autoClose: true,
+              autoCloseDelay: 4000
+            }
+          );
+          return;
+        }
       }
     }
     
@@ -380,7 +434,6 @@ const ProformaInvoice: React.FC = () => {
     // If item is selected, update item details
     if (field === 'item_id' && value > 0) {
       const item = items.find(i => i.id === value);
-      console.log('Found item:', item);
       if (item) {
         newItems[index].item_name = item.name;
         newItems[index].item_sku = item.sku;
@@ -397,7 +450,6 @@ const ProformaInvoice: React.FC = () => {
         newItems[index].cgst_rate = newItems[index].gst_rate / 2;
         newItems[index].sgst_rate = newItems[index].gst_rate / 2;
         newItems[index].igst_rate = newItems[index].gst_rate;
-        console.log('Updated item:', newItems[index]);
       }
     }
     
@@ -462,13 +514,41 @@ const ProformaInvoice: React.FC = () => {
     
     setIsLoading(true);
     try {
-      const invoiceData = {
-        account_id: user?.account_id || 'TestAccount', // Use current user's account_id
-        customer_id: selectedCustomer?.id || 0,
-        invoice_date: new Date(proformaInvoice.proforma_date).toISOString(),
-        due_date: proformaInvoice.valid_until ? new Date(proformaInvoice.valid_until).toISOString() : undefined,
-        status: 'sent',
-        invoice_type: 'sale',
+      // If adhoc customer, create them in the database first
+      let customerId = selectedCustomer?.id || 0;
+      if (isAdhocCustomer && !selectedCustomer) {
+        const customerCode = `ADHOC-${Date.now()}`;
+        const newCustomer = await customerApi.createCustomer({
+          customer_code: customerCode,
+          company_name: adhocCustomer.company_name || undefined,
+          first_name: adhocCustomer.first_name || undefined,
+          last_name: adhocCustomer.last_name || undefined,
+          email: adhocCustomer.email || undefined,
+          phone: adhocCustomer.phone || undefined,
+          mobile: adhocCustomer.mobile || undefined,
+          billing_address: adhocCustomer.billing_address || undefined,
+          city: adhocCustomer.city || undefined,
+          state: adhocCustomer.state || undefined,
+          postal_code: adhocCustomer.postal_code || undefined,
+          gst_number: adhocCustomer.gst_number || undefined,
+          customer_type: adhocCustomer.company_name ? 'business' : 'individual',
+          payment_terms: adhocCustomer.payment_terms || 'immediate',
+          currency: 'INR',
+          country: 'India',
+          is_active: true,
+        });
+        customerId = newCustomer.id;
+        setSelectedCustomer(newCustomer);
+      }
+
+      // Import proformaInvoiceApi dynamically to avoid circular imports
+      const { proformaInvoiceApi } = await import('../../services/proformaInvoiceApi');
+      const savedInvoice = await proformaInvoiceApi.createProformaInvoice({
+        account_id: user?.account_id || 'TestAccount',
+        customer_id: customerId,
+        proforma_date: new Date(proformaInvoice.proforma_date).toISOString(),
+        valid_until: proformaInvoice.valid_until ? new Date(proformaInvoice.valid_until).toISOString() : undefined,
+        status: 'draft',
         payment_terms: selectedCustomer?.payment_terms || adhocCustomer.payment_terms || 'immediate',
         currency: 'INR',
         billing_address: selectedCustomer?.billing_address || adhocCustomer.billing_address || undefined,
@@ -478,46 +558,14 @@ const ProformaInvoice: React.FC = () => {
         customer_state: selectedCustomer?.state || adhocCustomer.state,
         company_state: organization?.state || 'Tamil Nadu',
         items: invoiceItems.map(item => ({
-          item_id: item.item_id,
+          item_id: item.is_manual ? null : item.item_id,
           item_name: item.item_name,
           item_description: undefined,
-          item_sku: item.item_sku,
+          item_sku: item.is_manual ? null : item.item_sku,
+          hsn_code: item.hsn_code,
           quantity: item.quantity,
           unit_price: item.unit_price,
           discount_rate: 0,
-          discount_amount: item.discount_amount,
-          gst_rate: item.gst_rate,
-          cgst_rate: item.cgst_rate,
-          sgst_rate: item.sgst_rate,
-          igst_rate: item.igst_rate
-        }))
-      };
-      
-      // Import proformaInvoiceApi dynamically to avoid circular imports
-      const { proformaInvoiceApi } = await import('../../services/proformaInvoiceApi');
-      const savedInvoice = await proformaInvoiceApi.createProformaInvoice({
-        account_id: invoiceData.account_id,
-        customer_id: invoiceData.customer_id,
-        proforma_date: invoiceData.invoice_date,
-        valid_until: invoiceData.due_date,
-        status: 'draft',
-        payment_terms: invoiceData.payment_terms,
-        currency: invoiceData.currency,
-        billing_address: invoiceData.billing_address,
-        shipping_address: invoiceData.shipping_address,
-        notes: invoiceData.notes,
-        terms_conditions: invoiceData.terms_conditions,
-        customer_state: invoiceData.customer_state,
-        company_state: invoiceData.company_state,
-        items: invoiceData.items.map(item => ({
-          item_id: item.item_id,
-          item_name: item.item_name,
-          item_description: item.item_description,
-          item_sku: item.item_sku,
-          hsn_code: (item as any).hsn_code,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          discount_rate: item.discount_rate,
           discount_amount: item.discount_amount,
           gst_rate: item.gst_rate,
           cgst_rate: item.cgst_rate,
@@ -537,12 +585,7 @@ const ProformaInvoice: React.FC = () => {
         }
       );
       
-      // Don't clear form data here - keep it for download/sending functionality
-      
     } catch (error: any) {
-      console.error('Error generating invoice:', error);
-      
-      // Parse error message from backend
       let errorTitle = 'Generation Failed';
       let errorMessage = 'Unable to generate proformaInvoice. Please check your connection and try again.';
       
@@ -611,7 +654,7 @@ const ProformaInvoice: React.FC = () => {
       const logoResult = await organizationService.getLogo();
       if (logoResult.logo_data) logoSrc = logoResult.logo_data;
     } catch (e) {
-      console.warn('Failed to load logo:', e);
+      console.error('Failed to load logo:', e);
     }
 
     // Dynamic accent color from organization settings (proforma uses proforma_invoice_color)
@@ -1374,61 +1417,6 @@ ${(organization?.terms_and_conditions || '').trim()}
     );
   };
 
-  // Helper function to convert numbers to words (basic implementation)
-  const convertNumberToWords = (amount: number): string => {
-    if (amount === 0) return 'Zero';
-    
-    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
-    const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-    
-    const convertHundreds = (num: number): string => {
-      let result = '';
-      if (num >= 100) {
-        result += ones[Math.floor(num / 100)] + ' Hundred ';
-        num %= 100;
-      }
-      if (num >= 20) {
-        result += tens[Math.floor(num / 10)] + ' ';
-        num %= 10;
-      } else if (num >= 10) {
-        result += teens[num - 10] + ' ';
-        return result;
-      }
-      if (num > 0) {
-        result += ones[num] + ' ';
-      }
-      return result;
-    };
-    
-    let integerPart = Math.floor(amount);
-    const decimalPart = Math.round((amount - integerPart) * 100);
-    
-    let result = '';
-    
-    if (integerPart >= 10000000) {
-      result += convertHundreds(Math.floor(integerPart / 10000000)) + 'Crore ';
-      integerPart %= 10000000;
-    }
-    if (integerPart >= 100000) {
-      result += convertHundreds(Math.floor(integerPart / 100000)) + 'Lakh ';
-      integerPart %= 100000;
-    }
-    if (integerPart >= 1000) {
-      result += convertHundreds(Math.floor(integerPart / 1000)) + 'Thousand ';
-      integerPart %= 1000;
-    }
-    if (integerPart > 0) {
-      result += convertHundreds(integerPart);
-    }
-    
-    if (decimalPart > 0) {
-      result += 'and ' + convertHundreds(decimalPart) + 'Paise ';
-    }
-    
-    return result.trim();
-  };
-
   const handleSendWhatsApp = () => {
     if (!generatedInvoice) {
       notifications.warning(
@@ -1464,7 +1452,7 @@ ${(organization?.terms_and_conditions || '').trim()}
     
     setIsLoading(true);
     try {
-      console.log('Sending WhatsApp message:', {
+      console.error('Sending WhatsApp message:', {
         phone: customerMobile,
         message: whatsAppMessage,
         invoice: proformaInvoice
@@ -1633,19 +1621,11 @@ ${(organization?.terms_and_conditions || '').trim()}
                     type="text"
                     value={customerSearch}
                     onChange={(e) => {
-                      console.log('Customer search changed to:', e.target.value);
                       setCustomerSearch(e.target.value);
                       setShowCustomerDropdown(true);
-                      console.log('Customer dropdown shown, filtered customers:', filteredCustomers.length);
                     }}
-                    onFocus={() => {
-                      console.log('Customer input focused');
-                      setShowCustomerDropdown(true);
-                    }}
-                    onBlur={() => {
-                      console.log('Customer input blurred, closing dropdown in 500ms');
-                      setTimeout(() => setShowCustomerDropdown(false), 500);
-                    }}
+                    onFocus={() => setShowCustomerDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 500)}
                     placeholder="Search customers..."
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-10"
                   />
@@ -1656,10 +1636,7 @@ ${(organization?.terms_and_conditions || '').trim()}
                       {filteredCustomers.slice(0, 10).map(customer => (
                         <div
                           key={customer.id}
-                          onClick={() => {
-                            console.log('Customer dropdown item clicked:', customer.email);
-                            handleCustomerSelect(customer);
-                          }}
+                          onClick={() => handleCustomerSelect(customer)}
                           className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
                         >
                           <div className="font-medium text-gray-900">
@@ -1831,65 +1808,110 @@ ${(organization?.terms_and_conditions || '').trim()}
               <Package className="w-5 h-5 text-purple-600" />
               Invoice Items
             </h2>
-            <button
-              onClick={addInvoiceItem}
-              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Add Item
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => addInvoiceItem(false)}
+                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Add Item
+              </button>
+              <button
+                onClick={() => addInvoiceItem(true)}
+                className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                title="Add item manually without selecting from inventory"
+              >
+                <Plus className="w-4 h-4" />
+                Manual Entry
+              </button>
+            </div>
           </div>
           
           <div className="space-y-4">
             {invoiceItems.map((item, index) => (
-              <div key={index} className="border border-gray-200 rounded-lg p-4">
+              <div key={index} className="border border-gray-200 rounded-lg p-4 relative">
                 <div className="flex flex-wrap gap-3 items-end">
-                  {/* Item Selection */}
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Item
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={itemSearches[index] || (item.item_id > 0 ? getItemDisplayName(item.item_id) : '')}
-                        onChange={(e) => {
-                          setItemSearches(prev => ({ ...prev, [index]: e.target.value }));
-                          setShowItemDropdowns(prev => ({ ...prev, [index]: true }));
-                        }}
-                        onFocus={() => setShowItemDropdowns(prev => ({ ...prev, [index]: true }))}
-                        onBlur={() => setTimeout(() => setShowItemDropdowns(prev => ({ ...prev, [index]: false })), 500)}
-                        placeholder="Search items..."
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-8"
-                      />
-                      <Search className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      
-                      {showItemDropdowns[index] && (
-                                                 <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                                                     {getFilteredItems(itemSearches[index] || '').slice(0, 10).map(availableItem => (
-                             <div
-                               key={availableItem.id}
-                               onClick={() => {
-                                 console.log('Dropdown item clicked:', availableItem.name);
-                                 handleItemSelect(index, availableItem);
-                               }}
-                               className="p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-                             >
-                               <div className="font-medium text-gray-900 text-sm">
-                                 {availableItem.name}
-                               </div>
-                               <div className="text-xs text-gray-500">
-                                 SKU: {availableItem.sku} • Stock: {availableItem.current_stock} • ₹{availableItem.selling_price}
-                               </div>
-                             </div>
-                           ))}
-                          {getFilteredItems(itemSearches[index] || '').length === 0 && (
-                            <div className="p-2 text-gray-500 text-sm">No items found</div>
-                          )}
-                        </div>
-                      )}
+                  {/* Manual Item Badge */}
+                  {item.is_manual && (
+                    <div className="absolute -top-2 -left-2 px-2 py-0.5 bg-gray-500 text-white text-xs rounded-full">
+                      Manual
                     </div>
-                  </div>
+                  )}
+                  
+                  {/* Item Selection - Different UI for manual vs inventory items */}
+                  {item.is_manual ? (
+                    <>
+                      {/* Manual Item Name */}
+                      <div className="flex-1 min-w-[150px]">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Item Name *
+                        </label>
+                        <input
+                          type="text"
+                          value={item.item_name}
+                          onChange={(e) => updateInvoiceItem(index, 'item_name', e.target.value)}
+                          placeholder="Enter item name"
+                          className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                      </div>
+                      {/* Manual HSN Code */}
+                      <div className="w-28">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          HSN Code
+                        </label>
+                        <input
+                          type="text"
+                          value={item.hsn_code || ''}
+                          onChange={(e) => updateInvoiceItem(index, 'hsn_code', e.target.value)}
+                          placeholder="HSN"
+                          className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex-1 min-w-[200px]">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Item
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={itemSearches[index] || (item.item_id > 0 ? getItemDisplayName(item.item_id) : '')}
+                          onChange={(e) => {
+                            setItemSearches(prev => ({ ...prev, [index]: e.target.value }));
+                            setShowItemDropdowns(prev => ({ ...prev, [index]: true }));
+                          }}
+                          onFocus={() => setShowItemDropdowns(prev => ({ ...prev, [index]: true }))}
+                          onBlur={() => setTimeout(() => setShowItemDropdowns(prev => ({ ...prev, [index]: false })), 500)}
+                          placeholder="Search items..."
+                          className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-8"
+                        />
+                        <Search className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        
+                        {showItemDropdowns[index] && (
+                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {getFilteredItems(itemSearches[index] || '').slice(0, 10).map(availableItem => (
+                              <div
+                                key={availableItem.id}
+                                onClick={() => handleItemSelect(index, availableItem)}
+                                className="p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                              >
+                                <div className="font-medium text-gray-900 text-sm">
+                                  {availableItem.name}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  SKU: {availableItem.sku} • Stock: {availableItem.current_stock} • ₹{availableItem.selling_price}
+                                </div>
+                              </div>
+                            ))}
+                            {getFilteredItems(itemSearches[index] || '').length === 0 && (
+                              <div className="p-2 text-gray-500 text-sm">No items found</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Quantity */}
                   <div className="w-20">
@@ -1903,11 +1925,13 @@ ${(organization?.terms_and_conditions || '').trim()}
                       className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                       min="0"
                       max={(() => {
+                        if (item.is_manual) return undefined;
                         const itemData = items.find(i => i.id === item.item_id);
                         return itemData ? itemData.current_stock : undefined;
                       })()}
                       step="1"
                       title={(() => {
+                        if (item.is_manual) return '';
                         const itemData = items.find(i => i.id === item.item_id);
                         return itemData ? `Maximum available: ${itemData.current_stock}` : '';
                       })()}
@@ -1929,14 +1953,34 @@ ${(organization?.terms_and_conditions || '').trim()}
                     />
                   </div>
                   
-                  {/* GST Rate - Display Only */}
+                  {/* GST Rate - Editable for manual items, display only for inventory items */}
                   <div className="w-24">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       GST Rate
                     </label>
-                    <div className="p-2 bg-gray-50 rounded text-center font-medium">
-                      {item.gst_rate}%
-                    </div>
+                    {item.is_manual ? (
+                      <select
+                        value={item.gst_rate}
+                        onChange={(e) => {
+                          const rate = parseFloat(e.target.value);
+                          updateInvoiceItem(index, 'gst_rate', rate);
+                          updateInvoiceItem(index, 'cgst_rate', rate / 2);
+                          updateInvoiceItem(index, 'sgst_rate', rate / 2);
+                          updateInvoiceItem(index, 'igst_rate', rate);
+                        }}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      >
+                        <option value={0}>0%</option>
+                        <option value={5}>5%</option>
+                        <option value={12}>12%</option>
+                        <option value={18}>18%</option>
+                        <option value={28}>28%</option>
+                      </select>
+                    ) : (
+                      <div className="p-2 bg-gray-50 rounded text-center font-medium">
+                        {item.gst_rate}%
+                      </div>
+                    )}
                   </div>
                   
                   {/* Tax Amount */}
@@ -1969,7 +2013,6 @@ ${(organization?.terms_and_conditions || '').trim()}
                     </button>
                   </div>
                 </div>
-                
 
               </div>
             ))}

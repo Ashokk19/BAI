@@ -135,14 +135,12 @@ export default function CreditTracking() {
       // }
 
       const response = await creditApi.getCustomerCredits(params)
-      console.log('All credits loaded:', response.credits.length, response.credits)
       setAllCredits(response.credits)
     } catch (error) {
       console.error('Error loading all credits:', error)
       // If the API call fails, try to get credits from the existing credits array
       // This ensures we at least have some data for calculations
       if (credits.length > 0) {
-        console.log('Using existing credits for summary calculations:', credits.length)
         setAllCredits(credits)
       }
     }
@@ -280,21 +278,6 @@ export default function CreditTracking() {
     return sum + (isNaN(amount) ? 0 : amount)
   }, 0)
   const activeCredits = creditsForCalculation.filter((credit) => credit.status === "active").length
-
-  // Debug logging
-  console.log('Summary calculations:', {
-    allCreditsLength: allCredits.length,
-    creditsLength: credits.length,
-    creditsForCalculationLength: creditsForCalculation.length,
-    totalCredits,
-    totalCreditAmount,
-    totalRemainingAmount,
-    activeCredits,
-    sampleCredit: creditsForCalculation[0],
-    sampleOriginalAmount: creditsForCalculation[0]?.original_amount,
-    sampleRemainingAmount: creditsForCalculation[0]?.remaining_amount,
-    sampleStatus: creditsForCalculation[0]?.status
-  })
 
   return (
     <div className="space-y-6">

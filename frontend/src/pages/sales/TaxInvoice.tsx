@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Minus, Save, Send, FileText, Calculator, User, Package, MessageCircle, Search, Download } from 'lucide-react';
+import { Plus, Minus, Save, Send, FileText, Calculator, User, Package, MessageCircle, Search, Download, Mail, Loader2 } from 'lucide-react';
 import { customerApi, Customer, CustomerCreditInfo } from '../../services/customerApi';
 import { inventoryApi } from '../../services/inventoryApi';
 import { organizationService, OrganizationProfile } from '../../services/organizationService';
 import { useNotifications, NotificationContainer } from '../../components/ui/notification';
 import { useAuth } from '../../utils/AuthContext';
+import { emailApi } from '../../services/emailApi';
 
 interface Item {
   id: number;
@@ -88,6 +89,9 @@ const TaxInvoice: React.FC = () => {
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [whatsAppMessage, setWhatsAppMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailAddress, setEmailAddress] = useState('');
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [showCreditPaymentDialog, setShowCreditPaymentDialog] = useState(false);
   const [customerCreditInfo, setCustomerCreditInfo] = useState<any>(null);
@@ -1740,12 +1744,190 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
       notifications.error(
         'WhatsApp Failed',
         'Unable to send WhatsApp message. Please check the mobile number and try again.',
-        {
-          autoClose: false
-        }
+        { autoClose: false }
       );
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSendEmail = () => {
+    if (!generatedInvoice) {
+      notifications.warning('Invoice Not Generated', 'Please generate the invoice first before sending email.', { autoClose: true, autoCloseDelay: 4000 });
+      return;
+    }
+    const customerEmail = selectedCustomer?.email || adhocCustomer.email;
+    if (customerEmail) {
+      setEmailAddress(customerEmail);
+      sendInvoiceEmail(customerEmail);
+    } else {
+      setEmailAddress('');
+      setShowEmailModal(true);
+    }
+  };
+
+  const generatePdfBase64 = async (): Promise<string> => {
+    const html2pdf = (await import('html2pdf.js')).default;
+    
+    let orgForPdf = organization as OrganizationProfile | null;
+    const customerName = selectedCustomer ? getCustomerDisplayName(selectedCustomer) : getAdhocCustomerDisplayName();
+    const currentCustomer = selectedCustomer || adhocCustomer;
+    const invoiceNumber = generatedInvoice?.invoice_number || `INV-${Date.now().toString().slice(-8)}`;
+    const currentDate = new Date();
+    const accentColor = (orgForPdf as any)?.tax_invoice_color || '#4c1d95';
+
+    const customerState = currentCustomer.state || '';
+    const organizationState = organization?.state || '';
+    const isInterState = customerState.toLowerCase() !== organizationState.toLowerCase();
+    
+    const itemsWithGST = invoiceItems.map(item => {
+      const baseAmount = (item.quantity * item.unit_price) - item.discount_amount;
+      const igstAmount = isInterState ? (baseAmount * item.gst_rate) / 100 : 0;
+      const cgstAmount = !isInterState ? (baseAmount * (item.gst_rate / 2)) / 100 : 0;
+      const sgstAmount = !isInterState ? (baseAmount * (item.gst_rate / 2)) / 100 : 0;
+      return { ...item, cgstAmount, sgstAmount, igstAmount };
+    });
+    
+    const subtotal = itemsWithGST.reduce((sum, item) => sum + ((item.quantity * item.unit_price) - item.discount_amount), 0);
+    const freightCharges = invoice.freight_charges || 0;
+    const freightGst = (freightCharges * (invoice.freight_gst_rate || 0)) / 100;
+    const totalCGST = isInterState ? 0 : itemsWithGST.reduce((sum, item) => sum + item.cgstAmount, 0) + (freightGst / 2);
+    const totalSGST = isInterState ? 0 : itemsWithGST.reduce((sum, item) => sum + item.sgstAmount, 0) + (freightGst / 2);
+    const totalIGST = isInterState ? itemsWithGST.reduce((sum, item) => sum + item.igstAmount, 0) + freightGst : 0;
+    const totalTax = totalCGST + totalSGST + totalIGST;
+    const totalAmount = subtotal + freightCharges + totalTax;
+
+    const signatureName = ((user as any)?.signature_name || `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || user?.username || '').toString();
+
+    const invoiceHtml = `
+      <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; color: #333;">
+        <div style="display: flex; justify-content: space-between; border-bottom: 2px solid ${accentColor}; padding-bottom: 12px; margin-bottom: 15px;">
+          <div>
+            <h1 style="font-size: 24px; color: ${accentColor}; margin: 0 0 4px 0;">${organization?.company_name || 'Company'}</h1>
+            <p style="font-size: 12px; color: #666; margin: 1px 0;">${[organization?.address, organization?.city, organization?.state, organization?.postal_code].filter(Boolean).join(', ')}</p>
+            <p style="font-size: 12px; color: #666; margin: 1px 0;">Phone: ${organization?.phone || ''} | Email: ${organization?.email || ''}</p>
+            <p style="font-size: 12px; color: #666; margin: 1px 0;">GST: ${organization?.gst_number || ''}</p>
+          </div>
+          <div style="text-align: right;">
+            <h2 style="font-size: 28px; margin: 0 0 4px 0;">TAX INVOICE</h2>
+            <div style="font-size: 15px; color: ${accentColor}; font-weight: bold;">${invoiceNumber}</div>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; background: #f8f9fa; padding: 8px 12px; margin-bottom: 15px;">
+          <div style="text-align: center;"><div style="font-size: 10px; color: #666;">INVOICE DATE</div><div style="font-weight: bold;">${new Date(invoice.invoice_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</div></div>
+          <div style="text-align: center;"><div style="font-size: 10px; color: #666;">DUE DATE</div><div style="font-weight: bold;">${new Date(invoice.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</div></div>
+          <div style="text-align: center;"><div style="font-size: 10px; color: #666;">PAYMENT TERMS</div><div style="font-weight: bold;">${currentCustomer.payment_terms || 'Immediate'}</div></div>
+        </div>
+        <div style="display: flex; margin-bottom: 15px;">
+          <div style="flex: 1; padding: 10px; border: 1px solid #e9ecef; margin-right: 10px;">
+            <div style="font-size: 12px; font-weight: bold; color: ${accentColor}; margin-bottom: 6px;">BILL TO</div>
+            <div style="font-weight: bold; margin-bottom: 4px;">${customerName}</div>
+            ${currentCustomer.billing_address ? `<p style="font-size: 12px; margin: 2px 0;"><strong>Address:</strong> ${currentCustomer.billing_address}</p>` : ''}
+            ${currentCustomer.city || currentCustomer.state ? `<p style="font-size: 12px; margin: 2px 0;">${[currentCustomer.city, currentCustomer.state, currentCustomer.postal_code].filter(Boolean).join(', ')}</p>` : ''}
+            ${currentCustomer.email ? `<p style="font-size: 12px; margin: 2px 0;"><strong>Email:</strong> ${currentCustomer.email}</p>` : ''}
+          </div>
+          <div style="flex: 1; padding: 10px; border: 1px solid #e9ecef; margin-left: 10px;">
+            <div style="font-size: 12px; font-weight: bold; color: ${accentColor}; margin-bottom: 6px;">SHIP TO</div>
+            <div style="font-weight: bold; margin-bottom: 4px;">${customerName}</div>
+            <p style="font-size: 12px; margin: 2px 0;"><strong>Address:</strong> ${selectedCustomer?.shipping_address || currentCustomer.billing_address || 'Same as billing'}</p>
+          </div>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px; border: 2px solid ${accentColor};">
+          <thead><tr style="background: ${accentColor};">
+            <th style="padding: 8px; color: white; text-align: center; font-size: 11px;">SR.</th>
+            <th style="padding: 8px; color: white; text-align: left; font-size: 11px;">NAME OF PRODUCT / SERVICE</th>
+            <th style="padding: 8px; color: white; text-align: center; font-size: 11px;">HSN/SAC</th>
+            <th style="padding: 8px; color: white; text-align: center; font-size: 11px;">QTY</th>
+            <th style="padding: 8px; color: white; text-align: right; font-size: 11px;">RATE</th>
+            <th style="padding: 8px; color: white; text-align: right; font-size: 11px;">TAXABLE VALUE</th>
+          </tr></thead>
+          <tbody>
+            ${itemsWithGST.map((item, idx) => `<tr style="background: ${idx % 2 === 0 ? '#fff' : '#f8fafc'};"><td style="padding: 6px; text-align: center; border: 1px solid #e5e7eb;">${idx + 1}</td><td style="padding: 6px; border: 1px solid #e5e7eb;"><strong>${item.item_name}</strong></td><td style="padding: 6px; text-align: center; border: 1px solid #e5e7eb;">${item.hsn_code || '-'}</td><td style="padding: 6px; text-align: center; border: 1px solid #e5e7eb;">${item.quantity}</td><td style="padding: 6px; text-align: right; border: 1px solid #e5e7eb;">₹${item.unit_price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td><td style="padding: 6px; text-align: right; border: 1px solid #e5e7eb;">₹${((item.quantity * item.unit_price) - item.discount_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>`).join('')}
+            <tr style="background: #f1f5f9; font-weight: bold;"><td colspan="5" style="padding: 6px; text-align: center; border: 1px solid #e5e7eb;">Total</td><td style="padding: 6px; text-align: right; border: 1px solid #e5e7eb;">₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
+          </tbody>
+        </table>
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 15px;">
+          <table style="width: 280px; border-collapse: collapse; border: 2px solid ${accentColor};">
+            <tr><td style="padding: 6px 10px; font-weight: bold;">Taxable Amount</td><td style="padding: 6px 10px; text-align: right; font-weight: bold;">₹${(subtotal + freightCharges).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
+            ${isInterState ? `<tr><td style="padding: 6px 10px;">Add : IGST</td><td style="padding: 6px 10px; text-align: right;">₹${totalIGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>` : `<tr><td style="padding: 6px 10px;">Add : CGST</td><td style="padding: 6px 10px; text-align: right;">₹${totalCGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr><tr><td style="padding: 6px 10px;">Add : SGST</td><td style="padding: 6px 10px; text-align: right;">₹${totalSGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>`}
+            <tr><td style="padding: 6px 10px; font-weight: bold;">Total Tax</td><td style="padding: 6px 10px; text-align: right; font-weight: bold;">₹${totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
+            <tr style="background: ${accentColor};"><td style="padding: 8px 10px; color: white; font-weight: bold;">Total Amount After Tax</td><td style="padding: 8px 10px; text-align: right; color: white; font-weight: bold;">₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
+          </table>
+        </div>
+        <div style="background: #f8f9fa; padding: 8px 12px; border: 1px dashed #ccc; margin-bottom: 12px; text-align: center;">
+          <div style="font-size: 11px; color: #666;">Amount in Words:</div>
+          <div style="font-weight: bold;">${convertNumberToWords(totalAmount)} Rupees Only</div>
+        </div>
+        <div style="display: flex; gap: 12px; margin-top: 10px;">
+          <div style="flex: 2; border: 1px solid #ddd; padding: 8px;">
+            <div style="font-weight: bold; color: ${accentColor}; margin-bottom: 6px;">Terms and Conditions:</div>
+            <div style="font-size: 12px; color: #555;">${(orgForPdf?.terms_and_conditions || '').trim()}</div>
+          </div>
+          <div style="flex: 1; border: 1px solid #ddd; padding: 10px; text-align: center;">
+            <div style="font-size: 12px;">For <strong>${orgForPdf?.company_name || ''}</strong></div>
+            <div style="padding: 20px 0; font-family: cursive; font-size: 24px;">${signatureName}</div>
+            <div style="font-size: 11px; color: #666; border-top: 1px solid #ccc; padding-top: 4px;">Authorized Signatory</div>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 20px; padding-top: 10px; border-top: 2px solid #e9ecef; font-size: 11px; color: #666;">
+          <div><strong>Thank you for your business!</strong><br>For any queries: ${organization?.email || ''}</div>
+          <div style="text-align: right;">Generated: ${currentDate.toLocaleDateString('en-IN')}<br>This is a computer generated invoice</div>
+        </div>
+      </div>
+    `;
+
+    const container = document.createElement('div');
+    container.style.position = 'absolute';
+    container.style.left = '-9999px';
+    container.innerHTML = invoiceHtml;
+    document.body.appendChild(container);
+
+    const pdfBlob = await html2pdf().set({
+      margin: 10,
+      filename: `Invoice-${invoiceNumber}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    }).from(container).outputPdf('blob');
+
+    document.body.removeChild(container);
+
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(pdfBlob);
+    });
+  };
+
+  const sendInvoiceEmail = async (toEmail: string) => {
+    if (!generatedInvoice) return;
+    setIsSendingEmail(true);
+    try {
+      const totals = calculateTotals();
+      const customerName = selectedCustomer ? getCustomerDisplayName(selectedCustomer) : getAdhocCustomerDisplayName();
+      const pdfBase64 = await generatePdfBase64();
+
+      await emailApi.sendInvoiceEmail({
+        to: toEmail,
+        customer_name: customerName,
+        invoice_number: generatedInvoice.invoice_number,
+        invoice_date: new Date(invoice.invoice_date).toLocaleDateString(),
+        amount: totals.totalAmount.toFixed(2),
+        pdf_base64: pdfBase64,
+        company_name: organization?.company_name || 'Your Company',
+        company_email: organization?.email || '',
+        user_name: user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username : 'Team'
+      });
+
+      notifications.success('Email Sent!', `Invoice successfully sent to ${toEmail}`, { autoClose: true, autoCloseDelay: 4000 });
+      setShowEmailModal(false);
+      setEmailAddress('');
+    } catch (error: any) {
+      console.error('Error sending email:', error);
+      notifications.error('Email Failed', error?.message || 'Unable to send email. Please try again.', { autoClose: false });
+    } finally {
+      setIsSendingEmail(false);
     }
   };
 
@@ -1839,6 +2021,14 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
           >
             <MessageCircle className="w-5 h-5" />
             Send WhatsApp
+          </button>
+          <button
+            onClick={handleSendEmail}
+            disabled={isSendingEmail || !generatedInvoice}
+            className="bg-violet-600 text-white px-6 py-3 rounded-lg hover:bg-violet-700 flex items-center gap-2 disabled:opacity-50"
+          >
+            {isSendingEmail ? <Loader2 className="w-5 h-5 animate-spin" /> : <Mail className="w-5 h-5" />}
+            {isSendingEmail ? 'Sending...' : 'Send Email'}
           </button>
         </div>
       </div>
@@ -2747,11 +2937,45 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
         </div>
       )}
 
+      {/* Email Modal */}
+      {showEmailModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Send Invoice via Email</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+              <input
+                type="email"
+                value={emailAddress}
+                onChange={(e) => setEmailAddress(e.target.value)}
+                placeholder="Enter email address"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => sendInvoiceEmail(emailAddress)}
+                disabled={isSendingEmail || !emailAddress}
+                className="flex-1 bg-violet-600 text-white px-4 py-2 rounded-lg hover:bg-violet-700 disabled:opacity-50"
+              >
+                {isSendingEmail ? 'Sending...' : 'Send Email'}
+              </button>
+              <button
+                onClick={() => setShowEmailModal(false)}
+                className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
       <footer className="mt-8 bg-gray-50 p-6 rounded-lg border">
         <div className="flex justify-between items-center">
           <div className="text-sm text-gray-600">
-            <p>© 2025 BAI - Billing and Inventory Management. All rights reserved.</p>
+            <p> 2025 BAI - Billing and Inventory Management. All rights reserved.</p>
             <p>For support, contact: support@bai.com | +91 9876543210</p>
           </div>
           <div className="text-right text-sm text-gray-600">

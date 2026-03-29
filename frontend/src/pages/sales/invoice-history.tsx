@@ -11,13 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Calendar } from "@/components/ui/calendar"
 import { DatePopover } from "@/components/ui/date-popover"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon, Search, FileText, Eye, Download, Send, TrendingUp, DollarSign, Clock, CheckCircle, Plus, RefreshCw, Trash2, ChevronLeft, ChevronRight, Truck } from "lucide-react"
+import { CalendarIcon, Search, FileText, Eye, Download, Send, TrendingUp, DollarSign, Clock, CheckCircle, Plus, RefreshCw, Trash2, ChevronLeft, ChevronRight, Truck, Mail, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { invoiceApi, Invoice, InvoiceFilters } from "../../services/invoiceApi"
 import { customerApi, Customer } from "../../services/customerApi"
 import { organizationService } from "../../services/organizationService"
 import { shipmentApi, DeliveryNote } from "../../services/shipmentApi"
 import { paymentApi, Payment } from "../../services/paymentApi"
+import { emailApi } from "../../services/emailApi"
 
 // Currency formatting utility
 const formatCurrency = (amount: number | string): string => {
@@ -156,6 +157,12 @@ export default function InvoiceHistory() {
   const [totalRecords, setTotalRecords] = useState(0)
   const recordsPerPage = 10
 
+  // Email reminder states
+  const [showEmailReminderModal, setShowEmailReminderModal] = useState(false)
+  const [reminderEmailAddress, setReminderEmailAddress] = useState('')
+  const [selectedInvoiceForReminder, setSelectedInvoiceForReminder] = useState<Invoice | null>(null)
+  const [isSendingReminder, setIsSendingReminder] = useState(false)
+
   // Load customers on component mount (only once)
   useEffect(() => {
     loadCustomers()
@@ -194,7 +201,6 @@ export default function InvoiceHistory() {
       }
 
       const response = await invoiceApi.getInvoices(filters)
-      console.log('📊 Invoice API Response:', { total: response.total, invoiceCount: response.invoices?.length })
       setInvoices(response.invoices || [])
       
       // Calculate pagination info
@@ -225,8 +231,6 @@ export default function InvoiceHistory() {
 
   // Consolidated function to load all statuses in parallel
   const loadAllStatusesInParallel = async (invoiceList: Invoice[]) => {
-    console.log('🚀 Loading all statuses in parallel for', invoiceList.length, 'invoices')
-    
     const invoiceIds = invoiceList.map(inv => inv.id)
     
     // Fetch all shipments and delivery notes in parallel using Promise.all
@@ -385,7 +389,6 @@ export default function InvoiceHistory() {
     setPaymentStatuses(paymentStatusMap)
     setPaymentStatusesLoaded(true)
     
-    console.log('✅ All statuses loaded:', { delivery: deliveryStatusMap, payment: paymentStatusMap })
   }
 
   const getDeliveryStatus = (invoiceId: number): string => {
@@ -460,8 +463,68 @@ export default function InvoiceHistory() {
     return new Date(invoice.due_date) < new Date()
   }).length
 
-  const handleSendReminder = (invoiceId: number) => {
-    toast.success("Payment reminder sent!")
+  const handleSendReminder = async (invoiceId: number) => {
+    const invoice = invoices.find(inv => inv.id === invoiceId)
+    if (!invoice) {
+      toast.error("Invoice not found")
+      return
+    }
+
+    const customer = customers.find(c => c.id === invoice.customer_id)
+    const customerEmail = customer?.email
+
+    setSelectedInvoiceForReminder(invoice)
+
+    if (customerEmail) {
+      setReminderEmailAddress(customerEmail)
+      await sendPaymentReminder(invoice, customerEmail)
+    } else {
+      setReminderEmailAddress('')
+      setShowEmailReminderModal(true)
+    }
+  }
+
+  const sendPaymentReminder = async (invoice: Invoice, toEmail: string) => {
+    setIsSendingReminder(true)
+    try {
+      const customer = customers.find(c => c.id === invoice.customer_id)
+      const customerName = customer?.company_name || `${customer?.first_name || ''} ${customer?.last_name || ''}`.trim() || 'Customer'
+      const invoiceDate = new Date(invoice.invoice_date).toLocaleDateString()
+      const pendingAmount = safeNumber(invoice.total_amount).toFixed(2)
+
+      // Get organization data for email
+      let organization: any = null
+      try {
+        organization = await organizationService.getOrganizationProfile()
+      } catch (e) {
+        // Continue without organization data
+      }
+
+      const companyName = organization?.company_name || 'Your Company'
+      const companyEmail = organization?.email || ''
+      const userName = user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username : 'Team'
+
+      await emailApi.sendPaymentReminder({
+        to: toEmail,
+        customer_name: customerName,
+        invoice_number: invoice.invoice_number,
+        invoice_date: invoiceDate,
+        pending_amount: pendingAmount,
+        company_name: companyName,
+        company_email: companyEmail,
+        user_name: userName
+      })
+
+      toast.success(`Payment reminder sent to ${toEmail}`)
+      setShowEmailReminderModal(false)
+      setReminderEmailAddress('')
+      setSelectedInvoiceForReminder(null)
+    } catch (error: any) {
+      console.error('Error sending payment reminder:', error)
+      toast.error(error?.message || 'Failed to send payment reminder')
+    } finally {
+      setIsSendingReminder(false)
+    }
   }
 
   const handleCreateDeliveryNotesForInvoices = async () => {
@@ -1682,6 +1745,85 @@ ${(organization?.terms_and_conditions || '').trim()}
             </div>
           )}
         </Card>
+
+        {/* Email Reminder Modal */}
+        {showEmailReminderModal && selectedInvoiceForReminder && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 rounded-lg max-w-md w-full mx-4 shadow-xl">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Mail className="w-5 h-5 text-orange-600" />
+                Send Payment Reminder
+              </h3>
+              
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm text-amber-800">
+                  No email address found for this customer. Please enter an email address to send the reminder.
+                </p>
+              </div>
+
+              <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-700">
+                  <strong>Invoice:</strong> {selectedInvoiceForReminder.invoice_number}
+                </p>
+                <p className="text-sm text-gray-700">
+                  <strong>Amount:</strong> {formatCurrency(selectedInvoiceForReminder.total_amount)}
+                </p>
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email Address *
+                </label>
+                <Input
+                  type="email"
+                  value={reminderEmailAddress}
+                  onChange={(e) => setReminderEmailAddress(e.target.value)}
+                  className="w-full"
+                  placeholder="customer@example.com"
+                  disabled={isSendingReminder}
+                />
+              </div>
+              
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => {
+                    if (reminderEmailAddress && reminderEmailAddress.includes('@')) {
+                      sendPaymentReminder(selectedInvoiceForReminder, reminderEmailAddress)
+                    } else {
+                      toast.error('Please enter a valid email address')
+                    }
+                  }}
+                  disabled={isSendingReminder || !reminderEmailAddress}
+                  className="flex-1 bg-orange-600 hover:bg-orange-700"
+                >
+                  {isSendingReminder ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4 mr-2" />
+                      Send Reminder
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowEmailReminderModal(false)
+                    setReminderEmailAddress('')
+                    setSelectedInvoiceForReminder(null)
+                  }}
+                  disabled={isSendingReminder}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         </div>
       </div>
     </div>
