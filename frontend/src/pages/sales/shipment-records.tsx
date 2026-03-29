@@ -123,10 +123,7 @@ export default function ShipmentRecords() {
   const loadInvoices = async () => {
     try {
       setInvoicesLoading(true)
-      console.log('Loading invoices...')
       const response = await invoiceApi.getInvoices({ limit: 1000 })
-      console.log('Invoices loaded:', response)
-      console.log('Number of invoices:', response.invoices.length)
       setInvoices(response.invoices)
     } catch (error: any) {
       console.error('Error loading invoices:', error)

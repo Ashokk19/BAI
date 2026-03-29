@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Minus, Save, Send, FileText, Calculator, User, Package, MessageCircle, Search, Download } from 'lucide-react';
+import { Plus, Minus, Save, Send, FileText, Calculator, User, Package, MessageCircle, Search, Download, Mail, Loader2 } from 'lucide-react';
 import { customerApi, Customer, CustomerCreditInfo } from '../../services/customerApi';
 import { inventoryApi } from '../../services/inventoryApi';
 import { organizationService, OrganizationProfile } from '../../services/organizationService';
 import { useNotifications, NotificationContainer } from '../../components/ui/notification';
 import { useAuth } from '../../utils/AuthContext';
+import { emailApi } from '../../services/emailApi';
 
 interface Item {
   id: number;
@@ -88,6 +89,9 @@ const TaxInvoice: React.FC = () => {
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [whatsAppMessage, setWhatsAppMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailAddress, setEmailAddress] = useState('');
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [showCreditPaymentDialog, setShowCreditPaymentDialog] = useState(false);
   const [customerCreditInfo, setCustomerCreditInfo] = useState<any>(null);
@@ -1628,14 +1632,723 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
     );
   };
 
-  // Helper function to convert numbers to words (basic implementation)
+  const buildInvoiceHtmlContent = async (): Promise<string> => {
+    const currentOrganization = organization as OrganizationProfile | null;
+    let orgForPdf = currentOrganization;
+
+    if (!currentOrganization) {
+      try {
+        const orgData = await organizationService.getOrganizationProfile();
+        setOrganization(orgData);
+        orgForPdf = orgData;
+      } catch (e) {
+      }
+    }
+
+    orgForPdf = orgForPdf || currentOrganization || null;
+    const organizationData = orgForPdf || currentOrganization || null;
+    const customerName = selectedCustomer ? getCustomerDisplayName(selectedCustomer) : getAdhocCustomerDisplayName();
+    const currentCustomer = selectedCustomer || adhocCustomer;
+    const invoiceNumber = generatedInvoice?.invoice_number || `INV-${Date.now().toString().slice(-8)}`;
+    const currentDate = new Date();
+
+    let logoSrc = '';
+    try {
+      const logoResult = await organizationService.getLogo();
+      if (logoResult.logo_data) logoSrc = logoResult.logo_data;
+    } catch (e) {
+      console.warn('Failed to load logo:', e);
+    }
+
+    const accentColor = (orgForPdf as any)?.tax_invoice_color || '#4c1d95';
+    const darkerBorder = (() => {
+      const hex = accentColor.replace('#', '');
+      const r = Math.max(0, parseInt(hex.substring(0, 2), 16) - 30);
+      const g = Math.max(0, parseInt(hex.substring(2, 4), 16) - 30);
+      const b = Math.max(0, parseInt(hex.substring(4, 6), 16) - 30);
+      return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    })();
+
+    const customerState = currentCustomer.state || '';
+    const organizationState = organizationData?.state || '';
+    const isInterState = customerState.toLowerCase() !== organizationState.toLowerCase();
+
+    const itemsWithGSTBreakdown = invoiceItems.map(item => {
+      const baseAmount = (item.quantity * item.unit_price) - item.discount_amount;
+      let cgstAmount = 0;
+      let sgstAmount = 0;
+      let igstAmount = 0;
+
+      if (isInterState) {
+        igstAmount = (baseAmount * item.gst_rate) / 100;
+      } else {
+        cgstAmount = (baseAmount * (item.gst_rate / 2)) / 100;
+        sgstAmount = (baseAmount * (item.gst_rate / 2)) / 100;
+      }
+
+      return {
+        ...item,
+        cgstAmount,
+        sgstAmount,
+        igstAmount
+      };
+    });
+
+    const subtotal = itemsWithGSTBreakdown.reduce((sum, item) => sum + ((item.quantity * item.unit_price) - item.discount_amount), 0);
+    const itemCGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.cgstAmount, 0);
+    const itemSGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.sgstAmount, 0);
+    const itemIGST = itemsWithGSTBreakdown.reduce((sum, item) => sum + item.igstAmount, 0);
+    const freightCharges = invoice.freight_charges || 0;
+    const freightGstRate = invoice.freight_gst_rate || 0;
+    const freightGst = (freightCharges * freightGstRate) / 100;
+    const totalCGST = isInterState ? 0 : itemCGST + (freightGst / 2);
+    const totalSGST = isInterState ? 0 : itemSGST + (freightGst / 2);
+    const totalIGST = isInterState ? itemIGST + freightGst : 0;
+    const totalTax = totalCGST + totalSGST + totalIGST;
+    const totalAmount = subtotal + freightCharges + totalTax;
+    const gstBase = subtotal + (freightGstRate > 0 ? freightCharges : 0);
+    const effectiveIgstPct = gstBase > 0 ? ((totalIGST / gstBase) * 100) : 0;
+    const effectiveCgstPct = gstBase > 0 ? ((totalCGST / gstBase) * 100) : 0;
+    const effectiveSgstPct = gstBase > 0 ? ((totalSGST / gstBase) * 100) : 0;
+
+    const signatureName = ((user as any)?.signature_name || `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || user?.username || '').toString();
+    const signatureStyle = ((user as any)?.signature_style || 'handwritten') as string;
+    const signatureStyleCss = (() => {
+      switch (signatureStyle) {
+        case 'cursive':
+          return "font-family: cursive; font-size: 26px;";
+        case 'print':
+          return "font-family: 'Times New Roman', Times, serif; font-size: 24px; font-weight: 600;";
+        case 'mono':
+          return "font-family: 'Courier New', monospace; font-size: 22px; font-weight: 600;";
+        case 'elegant':
+          return "font-family: 'Georgia', 'Palatino Linotype', 'Book Antiqua', Palatino, serif; font-size: 26px; font-style: italic; font-weight: 500;";
+        case 'calligraphy':
+          return "font-family: 'Segoe Script', 'Apple Chancery', 'Comic Sans MS', cursive; font-size: 28px; font-weight: 400;";
+        case 'bold-script':
+          return "font-family: 'Brush Script MT', 'Segoe Script', cursive; font-size: 28px; font-weight: 700;";
+        case 'italic-serif':
+          return "font-family: 'Georgia', 'Times New Roman', serif; font-size: 24px; font-style: italic; font-weight: 600;";
+        case 'handwritten':
+        default:
+          return "font-family: 'Brush Script MT', 'Segoe Script', 'Lucida Handwriting', cursive; font-size: 28px; font-weight: 500;";
+      }
+    })();
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Tax Invoice - ${customerName}</title>
+          <style>
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact;
+              color-adjust: exact;
+            }
+
+            body {
+              font-family: 'Arial', sans-serif;
+              line-height: 1.3;
+              color: #333;
+              background: #ffffff;
+              padding: 12mm;
+              margin: 0;
+            }
+
+            .invoice-container {
+              max-width: 195mm;
+              margin: 0 auto;
+              background: white;
+            }
+
+            .header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              border-bottom: 2px solid ${accentColor};
+              padding-bottom: 12px;
+              margin-bottom: 15px;
+            }
+
+            .company-info h1 {
+              font-size: 24px;
+              font-weight: bold;
+              color: ${accentColor};
+              margin-bottom: 4px;
+            }
+
+            .company-info p {
+              font-size: 13px;
+              color: #666;
+              margin: 1px 0;
+              line-height: 1.2;
+            }
+
+            .invoice-title {
+              text-align: right;
+            }
+
+            .invoice-title h2 {
+              font-size: 28px;
+              font-weight: bold;
+              color: #333;
+              margin-bottom: 4px;
+            }
+
+            .invoice-number {
+              font-size: 15px;
+              color: ${accentColor};
+              font-weight: bold;
+            }
+
+            .invoice-details {
+              display: flex;
+              justify-content: space-between;
+              background: #f8f9fa;
+              padding: 8px 12px;
+              border-radius: 4px;
+              margin-bottom: 15px;
+              border: 1px solid #e9ecef;
+            }
+
+            .detail-group {
+              flex: 1;
+              text-align: center;
+            }
+
+            .detail-label {
+              font-size: 11px;
+              color: #666;
+              text-transform: uppercase;
+              font-weight: bold;
+              margin-bottom: 2px;
+            }
+
+            .detail-value {
+              font-size: 14px;
+              font-weight: bold;
+              color: #333;
+            }
+
+            .customer-section {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 15px;
+            }
+
+            .bill-to, .company-details {
+              flex: 1;
+              padding: 10px;
+              border: 1px solid #e9ecef;
+              border-radius: 4px;
+              background: #fafafa;
+            }
+
+            .bill-to {
+              margin-right: 10px;
+            }
+
+            .company-details {
+              margin-left: 10px;
+            }
+
+            .section-title {
+              font-size: 12px;
+              font-weight: bold;
+              color: ${accentColor};
+              text-transform: uppercase;
+              margin-bottom: 6px;
+              border-bottom: 1px solid #e9ecef;
+              padding-bottom: 2px;
+            }
+
+            .customer-name {
+              font-size: 16px;
+              font-weight: bold;
+              color: #333;
+              margin-bottom: 6px;
+            }
+
+            .customer-details p, .company-details p {
+              margin-bottom: 2px;
+              font-size: 12px;
+              color: #555;
+              line-height: 1.3;
+            }
+
+            .customer-details strong, .company-details strong {
+              color: #333;
+            }
+
+            .items-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 15px;
+              border: 2px solid ${accentColor};
+              border-radius: 4px;
+              overflow: hidden;
+            }
+
+            .items-table thead {
+              background: ${accentColor};
+            }
+
+            .items-table th {
+              padding: 8px 6px;
+              text-align: left;
+              font-weight: bold;
+              font-size: 12px;
+              color: white;
+              text-transform: uppercase;
+              border: 1px solid ${darkerBorder};
+              vertical-align: middle;
+            }
+
+            .items-table th:last-child,
+            .items-table td:last-child {
+              text-align: right;
+            }
+
+            .items-table tbody tr {
+              border-bottom: 1px solid #e5e7eb;
+            }
+
+            .items-table tbody tr:nth-child(even) {
+              background-color: #f8fafc;
+            }
+
+            .items-table tbody tr:nth-child(odd) {
+              background-color: #ffffff;
+            }
+
+            .items-table td {
+              padding: 6px;
+              font-size: 12px;
+              color: #333;
+              line-height: 1.2;
+              border: 1px solid #e5e7eb;
+              vertical-align: middle;
+            }
+
+            .items-table tbody tr:last-child {
+              border-bottom: 2px solid ${accentColor};
+              background-color: #f1f5f9;
+              font-weight: bold;
+            }
+
+            .item-name {
+              font-weight: bold;
+              color: #333;
+              margin-bottom: 1px;
+            }
+
+            .summary-section {
+              display: flex;
+              justify-content: flex-end;
+              margin-bottom: 15px;
+            }
+
+            .summary-table {
+              width: 280px;
+              border-collapse: collapse;
+              border: 2px solid ${accentColor};
+              border-radius: 4px;
+              overflow: hidden;
+            }
+
+            .summary-table tr {
+              border-bottom: 1px solid #e5e7eb;
+            }
+
+            .summary-table tr:last-child {
+              border-bottom: none;
+            }
+
+            .summary-table td {
+              padding: 6px 10px;
+              font-size: 12px;
+              border: 1px solid #e5e7eb;
+            }
+
+            .summary-table .label {
+              font-weight: bold;
+              color: #555;
+            }
+
+            .summary-table .value {
+              text-align: right;
+              font-weight: bold;
+              color: #333;
+            }
+
+            .tax-breakdown {
+              background: #f8f9fa;
+            }
+
+            .total-row {
+              background: ${accentColor};
+            }
+
+            .total-row .label,
+            .total-row .value {
+              color: white;
+              font-size: 14px;
+              font-weight: bold;
+              padding: 8px 10px;
+              border: 1px solid ${darkerBorder};
+            }
+
+            .amount-words {
+              background: #f8f9fa;
+              padding: 8px 12px;
+              border-radius: 4px;
+              border: 1px dashed #ccc;
+              margin-bottom: 12px;
+              text-align: center;
+            }
+
+            .amount-words .label {
+              font-size: 11px;
+              color: #666;
+              margin-bottom: 2px;
+            }
+
+            .amount-words .value {
+              font-size: 14px;
+              font-weight: bold;
+              color: #333;
+            }
+
+            .bank-details {
+              background: #f8f9fa;
+              padding: 8px 12px;
+              border-radius: 4px;
+              border: 1px solid #e9ecef;
+              margin-bottom: 12px;
+            }
+
+            .bank-details .title {
+              font-size: 12px;
+              font-weight: bold;
+              color: ${accentColor};
+              margin-bottom: 4px;
+              text-transform: uppercase;
+            }
+
+            .bank-details .bank-info {
+              display: flex;
+              justify-content: space-between;
+              gap: 20px;
+            }
+
+            .bank-details .bank-item {
+              flex: 1;
+              font-size: 11px;
+              color: #555;
+            }
+
+            .bank-details .bank-item strong {
+              color: #333;
+              font-weight: bold;
+            }
+
+            .footer-info {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-top: 20px;
+              padding-top: 10px;
+              border-top: 2px solid #e9ecef;
+              font-size: 11px;
+              color: #666;
+            }
+
+            @media print {
+              @page {
+                margin: 10mm;
+                margin-bottom: 15mm;
+              }
+
+              body {
+                margin: 0;
+                padding: 6mm;
+                -webkit-print-color-adjust: exact;
+                color-adjust: exact;
+              }
+
+              .invoice-container {
+                margin: 0;
+                max-width: 100%;
+              }
+
+              .items-table thead {
+                background: ${accentColor} !important;
+                -webkit-print-color-adjust: exact;
+                color-adjust: exact;
+              }
+
+              .total-row {
+                background: ${accentColor} !important;
+                -webkit-print-color-adjust: exact;
+                color-adjust: exact;
+              }
+
+              .company-info h1 {
+                color: ${accentColor} !important;
+              }
+
+              .invoice-number {
+                color: ${accentColor} !important;
+              }
+
+              .section-title {
+                color: ${accentColor} !important;
+              }
+
+              .bank-details .title {
+                color: ${accentColor} !important;
+              }
+
+              .footer-info {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                background: white;
+                padding: 8px 10mm;
+                border-top: 2px solid #e9ecef;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="invoice-container">
+            <div class="header">
+              <div class="company-info">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 4px;">
+                  ${logoSrc ? `<img src="${logoSrc}" alt="Logo" style="height: 50px; width: auto; object-fit: contain;" crossorigin="anonymous" />` : ''}
+                  <h1 style="margin-bottom: 0;">${organizationData?.company_name || 'Your Company Name'}</h1>
+                </div>
+                <p>${[
+                  organizationData?.address,
+                  organizationData?.city,
+                  organizationData?.state,
+                  organizationData?.postal_code
+                ].filter(Boolean).join(', ') || 'Address Line 1, City, State - PIN'}</p>
+                <p>Phone: ${organizationData?.phone || '+91 XXXXX-XXXXX'} | Email: ${organizationData?.email || 'contact@yourcompany.com'}</p>
+                <p>GST: ${organizationData?.gst_number || 'XXAXXXXXXXX'}</p>
+                ${organizationData?.state ? `<p><strong>Place of Supply:</strong> ${organizationData.state}</p>` : ''}
+              </div>
+
+              <div class="invoice-title">
+                <h2>TAX INVOICE</h2>
+                <div class="invoice-number">${invoiceNumber}</div>
+              </div>
+            </div>
+
+            <div class="invoice-details">
+              <div class="detail-group">
+                <div class="detail-label">Invoice Date</div>
+                <div class="detail-value">${new Date(invoice.invoice_date).toLocaleDateString('en-IN', {
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric'
+                })}</div>
+              </div>
+              <div class="detail-group">
+                <div class="detail-label">Due Date</div>
+                <div class="detail-value">${new Date(invoice.due_date).toLocaleDateString('en-IN', {
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric'
+                })}</div>
+              </div>
+              <div class="detail-group">
+                <div class="detail-label">Payment Terms</div>
+                <div class="detail-value">${currentCustomer.payment_terms || 'Immediate'}</div>
+              </div>
+            </div>
+
+            <div class="customer-section">
+              <div class="bill-to">
+                <div class="section-title">Bill To</div>
+                <div class="customer-name">${customerName}</div>
+                <div class="customer-details">
+                  ${currentCustomer.billing_address ? `<p><strong>Address:</strong> ${currentCustomer.billing_address}</p>` : ''}
+                  ${currentCustomer.city || currentCustomer.state ? `<p>${[currentCustomer.city, currentCustomer.state, currentCustomer.postal_code].filter(Boolean).join(', ')}</p>` : ''}
+                  ${currentCustomer.email ? `<p><strong>Email:</strong> ${currentCustomer.email}</p>` : ''}
+                  ${currentCustomer.gst_number ? `<p><strong>GST:</strong> ${currentCustomer.gst_number}</p>` : ''}
+                </div>
+              </div>
+
+              <div class="company-details">
+                <div class="section-title">Ship To</div>
+                <div class="customer-name">${customerName}</div>
+                <div>
+                  ${selectedCustomer && selectedCustomer.shipping_address ? `<p><strong>Address:</strong> ${selectedCustomer.shipping_address}</p>` : currentCustomer.billing_address ? `<p><strong>Address:</strong> ${currentCustomer.billing_address}</p>` : '<p><strong>Address:</strong> Same as billing address</p>'}
+                  ${currentCustomer.city || currentCustomer.state ? `<p><strong>Location:</strong> ${[currentCustomer.city, currentCustomer.state, currentCustomer.postal_code].filter(Boolean).join(', ')}</p>` : ''}
+                  ${currentCustomer.gst_number ? `<p><strong>GST:</strong> ${currentCustomer.gst_number}</p>` : ''}
+                </div>
+              </div>
+            </div>
+
+            <table class="items-table">
+              <thead>
+                <tr>
+                  <th style="width: 5%;">SR. NO.</th>
+                  <th style="width: 40%;">NAME OF PRODUCT / SERVICE</th>
+                  <th style="width: 15%;">HSN / SAC</th>
+                  <th style="width: 10%;">QTY</th>
+                  <th style="width: 15%;">RATE</th>
+                  <th style="width: 15%;">TAXABLE VALUE</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsWithGSTBreakdown.map((item, index) => `
+                  <tr>
+                    <td style="text-align: center;">${index + 1}</td>
+                    <td>
+                      <div class="item-name">${item.item_name}</div>
+                    </td>
+                    <td style="text-align: center;">${item.hsn_code || '-'}</td>
+                    <td style="text-align: center;">${item.quantity}</td>
+                    <td style="text-align: right;">₹${item.unit_price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td style="text-align: right;">₹${((item.quantity * item.unit_price) - item.discount_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  </tr>
+                `).join('')}
+                <tr>
+                  <td colspan="5" style="text-align: center; font-weight: bold;">Total</td>
+                  <td style="text-align: right; font-weight: bold;">₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="summary-section">
+              <table class="summary-table">
+                ${freightCharges > 0 ? `
+                <tr>
+                  <td class="label">Freight Charges</td>
+                  <td class="value">₹${freightCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ` : ''}
+                <tr>
+                  <td class="label">Taxable Amount</td>
+                  <td class="value">₹${(subtotal + freightCharges).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ${isInterState ? `
+                <tr>
+                  <td class="label">Add : IGST (${effectiveIgstPct % 1 === 0 ? effectiveIgstPct.toFixed(0) : effectiveIgstPct.toFixed(1)}%)</td>
+                  <td class="value">₹${totalIGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ` : `
+                <tr>
+                  <td class="label">Add : CGST (${effectiveCgstPct % 1 === 0 ? effectiveCgstPct.toFixed(0) : effectiveCgstPct.toFixed(1)}%)</td>
+                  <td class="value">₹${totalCGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr>
+                  <td class="label">Add : SGST (${effectiveSgstPct % 1 === 0 ? effectiveSgstPct.toFixed(0) : effectiveSgstPct.toFixed(1)}%)</td>
+                  <td class="value">₹${totalSGST.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                `}
+                <tr>
+                  <td class="label">Total Tax</td>
+                  <td class="value">₹${totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr class="total-row">
+                  <td class="label" style="padding: 8px 10px;">Total Amount After Tax</td>
+                  <td class="value" style="vertical-align: middle;">₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr>
+                  <td colspan="2" style="padding: 6px 10px; font-size: 11px; color: #333; background: #f8f9fa; border-top: 1px solid #e5e7eb;">
+                    <strong>Whether tax is payable on reverse charge:</strong> ${(organizationData as any)?.rcm_applicable ? 'Yes' : 'No'}
+                  </td>
+                </tr>
+              </table>
+            </div>
+
+            ${invoice.notes ? `
+             <div style="background: #f8f9fa; padding: 8px; border-radius: 4px; border-left: 2px solid ${accentColor}; margin-bottom: 12px;">
+               <div style="font-weight: bold; margin-bottom: 3px; color: ${accentColor}; font-size: 11px;">Notes:</div>
+               <div style="color: #555; font-size: 11px; line-height: 1.3;">${invoice.notes}</div>
+             </div>
+             ` : ''}
+
+            <div class="amount-words">
+              <div class="label">Amount in Words:</div>
+              <div class="value">${convertNumberToWords(totalAmount)} Rupees Only</div>
+            </div>
+
+            ${organizationData?.bank_name || organizationData?.bank_account_number || organizationData?.bank_ifsc_code ? `
+            <div class="bank-details">
+              <div class="title">Bank Details for Payment</div>
+              <div class="bank-info">
+                ${organizationData?.bank_name ? `
+                <div class="bank-item">
+                  <strong>Bank Name:</strong><br>
+                  ${organizationData.bank_name}
+                </div>` : ''}
+                ${organizationData?.bank_account_number ? `
+                <div class="bank-item">
+                  <strong>Account Number:</strong><br>
+                  ${organizationData.bank_account_number}
+                </div>` : ''}
+                ${organizationData?.bank_ifsc_code ? `
+                <div class="bank-item">
+                  <strong>IFSC Code:</strong><br>
+                  ${organizationData.bank_ifsc_code}
+                </div>` : ''}
+              </div>
+              ${organizationData?.bank_account_holder_name ? `
+              <div style="margin-top: 4px; font-size: 11px; color: #666;">
+                <strong>Account Holder:</strong> ${organizationData.bank_account_holder_name}
+              </div>` : ''}
+            </div>
+            ` : ''}
+
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-top: 10px;">
+              <div style="border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px;">
+                <div style="font-weight: 700; color: ${accentColor}; margin-bottom: 6px;">Terms and Conditions :</div>
+                <div style="font-style: italic; color: #555; white-space: pre-wrap; line-height: 1.35; font-size: 12px; text-align: left;">
+${(orgForPdf?.terms_and_conditions || '').trim()}
+                </div>
+              </div>
+              <div style="border: 1px solid #ddd; border-radius: 6px; padding: 10px 14px; display: flex; flex-direction: column; justify-content: space-between; min-height: 130px;">
+                <div style="text-align: center; font-size: 12px; color: #444;">For <strong>${orgForPdf?.company_name || ''}</strong></div>
+                <div style="text-align: center; padding: 8px 0; flex: 1; display: flex; align-items: center; justify-content: center;">
+                  <div style="${signatureStyleCss}">${signatureName}</div>
+                </div>
+                <div style="text-align: center; font-size: 11px; color: #666; border-top: 1px solid #ccc; padding-top: 4px;">Authorized Signatory</div>
+              </div>
+            </div>
+
+            <div class="footer-info">
+              <div>
+                <strong>Thank you for your business!</strong><br>
+                For any queries: ${organizationData?.email || 'contact@yourcompany.com'}
+              </div>
+              <div style="text-align: right;">
+                Generated: ${currentDate.toLocaleDateString('en-IN')}<br>
+                This is a computer generated invoice
+              </div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+  };
+
   const convertNumberToWords = (amount: number): string => {
     if (amount === 0) return 'Zero';
-    
+
     const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
     const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
     const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-    
+
     const convertHundreds = (num: number): string => {
       let result = '';
       if (num >= 100) {
@@ -1654,12 +2367,12 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
       }
       return result;
     };
-    
+
     let integerPart = Math.floor(amount);
     const decimalPart = Math.round((amount - integerPart) * 100);
-    
+
     let result = '';
-    
+
     if (integerPart >= 10000000) {
       result += convertHundreds(Math.floor(integerPart / 10000000)) + 'Crore ';
       integerPart %= 10000000;
@@ -1675,11 +2388,11 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
     if (integerPart > 0) {
       result += convertHundreds(integerPart);
     }
-    
+
     if (decimalPart > 0) {
       result += 'and ' + convertHundreds(decimalPart) + 'Paise ';
     }
-    
+
     return result.trim();
   };
 
@@ -1695,7 +2408,7 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
       );
       return;
     }
-    
+
     const totals = calculateTotals();
     const defaultMessage = `Thank you for your business! Your invoice total is ₹${totals.totalAmount.toFixed(2)}. Please make payment as per terms.`;
     setWhatsAppMessage(defaultMessage);
@@ -1715,7 +2428,7 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
       );
       return;
     }
-    
+
     setIsLoading(true);
     try {
       console.log('Sending WhatsApp message:', {
@@ -1723,7 +2436,7 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
         message: whatsAppMessage,
         invoice: invoice
       });
-      
+
       notifications.success(
         'WhatsApp Sent!',
         `Invoice successfully sent to ${customerMobile}`,
@@ -1734,18 +2447,137 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
       );
       setShowWhatsAppModal(false);
       setWhatsAppMessage('');
-      
     } catch (error) {
       console.error('Error sending WhatsApp message:', error);
       notifications.error(
         'WhatsApp Failed',
         'Unable to send WhatsApp message. Please check the mobile number and try again.',
-        {
-          autoClose: false
-        }
+        { autoClose: false }
       );
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSendEmail = () => {
+    if (!generatedInvoice) {
+      notifications.warning('Invoice Not Generated', 'Please generate the invoice first before sending email.', { autoClose: true, autoCloseDelay: 4000 });
+      return;
+    }
+
+    const customerEmail = selectedCustomer?.email || adhocCustomer.email;
+    if (customerEmail) {
+      setEmailAddress(customerEmail);
+      sendInvoiceEmail(customerEmail);
+    } else {
+      setEmailAddress('');
+      setShowEmailModal(true);
+    }
+  };
+
+  const generatePdfBase64 = async (): Promise<string> => {
+    const html2pdf = (await import('html2pdf.js')).default;
+    const invoiceContent = await buildInvoiceHtmlContent();
+
+    const invoiceNumber = generatedInvoice?.invoice_number || `INV-${Date.now().toString().slice(-8)}`;
+    const parsedDocument = new DOMParser().parseFromString(invoiceContent, 'text/html');
+    const container = document.createElement('div');
+    const styleContent = parsedDocument.head.querySelector('style')?.textContent || '';
+
+    container.style.position = 'fixed';
+    container.style.left = '-10000px';
+    container.style.top = '0';
+    container.style.width = '210mm';
+    container.style.background = '#ffffff';
+    container.style.pointerEvents = 'none';
+
+    if (styleContent) {
+      const styleElement = document.createElement('style');
+      styleElement.textContent = styleContent;
+      container.appendChild(styleElement);
+    }
+
+    Array.from(parsedDocument.body.childNodes).forEach((node) => {
+      container.appendChild(document.importNode(node, true));
+    });
+
+    document.body.appendChild(container);
+
+    const images = Array.from(container.querySelectorAll('img'));
+    await Promise.all(
+      images.map((image) => {
+        if (image.complete) {
+          return Promise.resolve();
+        }
+
+        return new Promise<void>((resolve) => {
+          const done = () => resolve();
+          image.addEventListener('load', done, { once: true });
+          image.addEventListener('error', done, { once: true });
+        });
+      })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    try {
+      const targetElement = (container.querySelector('.invoice-container') as HTMLElement | null) || container;
+      const pdfDataUri = await html2pdf().set({
+        margin: [8, 8, 12, 8],
+        filename: `Invoice-${invoiceNumber}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          windowWidth: targetElement.scrollWidth || 1240,
+          windowHeight: targetElement.scrollHeight || 1754
+        },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      }).from(targetElement).toPdf().output('datauristring');
+
+      const base64 = typeof pdfDataUri === 'string' && pdfDataUri.includes(',') ? pdfDataUri.split(',')[1] : '';
+
+      if (!base64) {
+        throw new Error('Generated PDF content is empty.');
+      }
+
+      console.log('Invoice email PDF base64 length:', base64.length);
+      return base64;
+    } finally {
+      document.body.removeChild(container);
+    }
+  };
+
+  const sendInvoiceEmail = async (toEmail: string) => {
+    if (!generatedInvoice) return;
+    setIsSendingEmail(true);
+    try {
+      const totals = calculateTotals();
+      const customerName = selectedCustomer ? getCustomerDisplayName(selectedCustomer) : getAdhocCustomerDisplayName();
+      const pdfBase64 = await generatePdfBase64();
+
+      await emailApi.sendInvoiceEmail({
+        to: toEmail,
+        customer_name: customerName,
+        invoice_number: generatedInvoice.invoice_number,
+        invoice_date: new Date(invoice.invoice_date).toLocaleDateString(),
+        amount: totals.totalAmount.toFixed(2),
+        pdf_base64: pdfBase64,
+        company_name: organization?.company_name || 'Your Company',
+        company_email: organization?.email || '',
+        user_name: user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username : 'Team'
+      });
+
+      notifications.success('Email Sent!', `Invoice successfully sent to ${toEmail}`, { autoClose: true, autoCloseDelay: 4000 });
+      setShowEmailModal(false);
+      setEmailAddress('');
+    } catch (error: any) {
+      console.error('Error sending email:', error);
+      notifications.error('Email Failed', error?.message || 'Unable to send email. Please try again.', { autoClose: false });
+    } finally {
+      setIsSendingEmail(false);
     }
   };
 
@@ -1839,6 +2671,14 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
           >
             <MessageCircle className="w-5 h-5" />
             Send WhatsApp
+          </button>
+          <button
+            onClick={handleSendEmail}
+            disabled={isSendingEmail || !generatedInvoice}
+            className="bg-violet-600 text-white px-6 py-3 rounded-lg hover:bg-violet-700 flex items-center gap-2 disabled:opacity-50"
+          >
+            {isSendingEmail ? <Loader2 className="w-5 h-5 animate-spin" /> : <Mail className="w-5 h-5" />}
+            {isSendingEmail ? 'Sending...' : 'Send Email'}
           </button>
         </div>
       </div>
@@ -2747,11 +3587,45 @@ ${(orgForPdf?.terms_and_conditions || '').trim()}
         </div>
       )}
 
+      {/* Email Modal */}
+      {showEmailModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Send Invoice via Email</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+              <input
+                type="email"
+                value={emailAddress}
+                onChange={(e) => setEmailAddress(e.target.value)}
+                placeholder="Enter email address"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => sendInvoiceEmail(emailAddress)}
+                disabled={isSendingEmail || !emailAddress}
+                className="flex-1 bg-violet-600 text-white px-4 py-2 rounded-lg hover:bg-violet-700 disabled:opacity-50"
+              >
+                {isSendingEmail ? 'Sending...' : 'Send Email'}
+              </button>
+              <button
+                onClick={() => setShowEmailModal(false)}
+                className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
       <footer className="mt-8 bg-gray-50 p-6 rounded-lg border">
         <div className="flex justify-between items-center">
           <div className="text-sm text-gray-600">
-            <p>© 2025 BAI - Billing and Inventory Management. All rights reserved.</p>
+            <p> 2025 BAI - Billing and Inventory Management. All rights reserved.</p>
             <p>For support, contact: support@bai.com | +91 9876543210</p>
           </div>
           <div className="text-right text-sm text-gray-600">

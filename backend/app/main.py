@@ -34,6 +34,8 @@ from routers import (
     purchase_receipts_pg,
     accounts_pg,
     demo_requests,
+    email,
+    pdf_generator,
 )
 from database.postgres_db import postgres_db
 from config.settings import settings
@@ -85,6 +87,8 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"]
 app.include_router(organization_pg.router, prefix="/api/organization", tags=["Organization"])
 app.include_router(user_management_pg.router, prefix="/api/user-management", tags=["User Management"])
 app.include_router(demo_requests.router, prefix="/api/demo-requests", tags=["Demo Requests"])
+app.include_router(email.router, prefix="/api/email", tags=["Email"])
+app.include_router(pdf_generator.router, prefix="/api/pdf", tags=["PDF Generator"])
 
 # Ensure accounts table exists and seed default accounts
 try:

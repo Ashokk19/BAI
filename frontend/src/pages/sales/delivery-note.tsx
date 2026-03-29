@@ -136,11 +136,6 @@ export default function DeliveryNote() {
       }
 
       const response = await shipmentApi.getDeliveryNotes(params)
-      console.log('Delivery notes response:', response)
-      console.log('Delivery notes loaded:', response.delivery_notes)
-      console.log('Delivery notes count:', response.delivery_notes?.length || 0)
-      
-      // Store all delivery notes for counting
       const allNotes = response.delivery_notes || []
       setAllDeliveryNotes(allNotes)
       
@@ -181,12 +176,7 @@ export default function DeliveryNote() {
 
   const loadInvoices = async () => {
     try {
-      console.log('Loading invoices...')
-      console.log('API endpoint:', '/api/sales/invoices')
-      console.log('Auth token:', localStorage.getItem('access_token') || sessionStorage.getItem('access_token') ? 'Present' : 'Missing')
-      
       const response = await invoiceApi.getInvoices({ limit: 1000 })
-      console.log('Invoices loaded successfully:', response.invoices.length)
       setInvoices(response.invoices)
     } catch (error: any) {
       console.error('Error loading invoices:', error)
@@ -201,11 +191,7 @@ export default function DeliveryNote() {
 
   const loadShipments = async () => {
     try {
-      console.log('Loading shipments...')
-              const response = await shipmentApi.getShipments({ limit: 100 })
-      console.log('Shipments response:', response)
-      console.log('Shipments loaded:', response.shipments)
-      console.log('Shipments count:', response.shipments?.length || 0)
+      const response = await shipmentApi.getShipments({ limit: 100 })
       setShipments(response.shipments || [])
       setShipmentsLoaded(true)
     } catch (error: any) {
@@ -433,7 +419,6 @@ export default function DeliveryNote() {
 
   // Auto-populate delivery address when invoice is selected
   const handleInvoiceChange = (invoiceId: number) => {
-    console.log('Invoice selected:', invoiceId)
     setFormData(prev => ({ ...prev, invoice_id: invoiceId }))
     setInvoiceSearch('') // Clear search when invoice is selected
     setShowInvoiceDropdown(false)
@@ -441,11 +426,8 @@ export default function DeliveryNote() {
     if (invoiceId > 0) {
       const selectedInvoice = invoices.find(i => i.id === invoiceId)
       if (selectedInvoice) {
-        console.log('Selected invoice:', selectedInvoice)
-        
         // Find shipment for this invoice
         const relatedShipment = shipments.find(s => s.invoice_id === invoiceId)
-        console.log('Related shipment:', relatedShipment)
         
         // Use shipping address from invoice, fallback to billing address
         const address = selectedInvoice.shipping_address || selectedInvoice.billing_address || ""
@@ -630,7 +612,6 @@ export default function DeliveryNote() {
         delivery_status: "Pending"
       }
 
-      console.log('Creating delivery note with data:', deliveryNoteData)
       await shipmentApi.createDeliveryNote(deliveryNoteData)
       
       // Reset form completely
@@ -648,9 +629,7 @@ export default function DeliveryNote() {
 
   const updateStatus = async (id: number, status: string) => {
     try {
-      console.log('Updating delivery note status:', { id, status })
       await shipmentApi.updateDeliveryNote(id, { delivery_status: status })
-      console.log('Status updated successfully')
       notifications.success('Status Updated!', `Delivery note status changed to ${status}.`)
       await loadDeliveryNotes() // Reload to get updated data
     } catch (error) {

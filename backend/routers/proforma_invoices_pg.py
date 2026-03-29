@@ -22,10 +22,10 @@ router = APIRouter()
 
 class ProformaInvoiceItemBase(BaseModel):
     """Base proforma invoice item schema."""
-    item_id: int = Field(..., description="Item ID")
+    item_id: Optional[int] = Field(None, description="Item ID")
     item_name: str = Field(..., max_length=200, description="Item name")
     item_description: Optional[str] = Field(None, description="Item description")
-    item_sku: str = Field(..., max_length=50, description="Item SKU")
+    item_sku: Optional[str] = Field(None, max_length=50, description="Item SKU")
     hsn_code: Optional[str] = Field(None, max_length=50, description="HSN/SAC code")
     quantity: Decimal = Field(..., gt=0, description="Quantity")
     unit_price: Decimal = Field(..., ge=0, description="Unit price")
@@ -667,12 +667,18 @@ async def create_proforma_invoice(
                 item = item_data["item"]
                 gst_calc = item_data["gst_calc"]
                 
-                # Get item details from inventory
-                cursor.execute(
-                    "SELECT * FROM items WHERE id = %s AND account_id = %s",
-                    (item.item_id, account_id)
-                )
-                db_item = cursor.fetchone() or {}
+                # Check if this is a manual/adhoc item
+                is_manual_item = not item.item_id or item.item_id == 0
+                
+                if is_manual_item:
+                    db_item = {}
+                else:
+                    # Get item details from inventory
+                    cursor.execute(
+                        "SELECT * FROM items WHERE id = %s AND account_id = %s",
+                        (item.item_id, account_id)
+                    )
+                    db_item = cursor.fetchone() or {}
                 
                 cursor.execute(
                     """

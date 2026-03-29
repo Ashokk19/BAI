@@ -175,13 +175,11 @@ export default function SalesReturns() {
 
   const loadCustomerInvoices = async (customerId: number) => {
     try {
-      console.log('Loading invoices for customer:', customerId)
       const response = await invoiceApi.getInvoices({ 
         customer_id: customerId,
         limit: 100
       })
       const filtered = (response.invoices || []).filter(inv => Number(inv.customer_id) === Number(customerId))
-      console.log('Customer invoices loaded (filtered):', filtered)
       setCustomerInvoices(filtered)
     } catch (error) {
       console.error('Error loading customer invoices:', error)
@@ -192,7 +190,6 @@ export default function SalesReturns() {
 
   const loadInvoiceItems = async (invoiceId: number) => {
     try {
-      console.log('Loading items for invoice:', invoiceId)
       const invoice = await invoiceApi.getInvoice(invoiceId)
       setSelectedInvoice(invoice)
       
@@ -221,7 +218,6 @@ export default function SalesReturns() {
       })
       
       setItemsToReturn(returnableItems)
-      console.log('Returnable items set:', returnableItems)
     } catch (error) {
       console.error('Error loading invoice items:', error)
       notifications.error('Loading Failed', 'Unable to load invoice items.')
@@ -353,7 +349,6 @@ export default function SalesReturns() {
         items: returnItems
       }
 
-      console.log('Creating sales return with data:', returnData)
       await salesReturnApi.createSalesReturn(returnData)
       
       // Reset form and reload data
@@ -369,7 +364,6 @@ export default function SalesReturns() {
 
   const updateStatus = async (id: number, status: string) => {
     try {
-      console.log('Updating return status:', { id, status })
       await salesReturnApi.updateSalesReturn(id, { status })
       notifications.success('Status Updated!', `Return status changed to ${status}.`)
       loadSalesReturns() // Reload to get updated data
@@ -382,7 +376,6 @@ export default function SalesReturns() {
 
   const updateRefundStatus = async (id: number, refund_status: string) => {
     try {
-      console.log('Updating refund status:', { id, refund_status })
       await salesReturnApi.updateSalesReturn(id, { refund_status })
       notifications.success('Refund Status Updated!', `Refund status changed to ${refund_status}.`)
       loadSalesReturns() // Reload to get updated data
@@ -395,7 +388,6 @@ export default function SalesReturns() {
 
   const downloadCreditReport = async (returnId: number) => {
     try {
-      console.log('Generating credit report for return ID:', returnId)
       const htmlContent = await salesReturnApi.downloadCreditReport(returnId)
       
       // Open HTML content in new window for printing/saving (like invoice)

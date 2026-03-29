@@ -183,7 +183,6 @@ export default function ProformaInvoiceHistory() {
       // Date filtering not yet implemented for proforma invoices
 
       const response = await proformaInvoiceApi.getInvoices(filters)
-      console.log('📊 Invoice API Response:', { total: response.total, invoiceCount: response.invoices?.length })
       setInvoices(response.invoices || [])
       
       // Calculate pagination info
