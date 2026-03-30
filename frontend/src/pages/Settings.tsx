@@ -3,6 +3,8 @@ import { Settings as SettingsIcon, Shield, Bell, Palette, Globe, Key, Save, Eye,
 import { useNotifications, NotificationContainer } from '../components/ui/notification';
 import notificationPreferencesService from '../services/notificationPreferencesService';
 import { userService } from '../services/userService';
+import { useAuth } from '../utils/AuthContext';
+import { applyTheme, getStoredTheme, setStoredTheme } from '../utils/theme';
 
 interface UserSettings {
   notifications: {
@@ -34,6 +36,7 @@ interface UserSettings {
 }
 
 const Settings: React.FC = () => {
+  const { user } = useAuth();
   const [settings, setSettings] = useState<UserSettings>({
     notifications: {
       email: false,
@@ -76,7 +79,8 @@ const Settings: React.FC = () => {
   useEffect(() => {
     const initializeSettings = async () => {
       const savedTimeout = localStorage.getItem('session_timeout');
-      const savedTheme = localStorage.getItem('app_theme') || 'light';
+      const accountId = user?.account_id || localStorage.getItem('last_account_id');
+      const savedTheme = getStoredTheme(accountId);
 
       setSettings(prev => ({
         ...prev,
@@ -90,7 +94,7 @@ const Settings: React.FC = () => {
         },
       }));
 
-      applyTheme(savedTheme as 'light' | 'dark' | 'auto');
+      applyTheme(savedTheme);
 
       try {
         const notificationPrefs = await notificationPreferencesService.getPreferences();
@@ -111,7 +115,7 @@ const Settings: React.FC = () => {
     };
 
     void initializeSettings();
-  }, []);
+  }, [user?.account_id]);
 
   const handleNotificationChange = (key: keyof UserSettings['notifications']) => {
     setSettings(prev => ({
@@ -137,22 +141,6 @@ const Settings: React.FC = () => {
     }
   };
 
-  const applyTheme = (theme: 'light' | 'dark' | 'auto') => {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else if (theme === 'auto') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      if (prefersDark) {
-        root.classList.add('dark');
-      } else {
-        root.classList.remove('dark');
-      }
-    } else {
-      root.classList.remove('dark');
-    }
-  };
-
   const handleAppearanceChange = (key: keyof UserSettings['appearance'], value: string) => {
     setSettings(prev => ({
       ...prev,
@@ -163,8 +151,10 @@ const Settings: React.FC = () => {
     }));
     // Persist and apply theme immediately
     if (key === 'theme') {
-      localStorage.setItem('app_theme', value);
-      applyTheme(value as 'light' | 'dark' | 'auto');
+      const accountId = user?.account_id || localStorage.getItem('last_account_id');
+      const theme = value as UserSettings['appearance']['theme'];
+      setStoredTheme(theme, accountId);
+      applyTheme(theme);
     }
   };
 
