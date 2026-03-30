@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi import HTTPException
+import asyncio
 import uvicorn
 import traceback
 
@@ -40,6 +41,7 @@ from routers import (
 from database.postgres_db import postgres_db, set_request_user_context
 from config.settings import settings
 from services.postgres_accounts_service import PostgresAccountsService
+from services.notification_service import NotificationService
 
 # Initialize PostgreSQL connection
 print("🐘 Initializing PostgreSQL connection...")
@@ -52,6 +54,9 @@ app = FastAPI(
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None
 )
+
+NOTIFICATION_SCAN_INTERVAL_SECONDS = 3600
+notification_scan_task = None
 
 
 def _is_allowed_error_origin(origin: str | None) -> bool:
@@ -120,6 +125,38 @@ try:
     PostgresAccountsService.ensure_seed_accounts()
 except Exception as e:
     print(f"Warning: failed to seed accounts: {e}")
+
+async def notification_scan_loop():
+    while True:
+        try:
+            await NotificationService.scan_due_alerts()
+        except Exception as e:
+            print(f"Warning: notification scan failed: {e}")
+        await asyncio.sleep(NOTIFICATION_SCAN_INTERVAL_SECONDS)
+
+@app.on_event("startup")
+async def startup_event():
+    global notification_scan_task
+    try:
+        NotificationService.ensure_schema()
+    except Exception as e:
+        print(f"Warning: failed to initialize notification schema: {e}")
+
+    if notification_scan_task is None:
+        notification_scan_task = asyncio.create_task(notification_scan_loop())
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    global notification_scan_task
+    if notification_scan_task is None:
+        return
+
+    notification_scan_task.cancel()
+    try:
+        await notification_scan_task
+    except asyncio.CancelledError:
+        pass
+    notification_scan_task = None
 
 @app.get("/")
 async def root():

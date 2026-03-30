@@ -10,6 +10,7 @@ from typing import Optional
 
 from services.postgres_user_service import PostgresUserService
 from services.postgres_accounts_service import PostgresAccountsService
+from services.notification_service import NotificationService
 from utils.postgres_auth_deps import create_access_token, get_current_user
 from config.settings import settings
 from database.postgres_db import postgres_db, set_request_user_context
@@ -350,6 +351,16 @@ class PasswordChange(BaseModel):
     current_password: str
     new_password: str
 
+
+class NotificationPreferencesPayload(BaseModel):
+    email: bool = False
+    push: bool = False
+    sms: bool = False
+    invoiceAlerts: bool = False
+    stockAlerts: bool = False
+    paymentReminders: bool = False
+    deliveryAlerts: bool = False
+
 @router.post("/change-password")
 async def change_password(
     password_data: PasswordChange,
@@ -381,6 +392,35 @@ async def change_password(
     )
 
     return {"message": "Password changed successfully"}
+
+
+@router.get("/notification-preferences", response_model=NotificationPreferencesPayload)
+async def get_notification_preferences(current_user: dict = Depends(get_current_user)):
+    return NotificationService.get_preferences(current_user["id"], current_user["account_id"])
+
+
+@router.put("/notification-preferences", response_model=NotificationPreferencesPayload)
+async def update_notification_preferences(
+    payload: NotificationPreferencesPayload,
+    current_user: dict = Depends(get_current_user)
+):
+    return NotificationService.update_preferences(
+        current_user["id"],
+        current_user["account_id"],
+        payload.model_dump(),
+    )
+
+
+@router.post("/notification-preferences/scan")
+async def run_notification_scan(current_user: dict = Depends(get_current_user)):
+    if not current_user.get("is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions"
+        )
+
+    await NotificationService.scan_account_alerts(current_user["account_id"])
+    return {"message": "Notification scan completed"}
 
 @router.get("/users/{user_id}", response_model=UserResponse)
 async def get_user(

@@ -16,6 +16,8 @@ from utils.postgres_auth_deps import get_current_user
 
 router = APIRouter()
 
+EMAIL_SENDER = "support@av2solutions.in"
+
 
 class EmailAttachment(BaseModel):
     """Email attachment model."""
@@ -69,7 +71,7 @@ async def _deliver_email(request: SendEmailRequest):
 
     try:
         payload = {
-            "from": settings.DEFAULT_SENDER,
+            "from": EMAIL_SENDER,
             "to": [request.to],
             "subject": request.subject,
             "html": request.html,
@@ -131,7 +133,7 @@ async def send_invoice_email(request: SendInvoiceEmailRequest, current_user: dic
     """
     # Use organization data or defaults
     company_name = request.company_name or "Your Company"
-    company_email = request.company_email or settings.DEFAULT_SENDER
+    company_email = request.company_email or EMAIL_SENDER
     user_name = request.user_name or "Team"
     current_year = datetime.now().year
     
@@ -211,7 +213,7 @@ async def send_payment_reminder(request: SendPaymentReminderRequest, current_use
     """
     # Use organization data or defaults
     company_name = request.company_name or "Your Company"
-    company_email = request.company_email or settings.DEFAULT_SENDER
+    company_email = request.company_email or EMAIL_SENDER
     user_name = request.user_name or "Team"
     current_year = datetime.now().year
     

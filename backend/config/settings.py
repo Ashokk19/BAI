@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     RESEND_API_KEY: Optional[str] = None
     RESEND_API_URL: str = "https://api.resend.com/emails"
-    DEFAULT_SENDER: str = "support@example.com"
+    DEFAULT_SENDER: str = "support@av2solutions.in"
     
     # CORS Configuration
     ALLOWED_ORIGINS: List[str] = [

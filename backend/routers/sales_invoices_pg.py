@@ -9,6 +9,7 @@ from psycopg2.extras import RealDictCursor
 
 from database.postgres_db import postgres_db
 from schemas.invoice_schema import InvoiceCreate, InvoiceItemResponse, InvoiceResponse
+from services.notification_service import NotificationService
 from utils.postgres_auth_deps import get_current_user
 
 router = APIRouter()
@@ -746,6 +747,26 @@ async def create_invoice(
         )
 
     invoice_response["items"] = items_response
+
+    tracked_item_ids = sorted(
+        {
+            row["db_item"]["id"]
+            for row in item_rows
+            if row.get("db_item") and row["db_item"].get("id") is not None
+        }
+    )
+
+    try:
+        await NotificationService.invoice_created(account_id, invoice_id)
+    except Exception as exc:
+        print(f"Failed to process invoice notifications for invoice {invoice_id}: {exc}")
+
+    for tracked_item_id in tracked_item_ids:
+        try:
+            await NotificationService.item_changed(account_id, tracked_item_id)
+        except Exception as exc:
+            print(f"Failed to process item notifications for item {tracked_item_id}: {exc}")
+
     return InvoiceResponse(**invoice_response)
 
 
