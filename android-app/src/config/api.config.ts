@@ -7,7 +7,7 @@ import { Platform } from 'react-native';
 // Use local IP for physical device
 const LOCALHOST = Platform.OS === 'android' ? 'http://10.0.2.2:8001' : 'http://localhost:8001';
 
-export const API_BASE_URL = LOCALHOST;
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || LOCALHOST;
 
 export const API_ENDPOINTS = {
   auth: {

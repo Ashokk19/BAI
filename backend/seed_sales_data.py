@@ -4,10 +4,14 @@ Comprehensive script to seed real data for sales modules.
 
 import requests
 import json
+import os
+from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-BASE_URL = "http://localhost:8001/api"
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+
+BASE_URL = f"{os.getenv('API_BASE_URL', 'http://localhost:8001').rstrip('/')}/api"
 
 # Sample data for seeding
 def seed_all_sales_data():
@@ -114,10 +118,10 @@ def seed_all_sales_data():
                 print(f"- {name.capitalize()}: Failed to fetch")
         
     except requests.exceptions.ConnectionError:
-        print("Error: Could not connect to the server. Is it running on port 8001?")
-        print("Please ensure the backend server is running with: python -m uvicorn app.main:app --reload --port 8001")
+        print(f"Error: Could not connect to the server at {BASE_URL}.")
+        print("Please ensure the backend server is running and API_BASE_URL is configured correctly.")
     except Exception as e:
         print(f"Error seeding data: {e}")
 
 if __name__ == "__main__":
-    seed_all_sales_data() 
+    seed_all_sales_data()

@@ -20,6 +20,8 @@ from reportlab.pdfgen import canvas
 import tempfile
 import os
 
+from utils.postgres_auth_deps import get_current_user
+
 router = APIRouter()
 
 
@@ -836,7 +838,7 @@ def create_pdf_with_reportlab(data: GeneratePDFRequest) -> bytes:
 
 
 @router.post("/generate-invoice-pdf")
-async def generate_invoice_pdf(request: GeneratePDFRequest):
+async def generate_invoice_pdf(request: GeneratePDFRequest, current_user: dict = Depends(get_current_user)):
     """
     Generate a PDF invoice and return it as base64.
     """
@@ -856,5 +858,5 @@ async def generate_invoice_pdf(request: GeneratePDFRequest):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error generating PDF: {str(e)}"
+            detail="Failed to generate PDF"
         )

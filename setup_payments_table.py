@@ -1,20 +1,18 @@
 """Setup script to create payments table in PostgreSQL database."""
 
+import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
 
-# Database connection parameters from settings
-DB_CONFIG = {
-    "host": "aws-1-ap-south-1.pooler.supabase.com",
-    "database": "postgres",
-    "user": "postgres.jcuupuwxfmdhpfwjemou",
-    "password": "postgres",
-    "port": 5432,
-    "sslmode": "require"
-}
+load_dotenv(os.path.join(os.path.dirname(__file__), 'backend', '.env'))
+
+DATABASE_URL = os.getenv('DATABASE_URL')
 
 def create_payments_table():
     """Create payments table if it doesn't exist."""
+    if not DATABASE_URL:
+        raise RuntimeError('DATABASE_URL is required to run this script')
     
     create_table_sql = """
     CREATE TABLE IF NOT EXISTS payments (
@@ -45,7 +43,7 @@ def create_payments_table():
     """
     
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = psycopg2.connect(DATABASE_URL)
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         # Check if table exists

@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 import bcrypt
 
@@ -13,7 +13,7 @@ router = APIRouter()
 class UserCreate(BaseModel):
     username: str
     email: Optional[str] = None
-    password: Optional[str] = "defaultpassword123"
+    password: str = Field(..., min_length=8)
     full_name: Optional[str] = None
     account_id: str
     is_admin: bool = False
@@ -29,19 +29,28 @@ async def get_organization_users(current_user: Dict[str, Any] = Depends(get_curr
             "FROM users ORDER BY account_id, id"
         )
         rows = postgres_db.execute_query(q)
-    else:
+    elif current_user.get("is_admin", False):
         q = (
             "SELECT id, account_id, username, email, full_name, "
             "is_active, is_admin, created_at, updated_at "
             "FROM users WHERE account_id = %s ORDER BY id"
         )
         rows = postgres_db.execute_query(q, (current_user["account_id"],))
+    else:
+        q = (
+            "SELECT id, account_id, username, email, full_name, "
+            "is_active, is_admin, created_at, updated_at "
+            "FROM users WHERE account_id = %s AND id = %s ORDER BY id"
+        )
+        rows = postgres_db.execute_query(q, (current_user["account_id"], current_user["id"]))
     return rows or []
 
 @router.post("/users")
 async def create_user(payload: UserCreate, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """Create a new user. Master account can create for any account, others only for their own."""
     is_master = PostgresAccountsService.is_master_account(current_user.get("account_id"))
+    if not is_master and not current_user.get("is_admin", False):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     if not is_master and payload.account_id != current_user.get("account_id"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot create user for different account")
     
@@ -51,7 +60,7 @@ async def create_user(payload: UserCreate, current_user: Dict[str, Any] = Depend
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Account '{payload.account_id}' not found")
     
     # Hash password
-    hashed = bcrypt.hashpw((payload.password or "defaultpassword123").encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    hashed = bcrypt.hashpw(payload.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
     try:
         result = postgres_db.execute_single(
@@ -75,7 +84,7 @@ async def create_user(payload: UserCreate, current_user: Dict[str, Any] = Depend
     except Exception as e:
         if "duplicate" in str(e).lower() or "unique" in str(e).lower():
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username or email already exists")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user")
 
 @router.get("/users/{user_id}")
 async def get_organization_user(user_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
@@ -90,4 +99,6 @@ async def get_organization_user(user_id: int, current_user: Dict[str, Any] = Dep
     is_master = PostgresAccountsService.is_master_account(current_user.get("account_id"))
     if not is_master and user["account_id"] != current_user["account_id"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot access user from different organization")
+    if not is_master and not current_user.get("is_admin", False) and user["id"] != current_user["id"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot access other users")
     return user

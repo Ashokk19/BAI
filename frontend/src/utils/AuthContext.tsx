@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import type { FC, ReactNode } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../config/api.config';
 
@@ -51,7 +52,7 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+export const AuthProvider: FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const sessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -177,7 +178,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       setUser(userData);
     } catch (error: any) {
-      console.error('Login error:', error);
       const detail = error?.response?.data?.detail;
       let message = 'Login failed';
       if (typeof detail === 'string') {
@@ -210,10 +210,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const register = async (userData: RegisterData): Promise<void> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/register`, userData);
-      console.log('Registration successful:', response.data);
+      await axios.post(`${API_BASE_URL}/api/auth/register`, userData);
     } catch (error: any) {
-      console.error('Registration error:', error);
       throw new Error(error.response?.data?.detail || 'Registration failed');
     }
   };

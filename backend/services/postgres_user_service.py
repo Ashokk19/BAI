@@ -175,11 +175,11 @@ class PostgresUserService:
         )
         
         try:
-            print(f"Creating user with params: {params}")
             result = postgres_db.execute_single(insert_query, params)
-            print(f"User creation result: {result}")
             return result
         except Exception as e:
+            if "duplicate" in str(e).lower() or "unique" in str(e).lower():
+                return {"error": "duplicate"}
             print(f"Error creating user: {e}")
             import traceback
             traceback.print_exc()
@@ -193,8 +193,8 @@ class PostgresUserService:
                 plain_password.encode('utf-8'), 
                 hashed_password.encode('utf-8')
             )
-        except Exception as e:
-            print(f"Error verifying password: {e}")
+        except Exception:
+            print("Credential verification failed")
             return False
     
     @staticmethod

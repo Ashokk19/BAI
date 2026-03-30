@@ -215,7 +215,6 @@ const Settings: React.FC = () => {
         { autoClose: true, autoCloseDelay: 3000 }
       );
     } catch (error: any) {
-      console.error('Error changing password:', error);
       const detail = error?.response?.data?.detail || error?.message || 'Unable to change password.';
       notifications.error(
         'Password Change Failed',

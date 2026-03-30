@@ -23,7 +23,7 @@ from routers import (
     user_management,
     sales_invoices_pg,
 )
-from database.postgres_db import postgres_db
+from database.postgres_db import postgres_db, set_request_user_context
 from config.settings import settings
 
 # Initialize PostgreSQL connection (no SQLAlchemy)
@@ -34,9 +34,29 @@ app = FastAPI(
     title="BAI - Billing and Inventory Management API (PostgreSQL)",
     description="Backend API for BAI application using direct PostgreSQL",
     version="2.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redoc" if settings.DEBUG else None
 )
+
+
+def _is_allowed_error_origin(origin: str | None) -> bool:
+    if not origin:
+        return False
+
+    if settings.DEBUG and origin in ["http://localhost:5173", "http://127.0.0.1:5173"]:
+        return True
+
+    return origin in settings.ALLOWED_ORIGINS
+
+
+@app.middleware("http")
+async def reset_db_request_context(request: Request, call_next):
+    set_request_user_context(None)
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        set_request_user_context(None)
 
 # Configure CORS middleware
 app.add_middleware(
@@ -81,8 +101,8 @@ async def root():
         "message": "BAI - Billing and Inventory Management API (PostgreSQL)",
         "version": "2.0.0",
         "database": "PostgreSQL (Direct Connection)",
-        "docs": "/docs",
-        "redoc": "/redoc"
+        "docs": "/docs" if settings.DEBUG else None,
+        "redoc": "/redoc" if settings.DEBUG else None
     }
 
 @app.get("/health")
@@ -92,8 +112,8 @@ async def health_check():
         # Test database connection
         result = postgres_db.execute_single("SELECT 1 as test")
         db_status = "connected" if result else "disconnected"
-    except Exception as e:
-        db_status = f"error: {str(e)}"
+    except Exception:
+        db_status = "error"
     
     return {
         "status": "healthy",
@@ -104,14 +124,18 @@ async def health_check():
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """Global HTTP exception handler with CORS headers."""
+    detail = exc.detail
+    if exc.status_code >= 500 and not settings.DEBUG:
+        detail = "Internal server error"
+
     response = JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail}
+        content={"detail": detail}
     )
     
     # Add CORS headers to error responses
     origin = request.headers.get("origin")
-    if origin and origin in ["http://localhost:5173", "http://127.0.0.1:5173"]:
+    if _is_allowed_error_origin(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Expose-Headers"] = "Content-Disposition, Content-Type"
@@ -121,17 +145,18 @@ async def http_exception_handler(request, exc):
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """Global exception handler for unhandled exceptions with CORS headers."""
-    print(f"❌ Unhandled exception: {str(exc)}")
-    traceback.print_exc()
+    if settings.DEBUG:
+        print(f"❌ Unhandled exception: {str(exc)}")
+        traceback.print_exc()
     
     response = JSONResponse(
         status_code=500,
-        content={"detail": f"Internal server error: {str(exc)}"}
+        content={"detail": str(exc) if settings.DEBUG else "Internal server error"}
     )
     
     # Add CORS headers to error responses
     origin = request.headers.get("origin")
-    if origin and origin in ["http://localhost:5173", "http://127.0.0.1:5173"]:
+    if _is_allowed_error_origin(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Expose-Headers"] = "Content-Disposition, Content-Type"

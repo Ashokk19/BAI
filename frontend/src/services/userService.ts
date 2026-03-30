@@ -64,8 +64,7 @@ class UserService {
         headers: this.getAuthHeaders(),
       });
       return response.data;
-    } catch (error) {
-      console.error('Error fetching user profile:', error);
+    } catch {
       throw new Error('Failed to fetch user profile');
     }
   }
@@ -79,8 +78,7 @@ class UserService {
         headers: this.getAuthHeaders(),
       });
       return response.data;
-    } catch (error) {
-      console.error('Error updating user profile:', error);
+    } catch {
       throw new Error('Failed to update user profile');
     }
   }
@@ -95,7 +93,6 @@ class UserService {
       });
       return response.data;
     } catch (error) {
-      console.error('Error changing password:', error);
       throw error;
     }
   }
@@ -115,8 +112,7 @@ class UserService {
         },
       });
       return response.data;
-    } catch (error) {
-      console.error('Error uploading avatar:', error);
+    } catch {
       throw new Error('Failed to upload avatar');
     }
   }

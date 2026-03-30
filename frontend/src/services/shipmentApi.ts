@@ -5,6 +5,7 @@
  */
 
 import { apiService } from './api';
+import { API_BASE_URL } from '../config/api.config';
 
 // Types for Shipment API
 export interface Shipment {
@@ -152,7 +153,7 @@ export const shipmentApi = {
     if (params?.customer_id) queryParams.append('customer_id', params.customer_id.toString());
 
     const queryString = queryParams.toString();
-    const url = `/api/sales/shipments/${queryString ? `?${queryString}` : ''}`;
+    const url = `${API_BASE_URL}/api/sales/shipments/${queryString ? `?${queryString}` : ''}`;
     
     return await apiService.get<ShipmentListResponse>(url);
   },
@@ -161,28 +162,28 @@ export const shipmentApi = {
    * Get a single shipment by ID
    */
   async getShipment(shipmentId: number): Promise<Shipment> {
-    return await apiService.get<Shipment>(`/api/sales/shipments/${shipmentId}`);
+    return await apiService.get<Shipment>(`${API_BASE_URL}/api/sales/shipments/${shipmentId}`);
   },
 
   /**
    * Create a new shipment
    */
   async createShipment(shipment: ShipmentCreate): Promise<Shipment> {
-    return await apiService.post<Shipment>('/api/sales/shipments/', shipment);
+    return await apiService.post<Shipment>(`${API_BASE_URL}/api/sales/shipments/`, shipment);
   },
 
   /**
    * Update an existing shipment
    */
   async updateShipment(shipmentId: number, shipment: Partial<ShipmentCreate>): Promise<Shipment> {
-    return await apiService.put<Shipment>(`/api/sales/shipments/${shipmentId}`, shipment);
+    return await apiService.put<Shipment>(`${API_BASE_URL}/api/sales/shipments/${shipmentId}`, shipment);
   },
 
   /**
    * Delete a shipment
    */
   async deleteShipment(shipmentId: number): Promise<{ message: string }> {
-    return await apiService.delete<{ message: string }>(`/api/sales/shipments/${shipmentId}`);
+    return await apiService.delete<{ message: string }>(`${API_BASE_URL}/api/sales/shipments/${shipmentId}`);
   },
 
   /**
@@ -190,7 +191,7 @@ export const shipmentApi = {
    */
   async downloadShipment(shipmentId: number): Promise<void> {
     const token = localStorage.getItem('access_token');
-    const url = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'}/api/sales/shipments/${shipmentId}/download`;
+    const url = `${API_BASE_URL}/api/sales/shipments/${shipmentId}/download`;
     
     if (!token) {
       throw new Error('Not authenticated');

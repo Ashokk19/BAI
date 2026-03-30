@@ -4,7 +4,7 @@ PostgreSQL Authentication Router - Direct database operations without SQLAlchemy
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.security import HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import timedelta, datetime
 from typing import Optional
 
@@ -12,7 +12,7 @@ from services.postgres_user_service import PostgresUserService
 from services.postgres_accounts_service import PostgresAccountsService
 from utils.postgres_auth_deps import create_access_token, get_current_user
 from config.settings import settings
-from database.postgres_db import postgres_db
+from database.postgres_db import postgres_db, set_request_user_context
 from schemas.auth_schema import UserUpdate
 
 router = APIRouter()
@@ -29,7 +29,7 @@ class UserCreate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     full_name: Optional[str] = None
-    password: Optional[str] = "defaultpassword123"  # Temporary default
+    password: str = Field(..., min_length=8)
     account_id: str
     
     def model_post_init(self, __context) -> None:
@@ -79,6 +79,15 @@ async def login(user_credentials: UserLogin):
 
     # Use the canonical account_id from the database (preserves original casing)
     canonical_account_id = acc.get("account_id", user_credentials.account_id)
+
+    set_request_user_context(
+        {
+            "account_id": canonical_account_id,
+            "username": user_credentials.identifier,
+            "is_admin": False,
+            "is_master": bool(acc.get("is_master", False)),
+        }
+    )
 
     user = PostgresUserService.authenticate_user(
         identifier=user_credentials.identifier,
@@ -142,7 +151,25 @@ async def register(user_data: UserCreate):
     """Register a new user."""
     
     # Debug: Print received data
-    print(f"🔍 Registration data received: {user_data.model_dump()}")
+    if settings.DEBUG:
+        print("🔍 Registration request received")
+
+    acc = PostgresAccountsService.get_by_account_id(user_data.account_id)
+    if not acc or not acc.get("is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or inactive account_id"
+        )
+
+    canonical_account_id = acc.get("account_id", user_data.account_id)
+    set_request_user_context(
+        {
+            "account_id": canonical_account_id,
+            "username": user_data.username,
+            "is_admin": False,
+            "is_master": bool(acc.get("is_master", False)),
+        }
+    )
     
     # Check if user already exists
     existing_user = PostgresUserService.get_user_by_username(user_data.username)
@@ -161,7 +188,14 @@ async def register(user_data: UserCreate):
     
     # Create user
     user_dict = user_data.model_dump()
+    user_dict["account_id"] = canonical_account_id
     created_user = PostgresUserService.create_user(user_dict)
+
+    if created_user and created_user.get("error") == "duplicate":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username or email already registered"
+        )
     
     if not created_user:
         raise HTTPException(
