@@ -447,7 +447,7 @@ export default function Home() {
                 </li>
                 <li className="flex items-center gap-2">
                   <Phone className="w-4 h-4" />
-                  +91 98765 43210
+                  +91 9944438680
                 </li>
               </ul>
             </div>
