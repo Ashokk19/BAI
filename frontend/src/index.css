@@ -414,6 +414,85 @@ html.dark .via-white {
   --tw-gradient-stops: var(--tw-gradient-from), rgb(31 41 55) var(--tw-gradient-via-position), var(--tw-gradient-to);
 }
 
+/* Route-scoped gradient page fixes for dark mode */
+html.dark .dark-gradient-page .from-violet-50 {
+  --tw-gradient-from: rgb(3 7 18) var(--tw-gradient-from-position);
+}
+
+html.dark .dark-gradient-page .via-purple-25 {
+  --tw-gradient-stops: var(--tw-gradient-from), rgb(15 23 42) var(--tw-gradient-via-position), var(--tw-gradient-to);
+}
+
+html.dark .dark-gradient-page .to-indigo-50 {
+  --tw-gradient-to: rgb(15 23 42) var(--tw-gradient-to-position);
+}
+
+html.dark .dark-gradient-page .from-violet-100 {
+  --tw-gradient-from: rgba(109, 40, 217, 0.18) var(--tw-gradient-from-position);
+}
+
+html.dark .dark-gradient-page .to-purple-100 {
+  --tw-gradient-to: rgba(126, 34, 206, 0.12) var(--tw-gradient-to-position);
+}
+
+html.dark .dark-gradient-page .from-purple-50 {
+  --tw-gradient-from: rgba(88, 28, 135, 0.16) var(--tw-gradient-from-position);
+}
+
+html.dark .dark-gradient-page .to-indigo-100 {
+  --tw-gradient-to: rgba(67, 56, 202, 0.12) var(--tw-gradient-to-position);
+}
+
+html.dark .dark-gradient-page .from-indigo-50 {
+  --tw-gradient-from: rgba(49, 46, 129, 0.16) var(--tw-gradient-from-position);
+}
+
+html.dark .dark-gradient-page .to-violet-100 {
+  --tw-gradient-to: rgba(109, 40, 217, 0.14) var(--tw-gradient-to-position);
+}
+
+html.dark .dark-gradient-page .mix-blend-multiply.filter.blur-3xl {
+  mix-blend-mode: screen;
+  opacity: 0.22;
+}
+
+html.dark .dark-gradient-page .bg-white\/95 {
+  background-color: rgba(17, 24, 39, 0.95) !important;
+}
+
+html.dark .dark-gradient-page .bg-white\/60,
+html.dark .dark-shipment-surface-page .bg-white\/60 {
+  background-color: rgba(31, 41, 55, 0.62) !important;
+}
+
+html.dark .dark-gradient-page .bg-white\/70,
+html.dark .dark-shipment-surface-page .bg-white\/70 {
+  background-color: rgba(31, 41, 55, 0.72) !important;
+}
+
+html.dark .dark-gradient-page .border-white\/30,
+html.dark .dark-shipment-surface-page .border-white\/30 {
+  border-color: rgba(75, 85, 99, 0.5) !important;
+}
+
+html.dark .dark-gradient-page .bg-\[linear-gradient\(rgba\(0\2c 0\2c 0\2c 0\.02\)_1px\2c transparent_1px\)\2c linear-gradient\(90deg\2c rgba\(0\2c 0\2c 0\2c 0\.02\)_1px\2c transparent_1px\)\] {
+  opacity: 0.18;
+}
+
+html.dark .dark-shipment-surface-page .bg-gray-50\/30 {
+  background-color: rgba(31, 41, 55, 0.72) !important;
+}
+
+html.dark .dark-shipment-surface-page .hover\:bg-white:hover,
+html.dark .dark-shipment-surface-page .focus\:bg-white:focus {
+  background-color: rgba(55, 65, 81, 0.72) !important;
+}
+
+html.dark .dark-shipment-surface-page .hover\:border-violet-300:hover,
+html.dark .dark-shipment-surface-page .focus\:border-violet-300:focus {
+  border-color: rgba(139, 92, 246, 0.55) !important;
+}
+
 /* Grid/pattern backgrounds - make them subtler in dark mode */
 html.dark .bg-\[linear-gradient\(rgba\(0\2c 0\2c 0\2c 0\.02\)_1px\2c transparent_1px\)\2c linear-gradient\(90deg\2c rgba\(0\2c 0\2c 0\2c 0\.02\)_1px\2c transparent_1px\)\] {
   opacity: 0.3;

@@ -1,6 +1,6 @@
 """PostgreSQL-backed invoice router without SQLAlchemy."""
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Dict, List, Optional
 
@@ -9,6 +9,7 @@ from psycopg2.extras import RealDictCursor
 
 from database.postgres_db import postgres_db
 from schemas.invoice_schema import InvoiceCreate, InvoiceItemResponse, InvoiceResponse
+from services.notification_service import NotificationService
 from utils.postgres_auth_deps import get_current_user
 
 router = APIRouter()
@@ -84,49 +85,80 @@ def _ensure_invoices_freight_charges_column() -> None:
         print(f"Error ensuring invoices.freight_charges/freight_gst_rate columns: {e}")
 
 
+def _extract_number_suffix(document_number: Optional[str]) -> int:
+    try:
+        return int(str(document_number).rsplit("-", 1)[-1])
+    except (AttributeError, TypeError, ValueError):
+        return 0
+
+
+def _normalize_fiscal_year_start(fiscal_year_start: Optional[str]) -> str:
+    value = (fiscal_year_start or "").strip()
+    if not value:
+        return "04-01"
+
+    try:
+        month_str, day_str = value.split("-", 1)
+        month = int(month_str)
+        day = int(day_str)
+        date(2000, month, day)
+        return f"{month:02d}-{day:02d}"
+    except (TypeError, ValueError):
+        return "04-01"
+
+
+def _get_fiscal_year_label(fiscal_year_start: Optional[str]) -> str:
+    current_date = datetime.now().date()
+    normalized_start = _normalize_fiscal_year_start(fiscal_year_start)
+    month_str, day_str = normalized_start.split("-", 1)
+    current_year_start = date(current_date.year, int(month_str), int(day_str))
+    fiscal_year_start_year = current_date.year if current_date >= current_year_start else current_date.year - 1
+    fiscal_year_end_short = str((fiscal_year_start_year + 1) % 100).zfill(2)
+    return f"{fiscal_year_start_year}-{fiscal_year_end_short}"
+
+
 def _generate_invoice_number(cursor: RealDictCursor, account_id: str) -> str:
     """Generate the next invoice number for an account.
     
     Uses last_invoice_number from organizations table as the authoritative source.
     Falls back to scanning invoices table if org setting is 0 or missing.
     """
-    # First check the organization's last_invoice_number
     cursor.execute(
-        "SELECT last_invoice_number FROM organizations WHERE account_id = %s LIMIT 1",
+        "SELECT last_invoice_number, fiscal_year_start FROM organizations WHERE account_id = %s LIMIT 1",
         (account_id,),
     )
     org_row = cursor.fetchone()
     org_last = (org_row.get("last_invoice_number") or 0) if org_row else 0
+    fiscal_year_label = _get_fiscal_year_label(org_row.get("fiscal_year_start") if org_row else None)
+    prefix = f"INV-{account_id}-{fiscal_year_label}-"
 
-    # Also check the last invoice in the invoices table
     cursor.execute(
         """
         SELECT invoice_number
         FROM invoices
         WHERE account_id = %s
-        ORDER BY id DESC
-        LIMIT 1
+          AND invoice_number LIKE %s
         """,
-        (account_id,),
+        (account_id, f"{prefix}%"),
     )
-    row = cursor.fetchone()
-    db_suffix = 0
-    if row and row.get("invoice_number"):
-        try:
-            db_suffix = int(str(row["invoice_number"]).split("-")[-1])
-        except ValueError:
-            db_suffix = 0
+    existing_rows = cursor.fetchall()
+    existing_suffixes = {
+        _extract_number_suffix(row.get("invoice_number"))
+        for row in existing_rows
+        if row and row.get("invoice_number")
+    }
+    db_suffix = max(existing_suffixes, default=0)
 
-    # Use whichever is higher
-    next_suffix = max(org_last, db_suffix) + 1
+    next_suffix = (org_last + 1) if org_row else (db_suffix + 1)
+    if next_suffix in existing_suffixes:
+        next_suffix = db_suffix + 1
 
-    # Update the organization's last_invoice_number
     cursor.execute(
         "UPDATE organizations SET last_invoice_number = %s, updated_at = NOW() WHERE account_id = %s",
         (next_suffix, account_id),
     )
 
-    return f"INV-{account_id}-{datetime.now().year}-{next_suffix:03d}"
+    return f"{prefix}{next_suffix:03d}"
 
 
 def _calculate_gst_amounts(
@@ -746,6 +778,26 @@ async def create_invoice(
         )
 
     invoice_response["items"] = items_response
+
+    tracked_item_ids = sorted(
+        {
+            row["db_item"]["id"]
+            for row in item_rows
+            if row.get("db_item") and row["db_item"].get("id") is not None
+        }
+    )
+
+    try:
+        await NotificationService.invoice_created(account_id, invoice_id)
+    except Exception as exc:
+        print(f"Failed to process invoice notifications for invoice {invoice_id}: {exc}")
+
+    for tracked_item_id in tracked_item_ids:
+        try:
+            await NotificationService.item_changed(account_id, tracked_item_id)
+        except Exception as exc:
+            print(f"Failed to process item notifications for item {tracked_item_id}: {exc}")
+
     return InvoiceResponse(**invoice_response)
 
 
@@ -761,7 +813,6 @@ async def update_invoice(
     with postgres_db.get_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         try:
-            # Check if invoice exists
             cursor.execute(
                 "SELECT id FROM invoices WHERE id = %s AND account_id = %s",
                 (invoice_id, account_id)
@@ -924,8 +975,85 @@ async def delete_invoice(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Invoice not found"
                 )
+
+            dependency_checks = [
+                ("shipments", "shipment"),
+                ("delivery_notes", "delivery note"),
+                ("sales_returns", "sales return"),
+                ("customer_credits", "customer credit"),
+                ("credit_notes", "credit note"),
+                ("credit_transactions", "credit transaction"),
+                ("payments", "payment"),
+            ]
+            blockers: List[str] = []
+            for table_name, label in dependency_checks:
+                cursor.execute(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = %s
+                      AND column_name IN ('account_id', 'invoice_id')
+                    """,
+                    (table_name,),
+                )
+                available_columns = {row["column_name"] for row in cursor.fetchall()}
+                if "invoice_id" not in available_columns:
+                    continue
+
+                if "account_id" in available_columns:
+                    cursor.execute(
+                        f"SELECT COUNT(*) AS total FROM {table_name} WHERE account_id = %s AND invoice_id = %s",
+                        (account_id, invoice_id),
+                    )
+                else:
+                    cursor.execute(
+                        f"SELECT COUNT(*) AS total FROM {table_name} WHERE invoice_id = %s",
+                        (invoice_id,),
+                    )
+                total = cursor.fetchone()["total"]
+                if total:
+                    suffix = "s" if total != 1 else ""
+                    blockers.append(f"{total} {label}{suffix}")
+
+            if blockers:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Cannot delete invoice because it is linked to {', '.join(blockers)}. Remove those records first.",
+                )
+
+            cursor.execute(
+                """
+                SELECT item_id, quantity
+                FROM invoice_items
+                WHERE invoice_id = %s AND account_id = %s AND item_id IS NOT NULL
+                """,
+                (invoice_id, account_id),
+            )
+            inventory_items = cursor.fetchall()
+
+            for item in inventory_items:
+                cursor.execute(
+                    """
+                    UPDATE items
+                    SET current_stock = COALESCE(current_stock, 0) + %s,
+                        stock_quantity = COALESCE(stock_quantity, 0) + %s,
+                        updated_at = NOW()
+                    WHERE id = %s AND account_id = %s
+                    """,
+                    (
+                        Decimal(str(item["quantity"] or 0)),
+                        Decimal(str(item["quantity"] or 0)),
+                        item["item_id"],
+                        account_id,
+                    ),
+                )
+
+            cursor.execute(
+                "DELETE FROM invoice_items WHERE invoice_id = %s AND account_id = %s",
+                (invoice_id, account_id)
+            )
             
-            # Delete invoice (items will cascade delete)
             cursor.execute(
                 "DELETE FROM invoices WHERE id = %s AND account_id = %s",
                 (invoice_id, account_id)

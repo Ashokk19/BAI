@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useLayoutEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './utils/AuthContext';
+import { applyTheme, getStoredTheme, isLightOnlyThemePath, migrateLegacyTheme } from './utils/theme';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Home from './pages/Home';
@@ -71,30 +72,30 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return user ? <Navigate to="/dashboard" replace /> : <>{children}</>;
 };
 
-function App() {
-  // Apply saved theme on initial app load
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('app_theme') || 'light';
-    const root = document.documentElement;
-    if (savedTheme === 'dark') {
-      root.classList.add('dark');
-    } else if (savedTheme === 'auto') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      if (prefersDark) {
-        root.classList.add('dark');
-      } else {
-        root.classList.remove('dark');
-      }
-    } else {
-      root.classList.remove('dark');
-    }
-  }, []);
+const ThemeController: React.FC = () => {
+  const { user } = useAuth();
+  const location = useLocation();
 
+  useLayoutEffect(() => {
+    migrateLegacyTheme();
+
+    const forceLight = isLightOnlyThemePath(location.pathname);
+    const accountId = user?.account_id || localStorage.getItem('last_account_id');
+    const theme = forceLight ? 'light' : getStoredTheme(accountId);
+
+    applyTheme(theme, { forceLight });
+  }, [location.pathname, user?.account_id]);
+
+  return null;
+};
+
+function App() {
   return (
     <AuthProvider>
       <Router>
         <div className="App">
           <Toaster position="top-center" />
+          <ThemeController />
           <Routes>
             {/* Public routes */}
             <Route

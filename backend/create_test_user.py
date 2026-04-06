@@ -1,5 +1,12 @@
 import requests
 import json
+import os
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+
+API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8001').rstrip('/')
+TEST_USER_PASSWORD = os.getenv('TEST_USER_PASSWORD')
 
 def create_test_user():
     """
@@ -7,13 +14,16 @@ def create_test_user():
     """
     
     # API endpoint
-    url = "http://localhost:8001/api/auth/register"
+    url = f"{API_BASE_URL}/api/auth/register"
+
+    if not TEST_USER_PASSWORD:
+        raise RuntimeError('TEST_USER_PASSWORD is required to create a test user')
     
     # User data
     user_data = {
         "email": "testuser@example.com",
         "username": "testuser123",
-        "password": "password123",
+        "password": TEST_USER_PASSWORD,
         "first_name": "Test",
         "last_name": "User",
         "phone": "+1234567890",
@@ -31,8 +41,7 @@ def create_test_user():
             result = response.json()
             print("✅ User created successfully!")
             print(f"📧 Email: {user_data['email']}")
-            print(f"🔑 Password: {user_data['password']}")
-            print(f"👤 Username: {user_data['username']}")
+            print(f" Username: {user_data['username']}")
             print(f"📋 User ID: {result.get('id', 'N/A')}")
             return True
         else:
@@ -42,7 +51,7 @@ def create_test_user():
             
     except requests.exceptions.ConnectionError:
         print("❌ Error: Could not connect to the backend server.")
-        print("   Make sure the backend server is running on http://localhost:8001")
+        print(f"   Make sure the backend server is running on {API_BASE_URL}")
         return False
     except Exception as e:
         print(f"❌ Error: {str(e)}")

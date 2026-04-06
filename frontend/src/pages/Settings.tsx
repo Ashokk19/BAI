@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Shield, Bell, Palette, Globe, Key, Save, Eye, EyeOff } from 'lucide-react';
 import { useNotifications, NotificationContainer } from '../components/ui/notification';
+import notificationPreferencesService from '../services/notificationPreferencesService';
 import { userService } from '../services/userService';
 import { useAuth } from '../utils/AuthContext';
+import { applyTheme, getStoredTheme, setStoredTheme } from '../utils/theme';
 
 interface UserSettings {
   notifications: {
@@ -12,6 +14,7 @@ interface UserSettings {
     invoiceAlerts: boolean;
     stockAlerts: boolean;
     paymentReminders: boolean;
+    deliveryAlerts: boolean;
   };
   security: {
     twoFactorAuth: boolean;
@@ -33,14 +36,16 @@ interface UserSettings {
 }
 
 const Settings: React.FC = () => {
+  const { user } = useAuth();
   const [settings, setSettings] = useState<UserSettings>({
     notifications: {
-      email: true,
-      push: true,
+      email: false,
+      push: false,
       sms: false,
-      invoiceAlerts: true,
-      stockAlerts: true,
-      paymentReminders: true,
+      invoiceAlerts: false,
+      stockAlerts: false,
+      paymentReminders: false,
+      deliveryAlerts: false,
     },
     security: {
       twoFactorAuth: false,
@@ -62,6 +67,7 @@ const Settings: React.FC = () => {
   });
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isPreferencesLoading, setIsPreferencesLoading] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -71,22 +77,45 @@ const Settings: React.FC = () => {
 
   // Load persisted settings on mount
   useEffect(() => {
-    const savedTimeout = localStorage.getItem('session_timeout');
-    const savedTheme = localStorage.getItem('app_theme') || 'light';
-    setSettings(prev => ({
-      ...prev,
-      security: {
-        ...prev.security,
-        sessionTimeout: savedTimeout ? parseInt(savedTimeout, 10) : 30,
-      },
-      appearance: {
-        ...prev.appearance,
-        theme: savedTheme as 'light' | 'dark' | 'auto',
-      },
-    }));
-    // Apply theme on mount
-    applyTheme(savedTheme as 'light' | 'dark' | 'auto');
-  }, []);
+    const initializeSettings = async () => {
+      const savedTimeout = localStorage.getItem('session_timeout');
+      const accountId = user?.account_id || localStorage.getItem('last_account_id');
+      const savedTheme = getStoredTheme(accountId);
+
+      setSettings(prev => ({
+        ...prev,
+        security: {
+          ...prev.security,
+          sessionTimeout: savedTimeout ? parseInt(savedTimeout, 10) : 30,
+        },
+        appearance: {
+          ...prev.appearance,
+          theme: savedTheme as 'light' | 'dark' | 'auto',
+        },
+      }));
+
+      applyTheme(savedTheme);
+
+      try {
+        const notificationPrefs = await notificationPreferencesService.getPreferences();
+        setSettings(prev => ({
+          ...prev,
+          notifications: notificationPrefs,
+        }));
+      } catch (error) {
+        console.error('Error loading notification preferences:', error);
+        notifications.error(
+          'Preferences Load Failed',
+          'Unable to load notification preferences. You can still update them and save again.',
+          { autoClose: true, autoCloseDelay: 4000 }
+        );
+      } finally {
+        setIsPreferencesLoading(false);
+      }
+    };
+
+    void initializeSettings();
+  }, [user?.account_id]);
 
   const handleNotificationChange = (key: keyof UserSettings['notifications']) => {
     setSettings(prev => ({
@@ -112,22 +141,6 @@ const Settings: React.FC = () => {
     }
   };
 
-  const applyTheme = (theme: 'light' | 'dark' | 'auto') => {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else if (theme === 'auto') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      if (prefersDark) {
-        root.classList.add('dark');
-      } else {
-        root.classList.remove('dark');
-      }
-    } else {
-      root.classList.remove('dark');
-    }
-  };
-
   const handleAppearanceChange = (key: keyof UserSettings['appearance'], value: string) => {
     setSettings(prev => ({
       ...prev,
@@ -138,8 +151,10 @@ const Settings: React.FC = () => {
     }));
     // Persist and apply theme immediately
     if (key === 'theme') {
-      localStorage.setItem('app_theme', value);
-      applyTheme(value as 'light' | 'dark' | 'auto');
+      const accountId = user?.account_id || localStorage.getItem('last_account_id');
+      const theme = value as UserSettings['appearance']['theme'];
+      setStoredTheme(theme, accountId);
+      applyTheme(theme);
     }
   };
 
@@ -156,15 +171,16 @@ const Settings: React.FC = () => {
   const handleSaveSettings = async () => {
     setIsLoading(true);
     try {
-      // In a real app, this would be an API call
-      // await userApi.updateSettings(settings);
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const savedPreferences = await notificationPreferencesService.updatePreferences(settings.notifications);
+
+      setSettings(prev => ({
+        ...prev,
+        notifications: savedPreferences,
+      }));
       
       notifications.success(
         'Settings Saved',
-        'Your settings have been updated successfully.',
+        'Your notification preferences have been updated successfully.',
         { autoClose: true, autoCloseDelay: 3000 }
       );
     } catch (error) {
@@ -215,7 +231,6 @@ const Settings: React.FC = () => {
         { autoClose: true, autoCloseDelay: 3000 }
       );
     } catch (error: any) {
-      console.error('Error changing password:', error);
       const detail = error?.response?.data?.detail || error?.message || 'Unable to change password.';
       notifications.error(
         'Password Change Failed',
@@ -278,13 +293,14 @@ const Settings: React.FC = () => {
                 <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
                   <div>
                     <p className="font-medium text-gray-900">Email Notifications</p>
-                    <p className="text-sm text-gray-500">Receive notifications via email</p>
+                    <p className="text-sm text-gray-500">Enable email as the delivery channel for alerts</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
                       checked={settings.notifications.email}
                       onChange={() => handleNotificationChange('email')}
+                      disabled={isPreferencesLoading}
                       className="sr-only peer"
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
@@ -301,6 +317,7 @@ const Settings: React.FC = () => {
                       type="checkbox"
                       checked={settings.notifications.push}
                       onChange={() => handleNotificationChange('push')}
+                      disabled={isPreferencesLoading}
                       className="sr-only peer"
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
@@ -310,13 +327,14 @@ const Settings: React.FC = () => {
                 <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
                   <div>
                     <p className="font-medium text-gray-900">Invoice Alerts</p>
-                    <p className="text-sm text-gray-500">Get notified about invoice updates</p>
+                    <p className="text-sm text-gray-500">Send an internal email when a new invoice is generated</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
                       checked={settings.notifications.invoiceAlerts}
                       onChange={() => handleNotificationChange('invoiceAlerts')}
+                      disabled={isPreferencesLoading}
                       className="sr-only peer"
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
@@ -326,13 +344,48 @@ const Settings: React.FC = () => {
                 <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
                   <div>
                     <p className="font-medium text-gray-900">Stock Alerts</p>
-                    <p className="text-sm text-gray-500">Get notified about low stock</p>
+                    <p className="text-sm text-gray-500">Get alerts for low stock and products expiring within 7 days</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
                       checked={settings.notifications.stockAlerts}
                       onChange={() => handleNotificationChange('stockAlerts')}
+                      disabled={isPreferencesLoading}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                  <div>
+                    <p className="font-medium text-gray-900">Payment Reminder Alerts</p>
+                    <p className="text-sm text-gray-500">Get alerts for invoices unpaid for more than 2 weeks</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.notifications.paymentReminders}
+                      onChange={() => handleNotificationChange('paymentReminders')}
+                      disabled={isPreferencesLoading}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                  <div>
+                    <p className="font-medium text-gray-900">Delivery Status Alerts</p>
+                    <p className="text-sm text-gray-500">Get alerts when a shipment passes its delivery date without completion</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.notifications.deliveryAlerts}
+                      onChange={() => handleNotificationChange('deliveryAlerts')}
+                      disabled={isPreferencesLoading}
                       className="sr-only peer"
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
@@ -577,11 +630,11 @@ const Settings: React.FC = () => {
           <div className="flex justify-end">
             <button
               onClick={handleSaveSettings}
-              disabled={isLoading}
+              disabled={isLoading || isPreferencesLoading}
               className="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50 transition-colors"
             >
               <Save className="w-5 h-5" />
-              {isLoading ? 'Saving...' : 'Save All Settings'}
+              {isPreferencesLoading ? 'Loading...' : isLoading ? 'Saving...' : 'Save Notification Settings'}
             </button>
           </div>
         </div>

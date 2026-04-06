@@ -1,8 +1,6 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosResponse } from 'axios';
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
+import { API_BASE_URL } from '../config/api.config';
 
 class ApiService {
   private api: AxiosInstance;
@@ -24,19 +22,10 @@ class ApiService {
         
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
-          // Debug logging (remove in production)
-          console.log('🔐 ApiService: Token found and added to request', {
-            url: config.url,
-            tokenLength: token.length,
-            tokenStart: token.substring(0, 20) + '...'
-          });
-        } else {
-          console.warn('⚠️ ApiService: No token found in storage');
         }
         return config;
       },
       (error) => {
-        console.error('❌ ApiService: Request interceptor error', error);
         return Promise.reject(error);
       }
     );
@@ -44,28 +33,10 @@ class ApiService {
     // Response interceptor to handle auth errors
     this.api.interceptors.response.use(
       (response) => {
-        // Debug logging for successful responses
-        console.log('✅ ApiService: Successful response', {
-          url: response.config.url,
-          status: response.status
-        });
-        
-        // Log invoice response data
-        if (response.config.url?.includes('/api/sales/invoices/?')) {
-          console.log('📊 RAW Invoice API Response Data:', response.data);
-        }
-        
         return response;
       },
       (error) => {
-        console.error('❌ ApiService: Response error', {
-          url: error.config?.url,
-          status: error.response?.status,
-          message: error.response?.data?.detail || error.message
-        });
-        
         if (error.response?.status === 401 || error.response?.status === 403) {
-          console.warn('🚫 ApiService: Authentication failed, clearing tokens');
           localStorage.removeItem('access_token');
           sessionStorage.removeItem('access_token');
           localStorage.removeItem('user');

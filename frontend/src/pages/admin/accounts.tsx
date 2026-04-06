@@ -220,14 +220,17 @@ export default function AccountsAdmin() {
   }
 
   const handleCreateUser = async () => {
-    if (!newUser.username.trim() || !newUser.account_id) return
+    if (!newUser.username.trim() || !newUser.account_id || !newUser.password.trim()) {
+      setError("Username, account, and password are required")
+      return
+    }
     setIsLoading(true)
     setError(null)
     try {
       await apiService.post("/api/user-management/users", {
         username: newUser.username.trim(),
         email: newUser.email.trim() || `${newUser.username.trim()}@example.com`,
-        password: newUser.password || "defaultpassword123",
+        password: newUser.password,
         full_name: newUser.full_name.trim() || newUser.username.trim(),
         account_id: newUser.account_id,
         is_admin: true,

@@ -76,6 +76,8 @@ export default function PaymentLog() {
   const [editingPayment, setEditingPayment] = useState<ApiPayment | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [paymentToDelete, setPaymentToDelete] = useState<ApiPayment | null>(null)
+  const [deleteGroupDialogOpen, setDeleteGroupDialogOpen] = useState(false)
+  const [groupToDelete, setGroupToDelete] = useState<{ invoiceId: string; payments: ApiPayment[] } | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   
   const [formData, setFormData] = useState({
@@ -499,7 +501,32 @@ export default function PaymentLog() {
       notifications.success('Payment Deleted!', 'The payment has been successfully deleted.')
     } catch (error) {
       console.error('Error deleting payment:', error)
-      notifications.error('Delete Failed', 'Failed to delete payment. Please try again.')
+      const message = error instanceof Error ? error.message : 'Failed to delete payment. Please try again.'
+      notifications.error('Delete Failed', message)
+    }
+  }
+
+  const handleDeleteGroupClick = (invoiceId: string, payments: ApiPayment[]) => {
+    setGroupToDelete({ invoiceId, payments })
+    setDeleteGroupDialogOpen(true)
+  }
+
+  const handleDeleteGroup = async () => {
+    if (!groupToDelete) return
+
+    try {
+      for (const payment of groupToDelete.payments) {
+        await paymentApi.deletePayment(payment.id)
+      }
+      await loadPayments()
+      setDeleteGroupDialogOpen(false)
+      setGroupToDelete(null)
+      notifications.success('Payments Deleted!', `All ${groupToDelete.payments.length} payment(s) deleted successfully.`)
+    } catch (error) {
+      console.error('Error deleting payments:', error)
+      const message = error instanceof Error ? error.message : 'Failed to delete payments. Please try again.'
+      notifications.error('Delete Failed', message)
+      await loadPayments()
     }
   }
 
@@ -954,6 +981,29 @@ export default function PaymentLog() {
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Delete Group Confirmation Dialog */}
+        <Dialog open={deleteGroupDialogOpen} onOpenChange={setDeleteGroupDialogOpen}>
+          <DialogContent className="max-w-md bg-white/95 backdrop-blur-xl border-white/20">
+            <DialogHeader>
+              <DialogTitle>Delete All Payments</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-gray-600">
+                Are you sure you want to delete <strong>all {groupToDelete?.payments.length} payment(s)</strong> for this invoice?
+                This will reverse the paid amount on the invoice. This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setDeleteGroupDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleDeleteGroup} variant="destructive">
+                  Delete All Payments
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Summary Cards */}
@@ -1187,21 +1237,34 @@ export default function PaymentLog() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (!isNoInvoiceGroup) {
-                              handleInvoiceChange(invoiceIdNum)
-                              setIsDialogOpen(true)
-                            }
-                          }}
-                          disabled={isNoInvoiceGroup || paymentStatus === "Completed" || hasCreditPayment}
-                          title={hasCreditPayment ? "Invoice paid with credit - no additional payment needed" : ""}
-                        >
-                          Add Payment
-                        </Button>
+                        <div className="flex gap-1">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (!isNoInvoiceGroup) {
+                                handleInvoiceChange(invoiceIdNum)
+                                setIsDialogOpen(true)
+                              }
+                            }}
+                            disabled={isNoInvoiceGroup || paymentStatus === "Completed" || hasCreditPayment}
+                            title={hasCreditPayment ? "Invoice paid with credit - no additional payment needed" : ""}
+                          >
+                            Add Payment
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteGroupClick(invoiceId, groupPayments)
+                            }}
+                            title="Delete all payments for this invoice"
+                          >
+                            <Trash2 className="w-3 h-3 text-red-500" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                     

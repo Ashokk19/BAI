@@ -8,7 +8,30 @@ from psycopg2.extras import RealDictCursor
 from psycopg2.pool import SimpleConnectionPool
 from typing import Optional, Dict, List, Any
 from contextlib import contextmanager
+from contextvars import ContextVar
 from config.settings import settings
+
+_request_user_context: ContextVar[Optional[Dict[str, Any]]] = ContextVar("request_user_context", default=None)
+
+
+def set_request_user_context(user: Optional[Dict[str, Any]]) -> None:
+    if user is None:
+        _request_user_context.set(None)
+        return
+
+    _request_user_context.set(
+        {
+            "id": user.get("id"),
+            "account_id": user.get("account_id"),
+            "username": user.get("username"),
+            "is_admin": bool(user.get("is_admin", False)),
+            "is_master": bool(user.get("is_master", False)),
+        }
+    )
+
+
+def get_request_user_context() -> Optional[Dict[str, Any]]:
+    return _request_user_context.get()
 
 class PostgresDB:
     """Direct PostgreSQL database operations using existing BAI settings."""
@@ -26,19 +49,59 @@ class PostgresDB:
             if not dsn:
                 self.connection_pool = SimpleConnectionPool(
                     1, 20,
-                    host=settings.DATABASE_HOST,
+                    host=settings.resolved_database_host,
                     database=settings.DATABASE_NAME,
                     user=settings.DATABASE_USER,
                     password=settings.DATABASE_PASSWORD,
                     port=settings.DATABASE_PORT,
-                    sslmode=getattr(settings, "DATABASE_SSLMODE", "require"),
+                    sslmode=settings.resolved_database_sslmode,
                 )
             else:
                 self.connection_pool = SimpleConnectionPool(1, 20, dsn=dsn)
-            print(f"✅ PostgreSQL connection pool initialized for {settings.DATABASE_NAME} at {settings.DATABASE_HOST}")
+            print(f"✅ PostgreSQL connection pool initialized for {settings.DATABASE_NAME} at {settings.resolved_database_host}")
         except Exception as e:
             print(f"❌ Failed to initialize PostgreSQL connection pool: {e}")
             raise
+
+    def _apply_request_context(self, conn) -> None:
+        user_context = get_request_user_context() or {}
+        account_id = str(user_context.get("account_id") or "")
+        user_id = str(user_context.get("id") or "")
+        username = str(user_context.get("username") or "")
+        is_admin = "true" if user_context.get("is_admin") else "false"
+        is_master = "true" if user_context.get("is_master") else "false"
+
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    set_config('app.current_account_id', %s, true),
+                    set_config('app.current_user_id', %s, true),
+                    set_config('app.current_is_admin', %s, true),
+                    set_config('app.current_is_master', %s, true),
+                    set_config('app.current_username', %s, true),
+                    set_config('request.jwt.claim.account_id', %s, true),
+                    set_config('request.jwt.claim.user_id', %s, true),
+                    set_config('request.jwt.claim.is_admin', %s, true),
+                    set_config('request.jwt.claim.is_master', %s, true),
+                    set_config('request.jwt.claim.role', %s, true)
+                """,
+                (
+                    account_id,
+                    user_id,
+                    is_admin,
+                    is_master,
+                    username,
+                    account_id,
+                    user_id,
+                    is_admin,
+                    is_master,
+                    "authenticated" if account_id else "anon",
+                ),
+            )
+        finally:
+            cursor.close()
     
     @contextmanager
     def get_connection(self):
@@ -46,9 +109,14 @@ class PostgresDB:
         conn = None
         try:
             conn = self.connection_pool.getconn()
+            self._apply_request_context(conn)
             yield conn
         finally:
             if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
                 self.connection_pool.putconn(conn)
     
     @contextmanager

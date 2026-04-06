@@ -443,11 +443,11 @@ export default function Home() {
               <ul className="space-y-2 text-sm">
                 <li className="flex items-center gap-2">
                   <Mail className="w-4 h-4" />
-                  support@example.com
+                  support@av2solutions.in
                 </li>
                 <li className="flex items-center gap-2">
                   <Phone className="w-4 h-4" />
-                  +91 98765 43210
+                  +91 9944438680
                 </li>
               </ul>
             </div>

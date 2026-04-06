@@ -4,15 +4,16 @@ PostgreSQL Authentication Router - Direct database operations without SQLAlchemy
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.security import HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import timedelta, datetime
 from typing import Optional
 
 from services.postgres_user_service import PostgresUserService
 from services.postgres_accounts_service import PostgresAccountsService
+from services.notification_service import NotificationService
 from utils.postgres_auth_deps import create_access_token, get_current_user
 from config.settings import settings
-from database.postgres_db import postgres_db
+from database.postgres_db import postgres_db, set_request_user_context
 from schemas.auth_schema import UserUpdate
 
 router = APIRouter()
@@ -29,7 +30,7 @@ class UserCreate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     full_name: Optional[str] = None
-    password: Optional[str] = "defaultpassword123"  # Temporary default
+    password: str = Field(..., min_length=8)
     account_id: str
     
     def model_post_init(self, __context) -> None:
@@ -79,6 +80,15 @@ async def login(user_credentials: UserLogin):
 
     # Use the canonical account_id from the database (preserves original casing)
     canonical_account_id = acc.get("account_id", user_credentials.account_id)
+
+    set_request_user_context(
+        {
+            "account_id": canonical_account_id,
+            "username": user_credentials.identifier,
+            "is_admin": False,
+            "is_master": bool(acc.get("is_master", False)),
+        }
+    )
 
     user = PostgresUserService.authenticate_user(
         identifier=user_credentials.identifier,
@@ -142,7 +152,25 @@ async def register(user_data: UserCreate):
     """Register a new user."""
     
     # Debug: Print received data
-    print(f"🔍 Registration data received: {user_data.model_dump()}")
+    if settings.DEBUG:
+        print("🔍 Registration request received")
+
+    acc = PostgresAccountsService.get_by_account_id(user_data.account_id)
+    if not acc or not acc.get("is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or inactive account_id"
+        )
+
+    canonical_account_id = acc.get("account_id", user_data.account_id)
+    set_request_user_context(
+        {
+            "account_id": canonical_account_id,
+            "username": user_data.username,
+            "is_admin": False,
+            "is_master": bool(acc.get("is_master", False)),
+        }
+    )
     
     # Check if user already exists
     existing_user = PostgresUserService.get_user_by_username(user_data.username)
@@ -161,7 +189,14 @@ async def register(user_data: UserCreate):
     
     # Create user
     user_dict = user_data.model_dump()
+    user_dict["account_id"] = canonical_account_id
     created_user = PostgresUserService.create_user(user_dict)
+
+    if created_user and created_user.get("error") == "duplicate":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username or email already registered"
+        )
     
     if not created_user:
         raise HTTPException(
@@ -316,6 +351,16 @@ class PasswordChange(BaseModel):
     current_password: str
     new_password: str
 
+
+class NotificationPreferencesPayload(BaseModel):
+    email: bool = False
+    push: bool = False
+    sms: bool = False
+    invoiceAlerts: bool = False
+    stockAlerts: bool = False
+    paymentReminders: bool = False
+    deliveryAlerts: bool = False
+
 @router.post("/change-password")
 async def change_password(
     password_data: PasswordChange,
@@ -347,6 +392,35 @@ async def change_password(
     )
 
     return {"message": "Password changed successfully"}
+
+
+@router.get("/notification-preferences", response_model=NotificationPreferencesPayload)
+async def get_notification_preferences(current_user: dict = Depends(get_current_user)):
+    return NotificationService.get_preferences(current_user["id"], current_user["account_id"])
+
+
+@router.put("/notification-preferences", response_model=NotificationPreferencesPayload)
+async def update_notification_preferences(
+    payload: NotificationPreferencesPayload,
+    current_user: dict = Depends(get_current_user)
+):
+    return NotificationService.update_preferences(
+        current_user["id"],
+        current_user["account_id"],
+        payload.model_dump(),
+    )
+
+
+@router.post("/notification-preferences/scan")
+async def run_notification_scan(current_user: dict = Depends(get_current_user)):
+    if not current_user.get("is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions"
+        )
+
+    await NotificationService.scan_account_alerts(current_user["account_id"])
+    return {"message": "Notification scan completed"}
 
 @router.get("/users/{user_id}", response_model=UserResponse)
 async def get_user(

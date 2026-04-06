@@ -12,16 +12,16 @@ LOCAL_CONFIG = {
     "DATABASE_PORT": "5432",
     "DATABASE_NAME": "bai_db", 
     "DATABASE_USER": "postgres",
-    "DATABASE_PASSWORD": "password",
+    "DATABASE_PASSWORD": "replace_me",
     "DEBUG": "true",
-    "SECRET_KEY": "your-secret-key-here-change-in-production"
+    "SECRET_KEY": "replace_with_a_long_random_secret"
 }
 
 # Production Configuration Example
 PRODUCTION_CONFIG = {
     "DATABASE_URL": "postgresql://user:password@cloud-host:5432/database",
     "DEBUG": "false",
-    "SECRET_KEY": "your-production-secret-key",
+    "SECRET_KEY": "replace_with_a_long_random_secret",
     "ALLOWED_ORIGINS": "https://yourdomain.com,https://www.yourdomain.com"
 }
 

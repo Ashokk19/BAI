@@ -9,6 +9,8 @@ from typing import Optional
 from datetime import datetime, timedelta
 
 from config.settings import settings
+from database.postgres_db import set_request_user_context
+from services.postgres_accounts_service import PostgresAccountsService
 from services.postgres_user_service import PostgresUserService
 
 security = HTTPBearer()
@@ -42,6 +44,7 @@ def verify_token(token: str) -> Optional[dict]:
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Get current authenticated user using PostgreSQL."""
+    set_request_user_context(None)
     
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -69,6 +72,13 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inactive user"
         )
+
+    user = {
+        **user,
+        "is_master": PostgresAccountsService.is_master_account(user.get("account_id")),
+    }
+
+    set_request_user_context(user)
     
     return user
 

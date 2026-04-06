@@ -9,6 +9,7 @@ from typing import List, Optional, Union
 from datetime import datetime
 from decimal import Decimal
 
+from services.notification_service import NotificationService
 from services.postgres_inventory_service import PostgresInventoryService
 from utils.postgres_auth_deps import get_current_user
 
@@ -271,6 +272,11 @@ async def create_item(
         quantity_before=0,
         quantity_after=initial_stock
     )
+
+    try:
+        await NotificationService.item_changed(current_user["account_id"], created_item["id"])
+    except Exception as exc:
+        print(f"Failed to process item notifications for item {created_item['id']}: {exc}")
     
     return created_item
 
@@ -376,6 +382,11 @@ async def update_item(
         quantity_before=old_stock,
         quantity_after=new_stock
     )
+
+    try:
+        await NotificationService.item_changed(current_user["account_id"], updated_item["id"])
+    except Exception as exc:
+        print(f"Failed to process item notifications for item {updated_item['id']}: {exc}")
     
     return updated_item
 

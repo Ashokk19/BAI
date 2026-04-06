@@ -301,7 +301,7 @@ const Profile: React.FC = () => {
                   {!isEditing ? (
                     <button
                       onClick={handleEdit}
-                      className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-lg"
+                      className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-lg hover:shadow-xl"
                     >
                       <Edit className="w-4 h-4" />
                       Edit Profile
@@ -310,7 +310,7 @@ const Profile: React.FC = () => {
                     <div className="flex gap-2">
                       <button
                         onClick={handleCancel}
-                        className="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400 flex items-center gap-2 transition-colors"
+                        className="bg-white/80 backdrop-blur-lg border border-white/90 text-gray-700 px-4 py-2 rounded-lg hover:bg-white/90 flex items-center gap-2 transition-all duration-200 shadow-lg"
                       >
                         <X className="w-4 h-4" />
                         Cancel
@@ -318,7 +318,7 @@ const Profile: React.FC = () => {
                       <button
                         onClick={handleSave}
                         disabled={isLoading}
-                        className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50 shadow-lg"
+                        className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50 shadow-lg hover:shadow-xl"
                       >
                         <Save className="w-4 h-4" />
                         {isLoading ? 'Saving...' : 'Save Changes'}

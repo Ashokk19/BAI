@@ -9,15 +9,14 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 import httpx
-import base64
 from datetime import datetime
+
+from config.settings import settings
+from utils.postgres_auth_deps import get_current_user
 
 router = APIRouter()
 
-# Resend API Configuration (server-side only)
-RESEND_API_KEY = "re_SgydP8LS_Kd8XFgmo85RhWGnpgYicNg9x"
-RESEND_API_URL = "https://api.resend.com/emails"
-DEFAULT_SENDER = "support@av2solutions.in"
+EMAIL_SENDER = "support@av2solutions.in"
 
 
 class EmailAttachment(BaseModel):
@@ -62,22 +61,22 @@ class SendPaymentReminderRequest(BaseModel):
     user_name: Optional[str] = None
 
 
-@router.post("/send")
-async def send_email(request: SendEmailRequest):
-    """
-    Send an email via Resend API.
-    This is a generic email sending endpoint.
-    """
+async def _deliver_email(request: SendEmailRequest):
+    resend_api_key = settings.RESEND_API_KEY
+    if not resend_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Email service is not configured"
+        )
+
     try:
-        # Prepare the payload for Resend API
         payload = {
-            "from": DEFAULT_SENDER,
+            "from": EMAIL_SENDER,
             "to": [request.to],
             "subject": request.subject,
             "html": request.html,
         }
 
-        # Add attachments if present
         if request.attachments:
             payload["attachments"] = [
                 {
@@ -88,52 +87,53 @@ async def send_email(request: SendEmailRequest):
                 for att in request.attachments
             ]
 
-        # Send request to Resend API
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                RESEND_API_URL,
+                settings.RESEND_API_URL,
                 headers={
-                    "Authorization": f"Bearer {RESEND_API_KEY}",
+                    "Authorization": f"Bearer {resend_api_key}",
                     "Content-Type": "application/json"
                 },
                 json=payload,
                 timeout=30.0
             )
 
-        if response.status_code == 200 or response.status_code == 201:
+        if response.status_code in (200, 201):
             return {"success": True, "message": "Email sent successfully", "data": response.json()}
-        else:
-            error_detail = response.json() if response.text else {"error": "Unknown error"}
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"Failed to send email: {error_detail}"
-            )
 
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to send email"
+        )
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail="Email service timed out. Please try again."
         )
-    except httpx.RequestError as e:
+    except httpx.RequestError:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to connect to email service: {str(e)}"
+            detail="Failed to connect to email service"
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while sending email: {str(e)}"
-        )
+
+
+@router.post("/send")
+async def send_email(request: SendEmailRequest, current_user: dict = Depends(get_current_user)):
+    """
+    Send an email via Resend API.
+    This is a generic email sending endpoint.
+    """
+    return await _deliver_email(request)
 
 
 @router.post("/send-invoice")
-async def send_invoice_email(request: SendInvoiceEmailRequest):
+async def send_invoice_email(request: SendInvoiceEmailRequest, current_user: dict = Depends(get_current_user)):
     """
     Send a tax invoice email with PDF attachment.
     """
     # Use organization data or defaults
     company_name = request.company_name or "Your Company"
-    company_email = request.company_email or DEFAULT_SENDER
+    company_email = request.company_email or EMAIL_SENDER
     user_name = request.user_name or "Team"
     current_year = datetime.now().year
     
@@ -203,17 +203,17 @@ async def send_invoice_email(request: SendInvoiceEmailRequest):
         ]
     )
 
-    return await send_email(email_request)
+    return await _deliver_email(email_request)
 
 
 @router.post("/send-payment-reminder")
-async def send_payment_reminder(request: SendPaymentReminderRequest):
+async def send_payment_reminder(request: SendPaymentReminderRequest, current_user: dict = Depends(get_current_user)):
     """
     Send a payment reminder email for an unpaid invoice.
     """
     # Use organization data or defaults
     company_name = request.company_name or "Your Company"
-    company_email = request.company_email or DEFAULT_SENDER
+    company_email = request.company_email or EMAIL_SENDER
     user_name = request.user_name or "Team"
     current_year = datetime.now().year
     
@@ -283,4 +283,4 @@ async def send_payment_reminder(request: SendPaymentReminderRequest):
         attachments=None
     )
 
-    return await send_email(email_request)
+    return await _deliver_email(email_request)
