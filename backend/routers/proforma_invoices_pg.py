@@ -5,7 +5,7 @@ Mirrors the sales_invoices_pg.py structure for proforma invoices
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List, Optional
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field
 from psycopg2.extras import RealDictCursor
@@ -129,6 +129,37 @@ class ProformaInvoiceList(BaseModel):
 # HELPER FUNCTIONS
 # =====================================================
 
+def _extract_number_suffix(document_number: Optional[str]) -> int:
+    try:
+        return int(str(document_number).rsplit("-", 1)[-1])
+    except (AttributeError, TypeError, ValueError):
+        return 0
+
+
+def _normalize_fiscal_year_start(fiscal_year_start: Optional[str]) -> str:
+    value = (fiscal_year_start or "").strip()
+    if not value:
+        return "04-01"
+
+    try:
+        month_str, day_str = value.split("-", 1)
+        month = int(month_str)
+        day = int(day_str)
+        date(2000, month, day)
+        return f"{month:02d}-{day:02d}"
+    except (TypeError, ValueError):
+        return "04-01"
+
+
+def _get_fiscal_year_label(fiscal_year_start: Optional[str]) -> str:
+    current_date = datetime.now().date()
+    normalized_start = _normalize_fiscal_year_start(fiscal_year_start)
+    month_str, day_str = normalized_start.split("-", 1)
+    current_year_start = date(current_date.year, int(month_str), int(day_str))
+    fiscal_year_start_year = current_date.year if current_date >= current_year_start else current_date.year - 1
+    fiscal_year_end_short = str((fiscal_year_start_year + 1) % 100).zfill(2)
+    return f"{fiscal_year_start_year}-{fiscal_year_end_short}"
+
 def _ensure_proforma_tables_exist():
     """Ensure proforma invoice tables exist in the database."""
     with postgres_db.get_connection() as conn:
@@ -231,41 +262,42 @@ def _generate_proforma_number(account_id: str, cursor) -> str:
     Uses last_proforma_number from organizations table as the authoritative source.
     Falls back to scanning proforma_invoices table if org setting is 0 or missing.
     """
-    # First check the organization's last_proforma_number
     cursor.execute(
-        "SELECT last_proforma_number FROM organizations WHERE account_id = %s LIMIT 1",
+        "SELECT last_proforma_number, fiscal_year_start FROM organizations WHERE account_id = %s LIMIT 1",
         (account_id,),
     )
     org_row = cursor.fetchone()
     org_last = (org_row.get("last_proforma_number") or 0) if org_row else 0
+    fiscal_year_label = _get_fiscal_year_label(org_row.get("fiscal_year_start") if org_row else None)
+    prefix = f"PI-{fiscal_year_label}-"
 
-    # Also check the last proforma in the proforma_invoices table
     cursor.execute(
         """
-        SELECT proforma_number FROM proforma_invoices 
-        WHERE account_id = %s 
-        ORDER BY id DESC LIMIT 1
+        SELECT proforma_number
+        FROM proforma_invoices
+        WHERE account_id = %s
+          AND proforma_number LIKE %s
         """,
-        (account_id,),
+        (account_id, f"{prefix}%"),
     )
-    result = cursor.fetchone()
-    db_last = 0
-    if result:
-        try:
-            db_last = int(result["proforma_number"].replace("PI-", ""))
-        except (ValueError, AttributeError):
-            db_last = 0
+    existing_rows = cursor.fetchall()
+    existing_suffixes = {
+        _extract_number_suffix(row.get("proforma_number"))
+        for row in existing_rows
+        if row and row.get("proforma_number")
+    }
+    db_last = max(existing_suffixes, default=0)
 
-    # Use whichever is higher
-    next_num = max(org_last, db_last) + 1
+    next_num = (org_last + 1) if org_row else (db_last + 1)
+    if next_num in existing_suffixes:
+        next_num = db_last + 1
 
-    # Update the organization's last_proforma_number
     cursor.execute(
         "UPDATE organizations SET last_proforma_number = %s, updated_at = NOW() WHERE account_id = %s",
         (next_num, account_id),
     )
 
-    return f"PI-{next_num:06d}"
+    return f"{prefix}{next_num:06d}"
 
 
 def _calculate_gst_amounts(item_data: dict, customer_state: str, company_state: str) -> dict:

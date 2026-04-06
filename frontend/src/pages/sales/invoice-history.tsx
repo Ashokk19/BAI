@@ -1380,7 +1380,8 @@ ${(organization?.terms_and_conditions || '').trim()}
       await loadInvoices()
     } catch (error) {
       console.error('Error deleting invoice:', error)
-      toast.error('Failed to delete invoice. Please try again.')
+      const message = error instanceof Error ? error.message : 'Failed to delete invoice. Please try again.'
+      toast.error(message)
     }
   }
 

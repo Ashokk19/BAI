@@ -248,3 +248,116 @@ async def get_payments(
             "per_page": limit,
             "total_pages": 0
         }
+
+
+@router.delete("/{payment_id}")
+async def delete_payment(
+    payment_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete a payment and reverse its effect on the associated invoice."""
+    account_id = current_user["account_id"]
+
+    with postgres_db.get_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            # 1. Fetch the payment to delete
+            cursor.execute(
+                "SELECT * FROM payments WHERE id = %s AND account_id = %s",
+                (payment_id, account_id),
+            )
+            payment = cursor.fetchone()
+            if not payment:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Payment not found",
+                )
+
+            payment_amount = Decimal(str(payment["amount"] or 0))
+            invoice_id = payment.get("invoice_id")
+            payment_method = (payment.get("payment_method") or "").lower()
+            customer_id = payment.get("customer_id")
+
+            # 2. If this was a credit payment, reverse the credit usage
+            if payment_method == "credit" and customer_id:
+                cursor.execute(
+                    """
+                    SELECT id, amount
+                    FROM credit_transactions
+                    WHERE account_id = %s AND invoice_id = %s
+                      AND reference_number = %s AND transaction_type = 'usage'
+                    ORDER BY id
+                    """,
+                    (account_id, invoice_id, payment["payment_number"]),
+                )
+                credit_txns = cursor.fetchall()
+                for txn in credit_txns:
+                    cursor.execute(
+                        """
+                        UPDATE customer_credits
+                        SET used_amount = GREATEST(used_amount - %s, 0),
+                            remaining_amount = remaining_amount + %s,
+                            status = 'active'
+                        WHERE id = %s AND account_id = %s
+                        """,
+                        (txn["amount"], txn["amount"], txn["id"], account_id),
+                    )
+                if credit_txns:
+                    cursor.execute(
+                        """
+                        DELETE FROM credit_transactions
+                        WHERE account_id = %s AND invoice_id = %s
+                          AND reference_number = %s AND transaction_type = 'usage'
+                        """,
+                        (account_id, invoice_id, payment["payment_number"]),
+                    )
+
+            # 3. Delete the payment
+            cursor.execute(
+                "DELETE FROM payments WHERE id = %s AND account_id = %s",
+                (payment_id, account_id),
+            )
+
+            # 4. If invoice was associated, recalculate paid_amount and status
+            if invoice_id:
+                cursor.execute(
+                    "SELECT COALESCE(SUM(amount), 0) AS total_paid FROM payments WHERE invoice_id = %s AND account_id = %s",
+                    (invoice_id, account_id),
+                )
+                new_paid = Decimal(str(cursor.fetchone()["total_paid"]))
+
+                cursor.execute(
+                    "SELECT total_amount, status FROM invoices WHERE id = %s AND account_id = %s",
+                    (invoice_id, account_id),
+                )
+                invoice = cursor.fetchone()
+                if invoice:
+                    total = Decimal(str(invoice["total_amount"] or 0))
+                    if new_paid >= total and total > 0:
+                        new_status = "paid"
+                    elif new_paid > 0:
+                        new_status = "partially_paid"
+                    else:
+                        new_status = "draft"
+
+                    cursor.execute(
+                        """
+                        UPDATE invoices
+                        SET paid_amount = %s, status = %s, updated_at = NOW()
+                        WHERE id = %s AND account_id = %s
+                        """,
+                        (new_paid, new_status, invoice_id, account_id),
+                    )
+
+            conn.commit()
+            return {"message": "Payment deleted successfully"}
+
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception as e:
+            conn.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to delete payment: {e}",
+            )

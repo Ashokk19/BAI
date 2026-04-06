@@ -28,6 +28,8 @@ const darkGradientRoutes = new Set([
   '/purchases/purchase-orders',
   '/purchases/purchase-received',
   '/purchases/vendor-credits',
+  '/profile',
+  '/organization-settings',
 ]);
 
 const shipmentSurfaceRoutes = new Set([

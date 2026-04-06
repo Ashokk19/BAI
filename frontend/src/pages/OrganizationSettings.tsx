@@ -352,6 +352,38 @@ const OrganizationSettings: React.FC = () => {
     '1000+'
   ];
 
+  const normalizeFiscalYearStart = (value?: string) => {
+    if (!value) {
+      return { month: 4, day: 1 };
+    }
+
+    const [monthPart, dayPart] = value.split('-');
+    const month = Number(monthPart);
+    const day = Number(dayPart);
+
+    if (!Number.isInteger(month) || !Number.isInteger(day) || month < 1 || month > 12 || day < 1 || day > 31) {
+      return { month: 4, day: 1 };
+    }
+
+    return { month, day };
+  };
+
+  const getFiscalYearLabel = (value?: string) => {
+    const today = new Date();
+    const { month, day } = normalizeFiscalYearStart(value);
+    const currentYearStart = new Date(today.getFullYear(), month - 1, day);
+    const fiscalYearStartYear = today >= currentYearStart ? today.getFullYear() : today.getFullYear() - 1;
+    const fiscalYearEndShort = String((fiscalYearStartYear + 1) % 100).padStart(2, '0');
+    return `${fiscalYearStartYear}-${fiscalYearEndShort}`;
+  };
+
+  const activeFiscalYearStart = tempProfile.fiscal_year_start ?? profile?.fiscal_year_start;
+  const fiscalYearLabel = getFiscalYearLabel(activeFiscalYearStart);
+  const nextInvoiceSuffix = String((tempProfile.last_invoice_number ?? profile?.last_invoice_number ?? 0) + 1).padStart(3, '0');
+  const nextProformaSuffix = String((tempProfile.last_proforma_number ?? profile?.last_proforma_number ?? 0) + 1).padStart(6, '0');
+  const invoicePreview = `INV-${authUser?.account_id || 'ACCOUNT'}-${fiscalYearLabel}-${nextInvoiceSuffix}`;
+  const proformaPreview = `PI-${fiscalYearLabel}-${nextProformaSuffix}`;
+
   const handleEdit = () => {
     if (profile) {
       setTempProfile({
@@ -1627,7 +1659,7 @@ const OrganizationSettings: React.FC = () => {
                       ) : (
                         <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile?.last_invoice_number || 0}</p>
                       )}
-                      <p className="text-xs text-gray-500 mt-1">Next invoice will be: INV-...-{String((tempProfile.last_invoice_number ?? profile?.last_invoice_number ?? 0) + 1).padStart(3, '0')}</p>
+                      <p className="text-xs text-gray-500 mt-1">Next invoice will be: {invoicePreview}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Last Used Proforma Invoice Number</label>
@@ -1643,7 +1675,7 @@ const OrganizationSettings: React.FC = () => {
                       ) : (
                         <p className="p-3 bg-gray-50 rounded-lg text-gray-900">{profile?.last_proforma_number || 0}</p>
                       )}
-                      <p className="text-xs text-gray-500 mt-1">Next proforma will be: PI-{String((tempProfile.last_proforma_number ?? profile?.last_proforma_number ?? 0) + 1).padStart(6, '0')}</p>
+                      <p className="text-xs text-gray-500 mt-1">Next proforma will be: {proformaPreview}</p>
                     </div>
                   </div>
                 </div>
