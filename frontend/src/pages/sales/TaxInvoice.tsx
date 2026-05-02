@@ -276,9 +276,9 @@ const TaxInvoice: React.FC = () => {
   const filteredCustomers = customers.filter(customer => {
     const displayName = getCustomerDisplayName(customer);
     const searchLower = customerSearch.toLowerCase();
-    const matches = displayName.toLowerCase().includes(searchLower) ||
-           customer.customer_code.toLowerCase().includes(searchLower) ||
-           customer.email.toLowerCase().includes(searchLower);
+    const matches = displayName?.toLowerCase().includes(searchLower) ||
+           customer.customer_code?.toLowerCase().includes(searchLower) ||
+           customer.email?.toLowerCase().includes(searchLower);
     if (customerSearch && matches) {
       console.log('Customer matches search:', customer.email, 'display:', displayName);
     }

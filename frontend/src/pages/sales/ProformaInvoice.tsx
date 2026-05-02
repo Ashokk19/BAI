@@ -313,9 +313,9 @@ const ProformaInvoice: React.FC = () => {
   const filteredCustomers = customers.filter(customer => {
     const displayName = getCustomerDisplayName(customer);
     const searchLower = customerSearch.toLowerCase();
-    const matches = displayName.toLowerCase().includes(searchLower) ||
-           customer.customer_code.toLowerCase().includes(searchLower) ||
-           customer.email.toLowerCase().includes(searchLower);
+    const matches = displayName?.toLowerCase().includes(searchLower) ||
+           customer.customer_code?.toLowerCase().includes(searchLower) ||
+           customer.email?.toLowerCase().includes(searchLower);
     return matches;
   });
 
